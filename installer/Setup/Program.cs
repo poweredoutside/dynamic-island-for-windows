@@ -1,0 +1,250 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
+using System.IO.Compression;
+using System.Reflection;
+using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Xml.Linq;
+
+namespace DynamicIslandSetup;
+
+internal static class Program
+{
+    [STAThread]
+    private static int Main(string[] args)
+    {
+        if (args.Length == 2 && args[0] == "--verify-payload")
+        {
+            try { VerifyAsync(args[1]).GetAwaiter().GetResult(); return 0; }
+            catch (Exception ex) { File.WriteAllText(args[1], JsonSerializer.Serialize(new { success = false, error = ex.Message })); return 1; }
+        }
+        var app = new Application();
+        var window = new SetupWindow();
+        if (args.Length == 2 && args[0] == "--render-preview")
+        {
+            var root = (FrameworkElement)window.Content;
+            root.Measure(new Size(600, 460)); root.Arrange(new Rect(0, 0, 600, 460)); root.UpdateLayout();
+            var bitmap = new RenderTargetBitmap(600, 460, 96, 96, PixelFormats.Pbgra32); bitmap.Render(root);
+            var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
+            using var file = File.Create(args[1]); png.Save(file);
+            return 0;
+        }
+        using var mutex = new Mutex(true, @"Local\DynamicIslandWin.Setup", out bool first);
+        if (!first) { MessageBox.Show("Установщик OC - Dynamic Island уже открыт.", "OC - Dynamic Island", MessageBoxButton.OK, MessageBoxImage.Information); return 1; }
+        return app.Run(window);
+    }
+
+    private static async Task VerifyAsync(string reportPath)
+    {
+        using var payload = new InstallerPayload();
+        await payload.ExtractAsync();
+        // Executes the same hidden process code as installation, using a planning
+        // mode that cannot deploy packages or change certificate trust.
+        string probe = Path.Combine(payload.DirectoryPath, "Verify.ps1");
+        await File.WriteAllTextAsync(probe, "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class ConsoleProbe { [DllImport(\"kernel32.dll\")] public static extern IntPtr GetConsoleWindow(); }'\n"
+            + "[pscustomobject]@{ Plan = (& (Join-Path $PSScriptRoot 'Install.ps1') -PlanOnly); ConsoleWindowPresent = ([ConsoleProbe]::GetConsoleWindow() -ne [IntPtr]::Zero) } | ConvertTo-Json -Compress", new UTF8Encoding(true));
+        var result = await InstallerPayload.RunPowerShellAsync(probe, [], null);
+        if (result.ExitCode != 0) throw new Exception(result.Output);
+        using var plan = JsonDocument.Parse(result.Output.Trim());
+        bool console = plan.RootElement.GetProperty("ConsoleWindowPresent").GetBoolean();
+        if (console) throw new Exception("PowerShell must not create a console window.");
+        bool existingInstallFlowChecked = false;
+        if (plan.RootElement.GetProperty("Plan").GetProperty("Action").GetString() == "AlreadyInstalled")
+        {
+            // This branch returns before deployment, shutdown or trust changes.
+            var existing = await InstallerPayload.RunPowerShellAsync(Path.Combine(payload.DirectoryPath, "Install.ps1"),
+                ["-NoLaunch", "-CloseRunningApp", "-Gui"], null);
+            if (existing.ExitCode != 0 || !existing.Output.Contains("DI_APPID:DynamicIslandWin_"))
+                throw new Exception("Already-installed flow failed: " + existing.Output);
+            existingInstallFlowChecked = true;
+        }
+        using var executable = File.OpenRead(Environment.ProcessPath!);
+        using var pe = new PEReader(executable);
+        if (pe.PEHeaders.PEHeader?.Subsystem != Subsystem.WindowsGui) throw new Exception("Setup must use the Windows GUI subsystem.");
+        using var package = File.OpenRead(Path.Combine(payload.DirectoryPath, "DynamicIsland.msix"));
+        string hash = Convert.ToHexString(await SHA256.HashDataAsync(package));
+        await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
+        {
+            success = true, standalone = true, subsystem = "WindowsGui", hiddenPowerShell = !console, existingInstallFlowChecked,
+            embeddedPackageSha256 = hash, plan = plan.RootElement.Clone()
+        }, new JsonSerializerOptions { WriteIndented = true }));
+    }
+}
+
+internal sealed class InstallerPayload : IDisposable
+{
+    private static readonly string Root = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "DynamicIslandSetup"));
+    internal string DirectoryPath { get; } = Path.Combine(Root, Guid.NewGuid().ToString("N"));
+
+    internal async Task ExtractAsync()
+    {
+        Directory.CreateDirectory(DirectoryPath);
+        foreach (string name in new[] { "DynamicIsland.msix", "DynamicIsland.cer", "Install.ps1" })
+        {
+            await using var source = Assembly.GetExecutingAssembly().GetManifestResourceStream("Payload." + name)
+                ?? throw new InvalidDataException("В установщике отсутствует файл " + name);
+            await using var destination = File.Create(Path.Combine(DirectoryPath, name));
+            await source.CopyToAsync(destination);
+        }
+    }
+
+    internal static string Version
+        => Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "";
+
+    internal static async Task<(int ExitCode, string Output)> RunPowerShellAsync(
+        string script, string[] arguments, Action<string>? onLine)
+    {
+        var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"))
+        {
+            UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden,
+            RedirectStandardOutput = true, RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
+        };
+        foreach (string value in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script }.Concat(arguments))
+            start.ArgumentList.Add(value);
+        using var process = Process.Start(start) ?? throw new IOException("Не удалось запустить установку.");
+        var output = new StringBuilder();
+        object gate = new();
+        async Task ReadAsync(StreamReader reader)
+        {
+            while (await reader.ReadLineAsync() is { } line)
+            {
+                lock (gate) { if (output.Length < 64000) output.AppendLine(line); }
+                onLine?.Invoke(line);
+            }
+        }
+        await Task.WhenAll(ReadAsync(process.StandardOutput), ReadAsync(process.StandardError), process.WaitForExitAsync());
+        return (process.ExitCode, output.ToString());
+    }
+
+    public void Dispose()
+    {
+        string target = Path.GetFullPath(DirectoryPath);
+        if (!target.StartsWith(Root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return;
+        try { if (Directory.Exists(target)) Directory.Delete(target, recursive: true); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+}
+
+internal sealed class SetupWindow : Window
+{
+    private static readonly SolidColorBrush Ink = new(Color.FromRgb(243, 246, 255));
+    private static readonly SolidColorBrush Muted = new(Color.FromRgb(172, 182, 203));
+    private static readonly SolidColorBrush Mint = new(Color.FromRgb(52, 245, 197));
+    private readonly TextBlock _status = new() { Text = "Готово к установке", Foreground = Ink, FontSize = 14, FontWeight = FontWeights.SemiBold };
+    private readonly TextBlock _details = new() { Text = "Нажмите «Установить», чтобы продолжить.", Foreground = Muted, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 0) };
+    private readonly ProgressBar _progress = new() { Height = 4, Foreground = Mint, Background = new SolidColorBrush(Color.FromRgb(45, 53, 70)), Margin = new Thickness(0, 20, 0, 0) };
+    private readonly CheckBox _launch = new() { Content = "Запустить OC - Dynamic Island после установки", IsChecked = true, Foreground = Ink, FontSize = 12, Margin = new Thickness(0, 18, 0, 0) };
+    private readonly Button _install = new() { Content = "Установить", MinWidth = 150, Padding = new Thickness(20, 11, 20, 11), Background = Mint, Foreground = new SolidColorBrush(Color.FromRgb(7, 36, 33)), FontSize = 13, FontWeight = FontWeights.SemiBold };
+    private readonly Button _close = new() { Content = "Отмена", MinWidth = 96, Padding = new Thickness(18, 11, 18, 11), Margin = new Thickness(0, 0, 10, 0) };
+    private bool _busy, _finished;
+    private string? _errorLog;
+    private string? _appId;
+
+    internal SetupWindow()
+    {
+        Title = "Установка OC - Dynamic Island";
+        Width = 616; Height = 500; ResizeMode = ResizeMode.NoResize;
+        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        FontFamily = new FontFamily("Segoe UI"); Background = new SolidColorBrush(Color.FromRgb(15, 19, 29));
+        var root = new Grid { Margin = new Thickness(32, 26, 32, 26) };
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var heading = new StackPanel();
+        heading.Children.Add(new TextBlock { Text = "●  OC - Dynamic Island", Foreground = Mint, FontSize = 11, FontWeight = FontWeights.SemiBold });
+        heading.Children.Add(new TextBlock { Text = "Всё важное — на островке", Foreground = Ink, FontSize = 25, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 8) });
+        heading.Children.Add(new TextBlock { Text = "Установка версии " + InstallerPayload.Version + "  ·  Windows x64", Foreground = Muted, FontSize = 12 });
+        root.Children.Add(heading);
+        var cardContent = new StackPanel();
+        cardContent.Children.Add(_status); cardContent.Children.Add(_details); cardContent.Children.Add(_progress); cardContent.Children.Add(_launch);
+        var card = new Border { CornerRadius = new CornerRadius(16), Padding = new Thickness(22),
+            Background = new LinearGradientBrush(Color.FromRgb(32, 40, 57), Color.FromRgb(24, 31, 45), 65),
+            BorderBrush = new SolidColorBrush(Color.FromRgb(57, 69, 88)), BorderThickness = new Thickness(1),
+            Child = cardContent, VerticalAlignment = VerticalAlignment.Center };
+        Grid.SetRow(card, 1); root.Children.Add(card);
+        var footer = new StackPanel();
+        footer.Children.Add(new TextBlock { Text = "Настройки сохранятся при обновлении. Для тестового сертификата Windows может запросить подтверждение администратора.",
+            Foreground = Muted, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 18) });
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        buttons.Children.Add(_close); buttons.Children.Add(_install); footer.Children.Add(buttons);
+        Grid.SetRow(footer, 2); root.Children.Add(footer); Content = root;
+        _close.Click += (_, _) => Close(); _install.Click += Install_Click;
+        Closing += (_, e) => { if (_busy) e.Cancel = true; };
+    }
+
+    private async void Install_Click(object sender, RoutedEventArgs e)
+    {
+        if (_finished)
+        {
+            if (_errorLog != null)
+            {
+                Process.Start(new ProcessStartInfo("notepad.exe") { UseShellExecute = true, ArgumentList = { _errorLog } });
+                return;
+            }
+            if (_launch.IsChecked == true && _appId != null)
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = false,
+                        ArgumentList = { @"shell:AppsFolder\" + _appId } });
+                }
+                catch (Exception ex) { _details.Text = "Не удалось открыть приложение: " + ex.Message; return; }
+            }
+            Close(); return;
+        }
+        _busy = true; _close.IsEnabled = false; _install.IsEnabled = false; _launch.IsEnabled = false;
+        _progress.IsIndeterminate = true; _status.Text = "Подготовка файлов…";
+        _details.Text = "Пакет приложения уже включён в ocdynamicisland.exe. Скачивать дополнительные файлы не нужно.";
+        try
+        {
+            using var payload = new InstallerPayload();
+            await Task.Run(payload.ExtractAsync);
+            var result = await InstallerPayload.RunPowerShellAsync(Path.Combine(payload.DirectoryPath, "Install.ps1"),
+                ["-NoLaunch", "-CloseRunningApp", "-Gui"], line =>
+                {
+                    if (line.StartsWith("DI_APPID:") && System.Text.RegularExpressions.Regex.IsMatch(line[9..], @"^DynamicIslandWin_[a-z0-9]{13}!App$"))
+                        _appId = line[9..];
+                    if (!line.StartsWith("DI_STATUS:")) return;
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        _status.Text = line[10..] switch
+                        {
+                            "Checking" => "Проверка установленной версии…",
+                            "Closing" => "Закрытие приложения перед обновлением…",
+                            "Trust" => "Подтвердите запрос Windows…",
+                            "Installing" => "Установка OC - Dynamic Island…",
+                            _ => _status.Text
+                        };
+                        if (line == "DI_STATUS:Trust") _details.Text = "Windows запрашивает разрешение добавить сертификат тестовой сборки. Если отменить запрос, установка не продолжится.";
+                    }));
+                });
+            if (result.ExitCode != 0) throw new InvalidOperationException(result.Output);
+            if (_appId == null) throw new InvalidOperationException("Установка не подтвердила регистрацию приложения.");
+            _status.Text = "OC - Dynamic Island установлен";
+            _details.Text = "Всё готово. Приложение доступно в меню «Пуск». При первом запуске разрешите доступ к уведомлениям.";
+            _progress.IsIndeterminate = false; _progress.Value = 100;
+            _close.Content = "Закрыть"; _install.Content = "Готово"; _finished = true;
+        }
+        catch (Exception ex)
+        {
+            string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DynamicIslandWin", "Setup");
+            try { Directory.CreateDirectory(directory); _errorLog = Path.Combine(directory, "setup.log"); await File.WriteAllTextAsync(_errorLog, ex.ToString()); }
+            catch { _errorLog = null; }
+            _status.Text = "Не удалось установить приложение";
+            _details.Text = "Если запрос Windows был отменён, запустите установку ещё раз. Если приложение не закрылось, выйдите из него через меню в трее. Подробности доступны в журнале.";
+            _install.Content = _errorLog != null ? "Открыть журнал" : "Повторить";
+            _close.Content = "Закрыть"; _progress.IsIndeterminate = false; _progress.Value = 0;
+            _finished = _errorLog != null;
+        }
+        finally { _busy = false; _close.IsEnabled = true; _install.IsEnabled = true; _launch.IsEnabled = true; }
+    }
+}

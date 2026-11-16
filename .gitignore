@@ -1,0 +1,14 @@
+bin/
+obj/
+artifacts/
+.tools/
+*.pfx
+*.cer
+*.p12
+*.p8
+*.key
+.env
+.env.*
+!.env.example
+*.user
+*.suo

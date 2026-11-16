@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>NotificationActivationHost</AssemblyName>
+    <DebugType>none</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="../Services/NotificationActivationBroker.cs" Link="NotificationActivationBroker.cs" />
+    <Compile Include="../Services/NotificationActivationService.cs" Link="NotificationActivationService.cs" />
+    <Compile Include="../Services/AppLog.cs" Link="AppLog.cs" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Services/NotificationActivationService.cs" Link="NotificationActivationService.cs" />
+    <Compile Include="../../Services/AppLog.cs" Link="AppLog.cs" />
+    <Compile Include="../../Services/NotificationActivationBroker.cs" Link="NotificationActivationBroker.cs" />
+  </ItemGroup>
+</Project>

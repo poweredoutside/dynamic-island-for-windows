@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>ocdynamicisland</AssemblyName>
+    <Product>OC - Dynamic Island Setup</Product>
+    <Description>Установка OC - Dynamic Island</Description>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <SelfContained>true</SelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <DebugType>none</DebugType>
+    <ApplicationManifest>setup.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(InstallerPayloadDirectory)' != ''">
+    <EmbeddedResource Include="$(InstallerPayloadDirectory)\DynamicIsland.msix" LogicalName="Payload.DynamicIsland.msix" />
+    <EmbeddedResource Include="$(InstallerPayloadDirectory)\DynamicIsland.cer" LogicalName="Payload.DynamicIsland.cer" />
+    <EmbeddedResource Include="..\Install.ps1" LogicalName="Payload.Install.ps1" />
+  </ItemGroup>
+  <Target Name="RequirePayload" BeforeTargets="BeforeBuild" Condition="'$(InstallerPayloadDirectory)' == ''">
+    <Error Text="Build with installer/Build-Setup.ps1 so the signed package is embedded." />
+  </Target>
+</Project>

@@ -7,6 +7,15 @@ WPF / .NET 8, Windows 10 2004+ и Windows 11, x64.
 **[Скачать ocdynamicisland.exe](https://github.com/poweredoutside/dynamic-island-for-windows/releases/latest/download/ocdynamicisland.exe)** ·
 [Все релизы](https://github.com/poweredoutside/dynamic-island-for-windows/releases)
 
+## Исправление обновлений (сборка Windows 1.1.8)
+
+Исправлены пути к скачанному установщику в MSIX, проверка подписи и запуск
+установщика вне контекста пакета. Кнопка «Установить обновление» запускает
+обновление с закрытием старой версии и последующим открытием приложения.
+Уже установленная версия больше не предлагается повторно.
+Для перехода со сборок 1.1.6–1.1.7 скачайте новый установщик по ссылке выше
+и запустите его один раз вручную: прежний механизм обновления содержит этот сбой.
+
 ## Обновление 0.0.2 (сборка Windows 1.1.7)
 
 Исправлен игровой HUD: при включении запускается счётчик FPS, активная игра
@@ -269,10 +278,10 @@ dotnet run --project tests/IntegrationChecks -- --toggle-dnd
 powershell -NoProfile -ExecutionPolicy Bypass -File installer/Test-InstallerUpdates.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Installer.ps1
 # Пересобрать только графический ocdynamicisland.exe из существующего подписанного пакета:
-powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Setup.ps1 -ReleaseDirectory artifacts/DynamicIsland-1.1.7.0-x64
+powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Setup.ps1 -ReleaseDirectory artifacts/DynamicIsland-1.1.8.0-x64
 powershell -NoProfile -ExecutionPolicy Bypass -File installer/Test-Setup.ps1
 # Следующая версия с тем же локальным сертификатом:
-powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Installer.ps1 -Version 1.1.7.0
+powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Installer.ps1 -Version 1.1.8.0
 ```
 
 Инструменты MakeAppx и SignTool берутся из официального пакета Microsoft SDK

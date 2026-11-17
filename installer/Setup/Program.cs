@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -26,7 +27,7 @@ internal static class Program
             catch (Exception ex) { File.WriteAllText(args[1], JsonSerializer.Serialize(new { success = false, error = ex.Message })); return 1; }
         }
         var app = new Application();
-        var window = new SetupWindow();
+        var window = new SetupWindow(args.Length == 1 && args[0] == "--update");
         if (args.Length == 2 && args[0] == "--render-preview")
         {
             var root = (FrameworkElement)window.Content;
@@ -76,9 +77,17 @@ internal static class Program
         await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
         {
             success = true, standalone = true, subsystem = "WindowsGui", hiddenPowerShell = !console, existingInstallFlowChecked,
+            packagedProcess = HasPackageIdentity(),
             embeddedPackageSha256 = hash, embeddedDriverSha256 = driverHash, plan = plan.RootElement.Clone()
         }, new JsonSerializerOptions { WriteIndented = true }));
     }
+
+    private static bool HasPackageIdentity()
+    {
+        uint length = 0;
+        return GetCurrentPackageFullName(ref length, IntPtr.Zero) != 15700;
+    }
+    [DllImport("kernel32.dll")] private static extern int GetCurrentPackageFullName(ref uint length, IntPtr name);
 }
 
 internal sealed class InstallerPayload : IDisposable
@@ -110,6 +119,9 @@ internal sealed class InstallerPayload : IDisposable
             RedirectStandardOutput = true, RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8, StandardErrorEncoding = Encoding.UTF8
         };
+        // PowerShell 7's module path can otherwise load incompatible security and
+        // Appx modules into Windows PowerShell 5.1 when setup is started from a shell.
+        start.Environment.Remove("PSModulePath");
         foreach (string value in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script }.Concat(arguments))
             start.ArgumentList.Add(value);
         using var process = Process.Start(start) ?? throw new IOException("Не удалось запустить установку.");
@@ -153,9 +165,12 @@ internal sealed class SetupWindow : Window
     private string? _errorLog;
     private string? _appId;
     private bool _driverUnavailable;
+    private readonly bool _updateMode;
 
-    internal SetupWindow()
+    internal SetupWindow(bool updateMode = false)
     {
+        _updateMode = updateMode;
+        if (updateMode) _temperatureDriver.IsChecked = false;
         Title = "Установка OC - Dynamic Island";
         Width = 616; Height = 500; ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -184,9 +199,13 @@ internal sealed class SetupWindow : Window
         Grid.SetRow(footer, 2); root.Children.Add(footer); Content = root;
         _close.Click += (_, _) => Close(); _install.Click += Install_Click;
         Closing += (_, e) => { if (_busy) e.Cancel = true; };
+        if (updateMode) Loaded += async (_, _) => await InstallAsync();
     }
 
     private async void Install_Click(object sender, RoutedEventArgs e)
+        => await InstallAsync();
+
+    private async Task InstallAsync()
     {
         if (_finished)
         {
@@ -253,5 +272,6 @@ internal sealed class SetupWindow : Window
             _finished = _errorLog != null;
         }
         finally { _busy = false; _close.IsEnabled = true; _install.IsEnabled = true; _launch.IsEnabled = true; _temperatureDriver.IsEnabled = true; }
+        if (_updateMode && _finished && _errorLog == null) await InstallAsync();
     }
 }

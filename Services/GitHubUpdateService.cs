@@ -11,12 +11,18 @@ internal static class GitHubUpdateService
 {
     internal const string DefaultRepository = "poweredoutside/dynamic-island-for-windows";
     internal const string InstallerFileName = "ocdynamicisland.exe";
+    internal static Version CurrentVersion => typeof(GitHubUpdateService).Assembly.GetName().Version ?? new Version(0, 0, 0, 0);
+    internal static bool IsNewerVersion(Version available, Version installed)
+    {
+        static Version Normalize(Version value) => new(value.Major, value.Minor, Math.Max(0, value.Build), Math.Max(0, value.Revision));
+        return Normalize(available) > Normalize(installed);
+    }
     internal sealed record Release(Version Version, string Name, Uri Page, Uri Installer, string InstallerName, Uri Checksums);
     private static readonly HttpClient Http = CreateHttp();
     private static HttpClient CreateHttp()
     {
         var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd("DynamicIslandWin/1.1.5"); return client;
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("DynamicIslandWin/" + CurrentVersion.ToString(3)); return client;
     }
     internal static string Repository(string value)
     {
@@ -73,7 +79,7 @@ internal static class GitHubUpdateService
         using var checksums = await Http.GetAsync(release.Checksums, cancellation); checksums.EnsureSuccessStatusCode();
         if (checksums.Content.Headers.ContentLength > 128_000) throw new FormatException("Некорректные контрольные суммы.");
         string expected = Digest(await checksums.Content.ReadAsStringAsync(cancellation), release.InstallerName);
-        string root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DynamicIslandWin", "Updates");
+        string root = UpdateDirectory();
         RejectLinks(root); Directory.CreateDirectory(root); RejectLinks(root);
         string directory = Path.Combine(root, Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory); RejectLinks(directory);
         string path = Path.Combine(directory, InstallerFileName);
@@ -91,22 +97,57 @@ internal static class GitHubUpdateService
                 {
                     total += count; if (total > maxSize) throw new IOException("Установщик слишком большой.");
                     hash.AppendData(buffer, 0, count); await output.WriteAsync(buffer.AsMemory(0, count), cancellation);
-                    if (response.Content.Headers.ContentLength is > 0) progress.Report(total * 100.0 / response.Content.Headers.ContentLength.Value);
+                    if (response.Content.Headers.ContentLength is > 0) progress.Report(Math.Min(99, total * 100.0 / response.Content.Headers.ContentLength.Value));
                 }
                 if (!CryptographicOperations.FixedTimeEquals(hash.GetHashAndReset(), Convert.FromHexString(expected))) throw new CryptographicException("SHA-256 установщика не совпадает. Обновление отклонено.");
             }
-            // Windows validates the Authenticode signature against the local trust store.
-            // Paths travel as a separate argument, never concatenated into shell code.
-            const string script = "param([string]$InstallerPath) $s=Get-AuthenticodeSignature -LiteralPath $InstallerPath; if($s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -eq 'CN=DynamicIslandWin'){exit 0}; exit 1";
-            string verify = Path.Combine(directory, "verify.ps1"); RejectLinks(directory); await File.WriteAllTextAsync(verify, script, cancellation);
-            var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe")) { UseShellExecute = false, CreateNoWindow = true };
-            foreach (string argument in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", verify, "-InstallerPath", path }) start.ArgumentList.Add(argument);
-            using var process = Process.Start(start) ?? throw new IOException("Не удалось проверить подпись.");
-            await process.WaitForExitAsync(cancellation);
-            if (process.ExitCode != 0) throw new CryptographicException("Windows не подтвердила подпись издателя установщика.");
-            File.Delete(verify); progress.Report(100); return path;
+            path = await VerifyInstallerAsync(path, cancellation);
+            progress.Report(100); return path;
         }
         catch { if (File.Exists(path)) File.Delete(path); throw; }
+    }
+
+    internal static string UpdateDirectory()
+    {
+        string root;
+        try { root = Windows.Storage.ApplicationData.Current.LocalCacheFolder.Path; }
+        catch (Exception ex) when (ex is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        { root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData); }
+        return Path.Combine(root, "DynamicIslandWin", "Updates");
+    }
+
+    internal static async Task<string> VerifyInstallerAsync(string path, CancellationToken cancellation)
+    {
+            // Resolve MSIX redirection before passing paths to a desktop process.
+            path = DesktopProcess.PhysicalFilePath(path);
+            string directory = Path.GetDirectoryName(path)!;
+            RejectLinks(directory);
+            // Windows validates the Authenticode signature against the local trust store.
+            // Paths travel as a separate argument, never concatenated into shell code.
+            const string script = "param([string]$InstallerPath) $ErrorActionPreference='Stop'; Import-Module ($PSHOME + '\\Modules\\Microsoft.PowerShell.Security\\Microsoft.PowerShell.Security.psd1'); $s=Microsoft.PowerShell.Security\\Get-AuthenticodeSignature -LiteralPath $InstallerPath; if($s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -eq 'CN=DynamicIslandWin'){exit 0}; exit (10 + [int]$s.Status)";
+            string verify = Path.Combine(directory, "verify.ps1"); RejectLinks(directory); await File.WriteAllTextAsync(verify, script, cancellation);
+            verify = DesktopProcess.PhysicalFilePath(verify);
+            try
+            {
+                using var process = DesktopProcess.Start(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"),
+                    "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", verify, "-InstallerPath", path);
+                try { await process.WaitForExitAsync(cancellation); }
+                catch (OperationCanceledException) { if (!process.HasExited) process.Kill(); throw; }
+                if (process.ExitCode != 0)
+                {
+                    var error = new CryptographicException("Windows не подтвердила подпись издателя установщика.");
+                    error.Data["VerificationExitCode"] = process.ExitCode;
+                    throw error;
+                }
+                return path;
+            }
+            finally { File.Delete(verify); }
+    }
+
+    internal static async Task StartInstallerAsync(string path, CancellationToken cancellation)
+    {
+        path = await VerifyInstallerAsync(path, cancellation);
+        using var process = DesktopProcess.Start(path, "--update");
     }
     internal static void RejectLinks(string path)
     {

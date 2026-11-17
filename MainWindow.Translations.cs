@@ -9,6 +9,8 @@ public partial class MainWindow
         .Select(line => line.Split('¦')).ToDictionary(parts => parts[0], parts => parts, StringComparer.Ordinal);
 
     private const string TranslationCatalog = """
+Установщик запущен. Приложение закроется на время обновления.¦Installer started. The app will close during the update.¦Інсталятор запущено. Програма закриється на час оновлення.¦Installer gestartet. Die App wird während des Updates geschlossen.¦Instalador iniciado. La aplicación se cerrará durante la actualización.
+Не удалось запустить установщик обновления. Повторите попытку или откройте релиз.¦Could not start the update installer. Retry or open the release.¦Не вдалося запустити інсталятор оновлення. Повторіть спробу або відкрийте реліз.¦Update-Installer konnte nicht gestartet werden. Erneut versuchen oder Version öffnen.¦No se pudo iniciar el instalador. Reintenta o abre la versión.
 Для температуры CPU нужен драйвер PawnIO. Он включён в установщик; Windows запросит права администратора.¦CPU temperature requires the bundled PawnIO driver. Windows will request administrator access.¦Для температури CPU потрібен драйвер PawnIO. Він є в інсталяторі; Windows запитає права адміністратора.¦Die CPU-Temperatur benötigt den enthaltenen PawnIO-Treiber. Windows fragt nach Administratorrechten.¦La temperatura de CPU requiere el controlador PawnIO incluido. Windows solicitará permisos de administrador.
 Установить драйвер температуры CPU¦Install CPU temperature driver¦Встановити драйвер температури CPU¦CPU-Temperaturtreiber installieren¦Instalar controlador de temperatura de CPU
 Не удалось установить драйвер температуры CPU.¦Could not install the CPU temperature driver.¦Не вдалося встановити драйвер температури CPU.¦CPU-Temperaturtreiber konnte nicht installiert werden.¦No se pudo instalar el controlador de temperatura de CPU.
@@ -186,7 +188,7 @@ LRCLIB · строк¦LRCLIB · lines¦LRCLIB · рядків¦LRCLIB · Zeilen�
 Указать город¦Set city¦Указати місто¦Stadt festlegen¦Elegir ciudad
 Переподключить¦Reconnect¦Перепідключити¦Neu verbinden¦Reconectar
 Открыть игровой центр¦Open game center¦Відкрити ігровий центр¦Spielcenter öffnen¦Abrir centro de juegos
-Версия приложения · 1.1.7¦App version · 1.1.7¦Версія програми · 1.1.7¦App-Version · 1.1.7¦Versión de la aplicación · 1.1.7
+Версия приложения · 1.1.8¦App version · 1.1.8¦Версія програми · 1.1.8¦App-Version · 1.1.8¦Versión de la aplicación · 1.1.8
 Обновления через GitHub¦Updates from GitHub¦Оновлення через GitHub¦Updates über GitHub¦Actualizaciones de GitHub
 Обновления OC - Dynamic Island загружаются из GitHub. Дополнительные программы не нужны. Проверяются контрольная сумма и подпись установщика ocdynamicisland.exe.¦Updates download from GitHub without extra software. The ocdynamicisland.exe checksum and signature are verified.¦Оновлення з GitHub без додаткових програм. Перевіряються контрольна сума й підпис ocdynamicisland.exe.¦Updates von GitHub ohne Zusatzsoftware. Prüfsumme und Signatur von ocdynamicisland.exe werden geprüft.¦Actualizaciones desde GitHub sin programas adicionales. Se verifica la suma y firma de ocdynamicisland.exe.
 Репозиторий owner/repository¦Repository owner/repository¦Репозиторій owner/repository¦Repository owner/repository¦Repositorio owner/repository
@@ -242,7 +244,7 @@ Discord · Голос¦Discord · Voice¦Discord · Голос¦Discord · Sprac
 новое сообщение¦new message¦нове повідомлення¦neue Nachricht¦nuevo mensaje
 Звук выключен¦Muted¦Звук вимкнено¦Stumm¦Silenciado
 Громкость¦Volume¦Гучність¦Lautstärke¦Volumen
-OC - Dynamic Island 1.1.7 · нажмите, чтобы увидеть новинки¦OC - Dynamic Island 1.1.7 · click for new features¦OC - Dynamic Island 1.1.7 · натисніть для перегляду новинок¦OC - Dynamic Island 1.1.7 · klicken für Neuigkeiten¦OC - Dynamic Island 1.1.7 · pulsa para ver novedades
+OC - Dynamic Island 1.1.8 · нажмите, чтобы увидеть новинки¦OC - Dynamic Island 1.1.8 · click for new features¦OC - Dynamic Island 1.1.8 · натисніть для перегляду новинок¦OC - Dynamic Island 1.1.8 · klicken für Neuigkeiten¦OC - Dynamic Island 1.1.8 · pulsa para ver novedades
 Измерение игры выключено.¦Game measurement off.¦Вимірювання гри вимкнено.¦Spielmessung deaktiviert.¦Medición del juego desactivada.
 Ожидание разрешения Windows…¦Waiting for Windows permission…¦Очікування дозволу Windows…¦Warte auf Windows-Berechtigung…¦Esperando permiso de Windows…
 ETW подключён. Ожидаю игру DirectX.¦ETW connected. Waiting for a DirectX game.¦ETW підключено. Очікую гру DirectX.¦ETW verbunden. Warte auf DirectX-Spiel.¦ETW conectado. Esperando un juego DirectX.

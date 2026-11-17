@@ -368,7 +368,7 @@ public partial class MainWindow
     private void BuildDiagnosticsPage()
     {
         var header = FeatureCard("Проверка системы", "Отчёт содержит технические статусы, без сообщений, имён собеседников и API-ключей.");
-        header.Children.Add(FeatureButton("Копировать отчёт", () => Clipboard.SetText("OC - Dynamic Island 1.1.7\nWindows " + Environment.OSVersion.Version + "\n" + string.Join("\n", DiagnosticRows().Select(r => L(r.Name) + ": " + L(r.Status))))));
+        header.Children.Add(FeatureButton("Копировать отчёт", () => Clipboard.SetText("OC - Dynamic Island 1.1.8\nWindows " + Environment.OSVersion.Version + "\n" + string.Join("\n", DiagnosticRows().Select(r => L(r.Name) + ": " + L(r.Status))))));
         header.Children.Add(FeatureButton("Повторить проверку", () => OpenFeaturePage("diagnostics")));
         foreach (var row in DiagnosticRows())
         {
@@ -385,7 +385,7 @@ public partial class MainWindow
     private GitHubUpdateService.Release? _availableUpdate;
     private string? _downloadedUpdate;
     private bool _updateBusy;
-    private string _updateStatus = "Версия приложения · 1.1.7";
+    private string _updateStatus = "Версия приложения · " + GitHubUpdateService.CurrentVersion.ToString(3);
     private CancellationTokenSource? _updateCancellation;
     private void BuildUpdatesPage()
     {
@@ -401,7 +401,7 @@ public partial class MainWindow
                 _settings.UpdateRepository = GitHubUpdateService.Repository(repo.Text); SaveSettings();
                 _updateBusy = true; _updateCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30)); status.Text = L("Проверяю опубликованные релизы…");
                 var release = await GitHubUpdateService.CheckAsync(_settings.UpdateRepository, _updateCancellation.Token);
-                _availableUpdate = release.Version > new Version(1, 1, 6) ? release : null; _downloadedUpdate = null;
+                _availableUpdate = GitHubUpdateService.IsNewerVersion(release.Version, GitHubUpdateService.CurrentVersion) ? release : null; _downloadedUpdate = null;
                 _updateStatus = _availableUpdate != null ? "Доступна версия " + release.Version : "Установлена актуальная версия.";
             }
             catch (FormatException ex) { _updateStatus = ex.Message; }
@@ -429,17 +429,24 @@ public partial class MainWindow
                 catch (Exception ex) { AppLog.Error("Download update", ex); _updateStatus = "Не удалось загрузить и проверить обновление."; }
                 finally { _updateBusy = false; _updateCancellation?.Dispose(); _updateCancellation = null; if (_featurePage == "updates") OpenFeaturePage("updates"); }
             }));
-            else card.Children.Add(FeatureButton("Установить обновление", () =>
+            else card.Children.Add(FeatureButton("Установить обновление", async () =>
             {
-                GitHubUpdateService.RejectLinks(System.IO.Path.GetDirectoryName(_downloadedUpdate)!);
-                Process.Start(new ProcessStartInfo(_downloadedUpdate) { UseShellExecute = true });
+                if (_updateBusy) return;
+                _updateBusy = true;
+                try
+                {
+                    await GitHubUpdateService.StartInstallerAsync(_downloadedUpdate, CancellationToken.None);
+                    _updateStatus = "Установщик запущен. Приложение закроется на время обновления.";
+                }
+                catch (Exception ex) { AppLog.Error("Start update installer", ex); _updateStatus = "Не удалось запустить установщик обновления. Повторите попытку или откройте релиз."; }
+                finally { _updateBusy = false; if (_featurePage == "updates") OpenFeaturePage("updates"); }
             }));
         }
         if (_updateBusy) card.Children.Add(FeatureButton("Отменить", () => _updateCancellation?.Cancel()));
     }
     private void BuildNewsPage()
     {
-        var card = FeatureCard("OC - Dynamic Island 1.1.7", "Новые возможности островка");
+        var card = FeatureCard("OC - Dynamic Island 1.1.8", "Новые возможности островка");
         foreach (string line in new[] { "Прогресс программ вынесен в отдельную капсулу справа и отключается в настройках.", "История буфера обмена хранит текст и скриншоты за последние 24 часа.", "Исправлены прозрачность стекла, переводы разделов и слежение персонажей за курсором.", "Своя раскладка, микшер, календарь, таймеры, караоке и Gemini Live доступны в центре." })
             card.Children.Add(FeatureText("• " + L(line), 13));
         card.Children.Add(FeatureButton("Канал проекта", () => OpenWeb(new Uri("https://t.me/outsidecompany"))));
@@ -456,7 +463,7 @@ public partial class MainWindow
         card.Children.Add(FeatureButton(_welcomeStep < 2 ? "Далее" : "Начать", () =>
         {
             if (_welcomeStep < 2) { _welcomeStep++; OpenFeaturePage("welcome"); }
-            else { _settings.OnboardingComplete = true; _settings.LastSeenVersion = "1.1.7"; SaveSettings(); MorphToState(IslandState.Compact); }
+            else { _settings.OnboardingComplete = true; _settings.LastSeenVersion = "1.1.8"; SaveSettings(); MorphToState(IslandState.Compact); }
         }));
     }
 }

@@ -17,6 +17,9 @@ internal static class Program
         void Check(bool result, string reason) { if (!result) throw new InvalidOperationException(reason); checks++; }
         if (args.Contains("--volume-events")) return CheckVolumeEvents();
         if (args.Contains("--verify-release")) return CheckPublishedRelease();
+        Check(!GitHubUpdateService.IsNewerVersion(new Version(1, 1, 7), new Version(1, 1, 7, 0)), "The current release is not offered again when its tag omits a zero revision");
+        Check(GitHubUpdateService.IsNewerVersion(new Version(1, 1, 8), new Version(1, 1, 7, 0)), "A newer Windows build is offered");
+        Check(!GitHubUpdateService.IsNewerVersion(new Version(1, 1, 6), new Version(1, 1, 7, 0)), "An older release cannot be installed as an update");
         Check(CpuTemperatureService.SelectCelsius([("CPU Package", 72f), ("CPU Core #1", 81f)]) == 72, "CPU package temperature takes priority over individual cores");
         Check(CpuTemperatureService.SelectCelsius([("CPU Core #1", 61f), ("CPU Core #2", 78f)]) == 78, "Hottest core used when package sensor is absent");
         Check(CpuTemperatureService.SelectCelsius([("CPU Core #1", 41f), ("Distance to TjMax Core #1", 59f)]) == 41, "Distance from the thermal limit is never treated as the CPU temperature");
@@ -219,7 +222,7 @@ internal static class Program
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
         var release = GitHubUpdateService.CheckAsync(GitHubUpdateService.DefaultRepository, timeout.Token).GetAwaiter().GetResult();
-        if (release.Version != new Version(1, 1, 5) || release.InstallerName != GitHubUpdateService.InstallerFileName)
+        if (release.Version.ToString(3) != GitHubUpdateService.CurrentVersion.ToString(3) || release.InstallerName != GitHubUpdateService.InstallerFileName)
             throw new Exception("Unexpected published release");
         string path = GitHubUpdateService.DownloadAsync(release, new Progress<double>(), timeout.Token).GetAwaiter().GetResult();
         Console.WriteLine($"PASS: public latest release {release.Version}, installer {release.InstallerName}, real download, SHA-256 and publisher signature verified; {new System.IO.FileInfo(path).Length} bytes.");

@@ -115,11 +115,11 @@ public partial class MainWindow
         }, null, 10000, 15000);
         bool existed = File.Exists(_settingsPath);
         if (!existed && !_settings.OnboardingComplete) { _welcomeStep = 0; OpenFeaturePage("welcome"); }
-        else if (_settings.LastSeenVersion != "1.1.7")
+        else if (_settings.LastSeenVersion != "1.1.8")
         {
             _settings.OnboardingComplete = true;
-            FeatureNotice("OC - Dynamic Island 1.1.7 · нажмите, чтобы увидеть новинки", () => OpenFeaturePage("news"));
-            _settings.LastSeenVersion = "1.1.7"; SaveSettings();
+            FeatureNotice("OC - Dynamic Island 1.1.8 · нажмите, чтобы увидеть новинки", () => OpenFeaturePage("news"));
+            _settings.LastSeenVersion = "1.1.8"; SaveSettings();
         }
     }
 

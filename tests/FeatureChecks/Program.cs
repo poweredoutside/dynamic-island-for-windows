@@ -17,6 +17,20 @@ internal static class Program
         void Check(bool result, string reason) { if (!result) throw new InvalidOperationException(reason); checks++; }
         if (args.Contains("--volume-events")) return CheckVolumeEvents();
         if (args.Contains("--verify-release")) return CheckPublishedRelease();
+        if (args.Contains("--probe-screenshot"))
+        {
+            var (frame, bounds) = ScreenCaptureService.CaptureDesktopAsync().GetAwaiter().GetResult();
+            Check(frame.IsFrozen && frame.PixelWidth == bounds.Width && frame.PixelHeight == bounds.Height, "Desktop capture returns a full-resolution transferable bitmap");
+            var monitor = ScreenCaptureService.CaptureMonitorAsync(IntPtr.Zero).GetAwaiter().GetResult();
+            Check(monitor.IsFrozen && monitor.PixelWidth > 0 && monitor.PixelHeight > 0, "Primary monitor capture works without Snipping Tool");
+            Console.WriteLine($"PASS: desktop {frame.PixelWidth}x{frame.PixelHeight}; monitor {monitor.PixelWidth}x{monitor.PixelHeight}; no files or clipboard data written.");
+            return 0;
+        }
+        var captureDesktop = new System.Drawing.Rectangle(-1920, -1080, 5760, 3240);
+        Check(ScreenCaptureService.SelectionBounds(new(-1800, -900), new(200, 500), captureDesktop) == new System.Drawing.Rectangle(-1800, -900, 2000, 1400), "Capture selection supports negative coordinates and spans monitors");
+        Check(ScreenCaptureService.SelectionBounds(new(200, 500), new(-1800, -900), captureDesktop) == new System.Drawing.Rectangle(-1800, -900, 2000, 1400), "Capture selection works when dragged up and left");
+        Check(ScreenCaptureService.SelectionBounds(new(-2500, -2000), new(5000, 4000), captureDesktop) == captureDesktop, "Capture selection clamps at virtual desktop edges");
+        Check(ScreenCaptureService.SelectionBounds(new(500, 500), new(500, 500), captureDesktop).Size == System.Drawing.Size.Empty, "A click cannot save an empty capture");
         Check(!GitHubUpdateService.IsNewerVersion(new Version(1, 1, 7), new Version(1, 1, 7, 0)), "The current release is not offered again when its tag omits a zero revision");
         Check(GitHubUpdateService.IsNewerVersion(new Version(1, 1, 8), new Version(1, 1, 7, 0)), "A newer Windows build is offered");
         Check(!GitHubUpdateService.IsNewerVersion(new Version(1, 1, 6), new Version(1, 1, 7, 0)), "An older release cannot be installed as an update");

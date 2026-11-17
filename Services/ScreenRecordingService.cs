@@ -21,10 +21,6 @@ internal sealed class ScreenRecordingService : IDisposable
         + "&x-request-correlation-id=" + request.ToString("D"));
 
     internal const string SnippingToolPackage = "Microsoft.ScreenSketch_8wekyb3d8bbwe";
-    internal static Uri BuildImageUri(Guid request) => new(
-        "ms-screenclip://capture/image?rectangle&api-version=1.2&enabledModes=SnippingAllModes"
-        + "&user-agent=DynamicIslandWin&x-request-correlation-id=" + request.ToString("D"));
-
     private static LauncherOptions LaunchOptions(IntPtr owner)
     {
         var options = new LauncherOptions { TargetApplicationPackageFamilyName = SnippingToolPackage };
@@ -79,30 +75,6 @@ internal sealed class ScreenRecordingService : IDisposable
             }
             pipe.Disconnect(); response = ReadCallbackAsync(pipe, timeout.Token);
         }
-    }
-
-    internal async Task<StorageFile?> CaptureImageAsync(IntPtr owner)
-    {
-        if (_busy) throw new InvalidOperationException("A capture request is already open.");
-        _busy = true;
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
-        timeout.CancelAfter(TimeSpan.FromMinutes(5));
-        try
-        {
-            Guid request = Guid.NewGuid();
-            var result = await Launcher.LaunchUriForResultsAsync(BuildImageUri(request), LaunchOptions(owner)).AsTask(timeout.Token);
-            if (result.Status != LaunchUriStatus.Success || result.Result == null)
-                throw new InvalidOperationException("Snipping Tool did not return a screenshot result.");
-            var values = result.Result;
-            if (!values.TryGetValue("code", out var codeValue) || !int.TryParse(codeValue?.ToString(), out int code)
-                || !values.TryGetValue("x-request-correlation-id", out var id) || !Guid.TryParse(id?.ToString(), out var actual) || actual != request)
-                throw new InvalidDataException("Invalid screenshot response.");
-            if (code == 499) return null;
-            if (code != 200 || !values.TryGetValue("file-access-token", out var token) || token is not string value || string.IsNullOrWhiteSpace(value))
-                throw new InvalidOperationException($"Snipping Tool returned {code}.");
-            return await SharedStorageAccessManager.RedeemTokenForFileAsync(value).AsTask(timeout.Token);
-        }
-        finally { _busy = false; }
     }
 
     internal static bool TryReadResponse(string value, Guid request, out int code, out string? token)

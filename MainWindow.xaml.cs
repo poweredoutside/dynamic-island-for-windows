@@ -2540,29 +2540,20 @@ public partial class MainWindow : Window
             if (_windowClosed) return;
             if (fullScreen)
             {
-                var screen = Forms.Screen.FromHandle(new WindowInteropHelper(this).Handle).Bounds;
-                var frame = await Task.Run(() => GlassBackdropService.Capture(screen, maxPixels: 40_000_000));
-                if (frame == null) throw new InvalidOperationException("No screenshot frame returned");
-                await SaveScreenshotAsync(frame.Image);
+                await SaveScreenshotAsync(await ScreenCaptureService.CaptureMonitorAsync(new WindowInteropHelper(this).Handle));
             }
             else
             {
-                _screenRecording ??= new ScreenRecordingService();
-                var file = await _screenRecording.CaptureImageAsync(new WindowInteropHelper(this).Handle);
-                if (file != null)
-                {
-                    using var stream = await file.OpenStreamForReadAsync();
-                    var bitmap = new BitmapImage(); bitmap.BeginInit(); bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                    bitmap.StreamSource = stream; bitmap.EndInit(); bitmap.Freeze();
-                    await SaveScreenshotAsync(bitmap);
-                }
+                var bitmap = await RegionCaptureWindow.SelectAsync(new WindowInteropHelper(this).Handle,
+                    Tr("Drag to capture an area · Esc to cancel", "Выделите область · Esc — отмена", "Виділіть область · Esc — скасувати", "Bereich markieren · Esc zum Abbrechen", "Selecciona un área · Esc para cancelar"));
+                if (bitmap != null) await SaveScreenshotAsync(bitmap);
             }
         }
         catch (OperationCanceledException) when (_windowClosed) { }
         catch (Exception ex)
         {
             AppLog.Error("Screenshot", ex);
-            ShowSideBubble(L("Не удалось сделать скриншот. Перезапустите «Ножницы» и повторите попытку."), ToastCategory.Info, bypassDnd: true);
+            ShowSideBubble(Tr("Could not capture or save a screenshot. Check free space and clipboard access.", "Не удалось сделать или сохранить скриншот. Проверьте место на диске и доступ к буферу обмена.", "Не вдалося зберегти знімок. Перевірте вільне місце та буфер обміну.", "Screenshot fehlgeschlagen. Speicherplatz und Zwischenablage prüfen.", "No se pudo guardar la captura. Comprueba el espacio y el portapapeles."), ToastCategory.Info, bypassDnd: true);
         }
         finally { _captureUiBusy = false; RestoreCaptureUi(); }
     }

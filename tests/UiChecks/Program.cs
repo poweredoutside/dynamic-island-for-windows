@@ -59,9 +59,6 @@ internal static class Program
         var captureUri = (Uri)recording.GetMethod("BuildCaptureUri", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, new object[] { request })!;
         Check(captureUri.Host == "capture" && captureUri.AbsolutePath == "/video", "Recording launches video capture rather than Game Bar");
         Check(captureUri.Query.Contains("redirect-uri=") && captureUri.Query.Contains(request.ToString()), "Recording callback and correlation included");
-        var imageUri = (Uri)recording.GetMethod("BuildImageUri", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [request])!;
-        Check(imageUri.Host == "capture" && imageUri.AbsolutePath == "/image" && imageUri.Query.Contains("rectangle&"), "Screenshot uses the explicit image endpoint and required bare mode");
-        Check(!imageUri.Query.Contains("redirect-uri"), "Direct screenshot results do not require protocol callbacks");
         var parseResponse = recording.GetMethod("TryReadResponse", BindingFlags.Static | BindingFlags.NonPublic)!;
         bool Accept(string value) => (bool)parseResponse.Invoke(null, new object?[] { value, request, 0, null })!;
         string response = $"dynamicisland-capture://response?code=200&file-access-token=test&x-request-correlation-id={request:D}";

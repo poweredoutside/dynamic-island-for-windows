@@ -7,7 +7,7 @@ using System.Windows.Media.Imaging;
 
 namespace DynamicIslandWin.Services;
 
-// Unfiltered screenshots for integration diagnostics. The product lens uses
+// Unfiltered screenshots for screen capture and integration diagnostics. The lens uses
 // FilteredBackdropCapture so it never captures its own windows.
 internal static class GlassBackdropService
 {
@@ -15,7 +15,7 @@ internal static class GlassBackdropService
     internal static Frame? Capture(Rectangle bounds, bool includeLayered = true, long maxPixels = 4_000_000)
     {
         if (bounds.Width < 2 || bounds.Height < 2 || (long)bounds.Width * bounds.Height > maxPixels
-            || !System.Windows.Forms.SystemInformation.VirtualScreen.Contains(bounds)) return null;
+            || !ScreenCaptureService.DesktopBounds.Contains(bounds)) return null;
         var clock = Stopwatch.StartNew();
         using var bitmap = new Bitmap(bounds.Width, bounds.Height, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
         using (var graphics = Graphics.FromImage(bitmap))

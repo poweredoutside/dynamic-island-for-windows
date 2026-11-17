@@ -27,6 +27,21 @@ internal static class Program
         int checks = 0;
         void Check(bool ok, string message) { if (!ok) throw new Exception(message); checks++; }
         var settings = Field<MainWindow.AppSettings>("_settings");
+        var fpsType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.FpsService")!;
+        var metrics = Activator.CreateInstance(fpsType, true)!;
+        fpsType.GetField("Fps", flags)!.SetValue(metrics, (double?)144);
+        fpsType.GetField("CpuTemperatureC", flags)!.SetValue(metrics, 72);
+        Set("_gameFps", metrics);
+        Call("UpdateFpsTarget");
+        fpsType.GetField("Fps", flags)!.SetValue(metrics, (double?)144);
+        Set("_nextFeatureScan", DateTime.MaxValue);
+        Set("_isGameModeActive", true);
+        Call("FeatureTick");
+        Check(Element<TextBlock>("GameHudFpsText").Text == "144" && Element<TextBlock>("GameHudCpuTempText").Text == "72°C", "Active game HUD refreshes FPS and helper CPU temperature without rebuilding its page");
+        Set("_gameFps", null);
+        ((IDisposable)metrics).Dispose();
+        Set("_isGameModeActive", false);
+        Call("ApplyLocalization");
         var themes = Field<List<MainWindow.ThemePreset>>("_themes");
         var output = args.Length > 0 ? args[0] : "artifacts/ui-checks";
         System.IO.Directory.CreateDirectory(output);
@@ -108,7 +123,7 @@ internal static class Program
         }
         void Snapshot(string name, string view, string? page = null)
         {
-            foreach (string id in new[] { "CompactView", "HoverView", "ExpandedView", "WeatherDashboardView", "SettingsView", "ClipboardDashboardView" })
+            foreach (string id in new[] { "CompactView", "HoverView", "ExpandedView", "WeatherDashboardView", "SettingsView", "ClipboardDashboardView", "FeaturesView" })
                 if (window.FindName(id) is FrameworkElement el) el.Visibility = Visibility.Collapsed;
             var content = Element<FrameworkElement>(view);
             content.BeginAnimation(UIElement.OpacityProperty, null); content.Opacity = 1; content.Visibility = Visibility.Visible;
@@ -119,6 +134,8 @@ internal static class Program
                 var p = Element<FrameworkElement>(page); p.BeginAnimation(UIElement.OpacityProperty, null); p.Opacity = 1;
             }
             island.Width = 740; island.Height = 515;
+            island.RenderTransform = Transform.Identity;
+            Call("UpdateGlassShadow");
             ((FrameworkElement)window.Content).Measure(new Size(1360, 700));
             ((FrameworkElement)window.Content).Arrange(new Rect(0, 0, 1360, 700));
             ((FrameworkElement)window.Content).UpdateLayout();
@@ -188,6 +205,106 @@ internal static class Program
         Check(island.BorderThickness.Left == 0, "Glass off removes glass edge");
         Check(((SolidColorBrush)window.FindResource("GlassSheenBrush")).Color.A == 0, "Glass off clears reflections on all auxiliary surfaces");
         Check(window.FindResource("ThemeFloatingBrush") is SolidColorBrush, "Glass off restores opaque popup surfaces");
+
+        // Language changes must reach detached popup menus and generated pages.
+        var catalog = (Dictionary<string, string[]>)typeof(MainWindow).GetField("AdditionalTranslations", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
+        Check(catalog.Values.All(words => words.Length == 5 && words.All(w => !string.IsNullOrWhiteSpace(w))), "Every new label has all five translations");
+        foreach (string language in new[] { "English", "Русский", "Українська", "Deutsch", "Español", "English" })
+        {
+            settings.Language = language; Call("ApplyLocalization");
+            string Translate(string text) => (string)Call("L", text)!;
+            Check(((MenuItem)island.ContextMenu.Items[0]).Header.Equals(Translate("Спрятать островок")), language + ": popup language refreshed");
+            Check(Element<TextBlock>("LblExternalProgress").Text == Translate("Прогресс других программ справа"), language + ": progress toggle language");
+            Check((string)Element<StackPanel>("FeatureNavigation").Children.OfType<Button>().First().Content == Translate("⌂  Главная"), language + ": generated navigation language");
+            Call("BuildCharactersGrid");
+            Check((string)Call("GetLocalizedCharacterName", "Puppy")! == Translate("Щенок"), language + ": added character names translated");
+            foreach (string page in new[] { "BuildLayoutPage", "BuildUserThemesPage", "BuildTimersPage", "BuildMusicPage", "BuildNewsPage", "BuildWelcomePage" })
+            {
+                Element<StackPanel>("FeatureContent").Children.Clear(); Call(page);
+                IEnumerable<string> Labels(DependencyObject node)
+                {
+                    if (node is TextBlock text) yield return text.Text;
+                    if (node is ContentControl control && control.Content is string content) yield return content;
+                    foreach (var child in LogicalTreeHelper.GetChildren(node).OfType<DependencyObject>())
+                        foreach (string value in Labels(child)) yield return value;
+                }
+                if (language is "English" or "Deutsch" or "Español")
+                    Check(!Labels(Element<StackPanel>("FeatureContent")).Any(label => System.Text.RegularExpressions.Regex.IsMatch(label, "[А-Яа-яЁё]")), language + ": " + page + " contains no untranslated Russian");
+            }
+        }
+
+        // Progress stays in the right column, leaving all compact content intact.
+        var progress = Element<Border>("CompactProgressPanel");
+        Check(Grid.GetColumn((UIElement)progress.Parent) == 2 && progress.Parent != Element<Grid>("CompactView"), "Progress capsule is outside the clock and weather");
+        progress.Visibility = Visibility.Visible; Call("SetExternalProgress", false);
+        Check(progress.Visibility == Visibility.Collapsed && !settings.ExternalProgress && Element<CheckBox>("TglExternalProgress").IsChecked == false, "Disabling progress hides it immediately");
+        Call("SetExternalProgress", true);
+        Check(Element<CheckBox>("TglExternalProgress").IsChecked == true, "Progress control synchronizes both settings pages");
+
+        // Both legacy and added characters use an independent, movable eye layer.
+        foreach (string key in new[] { "Eyes", "Cat", "Claude Code", "Robot", "Ghost", "Fish", "Bunny", "Owl", "Dino", "Puppy", "Fox" })
+        {
+            var mascot = (Viewbox)Call("CreateCharacterVector", key, 36d)!;
+            var canvas = (Canvas)mascot.Child;
+            var eyes = canvas.Children.OfType<Canvas>().Single(c => Equals(c.Tag, "eyes"));
+            Check(eyes.Children.Count > 0 && eyes.RenderTransform is TranslateTransform, key + ": has gaze layer");
+        }
+        var gazeMethod = typeof(MainWindow).GetMethod("MascotGaze", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var leftGaze = (Point)gazeMethod.Invoke(null, [new Point(-1000, -1000)])!;
+        var rightGaze = (Point)gazeMethod.Invoke(null, [new Point(1000, 1000)])!;
+        Check(leftGaze.X < 0 && leftGaze.Y < 0 && rightGaze.X > 0 && rightGaze.Y > 0 && rightGaze.X <= 2.2, "Gaze follows pointer direction with bounded travel");
+
+        // Check disk persistence without reading or modifying the real clipboard.
+        string clipboardPath = System.IO.Path.GetFullPath(System.IO.Path.Combine(output, "clipboard-data", "history.json"));
+        Set("_clipboardHistoryPath", clipboardPath);
+        var history = Field<List<MainWindow.ClipboardHistoryItem>>("_clipboardHistory"); history.Clear();
+        string exactText = "  first line\r\nsecond line  ";
+        history.Add(new(exactText, DateTime.Now)); Call("SaveClipboardHistory"); history.Clear(); Call("LoadClipboardHistory");
+        history = Field<List<MainWindow.ClipboardHistoryItem>>("_clipboardHistory");
+        Check(history.Single().Text == exactText, "Clipboard history preserves whitespace and line breaks");
+        var bitmap = BitmapSource.Create(2, 2, 96, 96, PixelFormats.Bgra32, null, new byte[] { 1, 2, 3, 255, 4, 5, 6, 255, 7, 8, 9, 255, 10, 11, 12, 255 }, 8);
+        bitmap.Freeze();
+        var encode = typeof(MainWindow).GetMethod("EncodeClipboardImage", BindingFlags.Static | BindingFlags.NonPublic)!;
+        byte[] encoded = (byte[])encode.Invoke(null, [bitmap])!;
+        string images = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(clipboardPath)!, "clipboard-images"); System.IO.Directory.CreateDirectory(images);
+        string imageFile = Guid.NewGuid().ToString("N") + ".png"; System.IO.File.WriteAllBytes(System.IO.Path.Combine(images, imageFile), encoded);
+        var screenshot = new MainWindow.ClipboardHistoryItem("image:sample", DateTime.Now, imageFile); history.Insert(0, screenshot);
+        Call("SaveClipboardHistory"); Call("LoadClipboardHistory");
+        history = Field<List<MainWindow.ClipboardHistoryItem>>("_clipboardHistory");
+        var restoredImage = (BitmapSource)Call("LoadClipboardImage", history[0], 0)!;
+        Check(restoredImage.PixelWidth == 2 && restoredImage.PixelHeight == 2, "Screenshot survives a history reload at original resolution");
+        Check(Element<StackPanel>("ClipboardHistoryListStack").Children.Count == 2 && Element<TextBlock>("HomeClipboardPreview").Text == "Screenshot", "Mixed history shows image preview and localized home summary");
+        Check(Call("ClipboardImagePath", screenshot with { ImageFile = "../../escape.png" }) == null, "History cannot read images outside its directory");
+        settings.SelectedTheme = "Midnight"; settings.LiquidGlass = true;
+        Call("ApplyTheme", themes.Single(t => t.Key == "Midnight"));
+        foreach (string stop in new[] { "GradStop1", "GradStop2", "GradStop3" })
+        {
+            var gradient = Element<GradientStop>(stop);
+            gradient.BeginAnimation(GradientStop.ColorProperty, null);
+            gradient.Color = stop == "GradStop2" ? Color.FromArgb(156, 27, 30, 46) : Color.FromArgb(178, 17, 19, 28);
+        }
+        Snapshot("clipboard-text-and-screenshots", "ClipboardDashboardView");
+        history[0] = screenshot with { CopiedAt = DateTime.Now.AddHours(-25) }; Call("PruneExpiredClipboardItems", true);
+        Check(history.Count == 1 && !System.IO.File.Exists(System.IO.Path.Combine(images, imageFile)), "Expired screenshot removes both entry and image file");
+
+        settings.LiquidGlass = true; settings.IslandShadow = true;
+        Call("ApplyTheme", themes.Single(t => t.Key == "Midnight")); Call("UpdateGlassShadow");
+        var shadow = Element<System.Windows.Controls.Image>("IslandShadow");
+        var shadowBitmap = new RenderTargetBitmap((int)shadow.Width, (int)shadow.Height, 96, 96, PixelFormats.Pbgra32);
+        var shadowVisual = new DrawingVisual(); using (var draw = shadowVisual.RenderOpen()) draw.DrawImage(shadow.Source, new Rect(0, 0, shadow.Width, shadow.Height));
+        shadowBitmap.Render(shadowVisual); var pixel = new byte[4]; shadowBitmap.CopyPixels(new Int32Rect((int)shadow.Width / 2, (int)shadow.Height / 2, 1, 1), pixel, 4, 0);
+        Check(pixel[3] == 0, "Glass shadow leaves capsule interior fully transparent");
+        progress.Visibility = Visibility.Visible; Element<TextBlock>("CompactProgressLabel").Text = "explorer · 14%"; Call("UpdateProgressRing", 14);
+        Snapshot("progress-main-island", "CompactView");
+        island.Width = 210; island.Height = 38; island.CornerRadius = new CornerRadius(19);
+        Element<Border>("LiquidGlassOverlay").CornerRadius = island.CornerRadius;
+        Element<FrameworkElement>("CompactStandardPanel").Visibility = Visibility.Visible;
+        Element<FrameworkElement>("CompactGameHudPanel").Visibility = Visibility.Collapsed;
+        Call("UpdateGlassShadow");
+        ((FrameworkElement)window.Content).Measure(new Size(1360, 700));
+        ((FrameworkElement)window.Content).Arrange(new Rect(0, 0, 1360, 700));
+        ((FrameworkElement)window.Content).UpdateLayout();
+        SaveVisual((FrameworkElement)window.Content, "progress-right-capsule", 1360, 700);
         Field<DispatcherTimer>("_toastHideTimer").Stop();
         Console.WriteLine($"PASS: {checks} WPF checks; offscreen previews in {output}");
         // Not closing the unloaded product window avoids invoking real shutdown integrations.

@@ -107,6 +107,7 @@ public partial class MainWindow
         _volumeIsland.Changed += VolumeChanged;
         _hoverDelay.Tick += (_, _) => { _hoverDelay.Stop(); if (IslandBorder.IsMouseOver && !_isClickCandidate && !_bodyDragging && _currentState == IslandState.Compact && !_manualResize && !_isGameModeActive) MorphToState(IslandState.Hover); };
         _featureTimer.Tick += (_, _) => FeatureTick(); _featureTimer.Start();
+        if (_settings.GameModeHud || _settings.AutoGameHud) StartGameMetrics();
         _watchdog = new System.Threading.Timer(_ =>
         {
             if (DateTime.UtcNow - _uiHeartbeat > TimeSpan.FromSeconds(5) && !_windowClosed)
@@ -114,11 +115,11 @@ public partial class MainWindow
         }, null, 10000, 15000);
         bool existed = File.Exists(_settingsPath);
         if (!existed && !_settings.OnboardingComplete) { _welcomeStep = 0; OpenFeaturePage("welcome"); }
-        else if (_settings.LastSeenVersion != "1.1.5")
+        else if (_settings.LastSeenVersion != "1.1.7")
         {
             _settings.OnboardingComplete = true;
-            FeatureNotice("OC - Dynamic Island 1.1.5 · нажмите, чтобы увидеть новинки", () => OpenFeaturePage("news"));
-            _settings.LastSeenVersion = "1.1.5"; SaveSettings();
+            FeatureNotice("OC - Dynamic Island 1.1.7 · нажмите, чтобы увидеть новинки", () => OpenFeaturePage("news"));
+            _settings.LastSeenVersion = "1.1.7"; SaveSettings();
         }
     }
 
@@ -150,7 +151,7 @@ public partial class MainWindow
         if (System.Windows.Documents.TextElement.GetFontFamily(IslandBorder).Source != font)
             System.Windows.Documents.TextElement.SetFontFamily(IslandBorder, new FontFamily(font));
         // Render a cached silhouette, instead of blurring the entire live visual tree.
-        IslandShadow.OpacityMask = _settings.IslandShadow ? null : Brushes.Transparent;
+        UpdateGlassShadow();
         foreach (string key in _settings.ActionOrder.AsEnumerable().Reverse())
             if (FindName("BtnQuick" + key) is UIElement element && HomeQuickActionsBar.Children.Contains(element))
             { HomeQuickActionsBar.Children.Remove(element); HomeQuickActionsBar.Children.Insert(0, element); }
@@ -167,11 +168,13 @@ public partial class MainWindow
         if (DateTime.UtcNow > _featureNoticeUntil) LevelHudBorder.Visibility = Visibility.Collapsed;
         DrainFeatureNotices();
         UpdateIdleContent(); UpdateLyricsFrame(); UpdateCursorAppearance();
+        if (_gameFps != null) UpdateFpsTarget();
+        if (_isGameModeActive) UpdateGameHudValues();
         if (NeedsIslandFrames()) StartIslandFrames();
         foreach (var timer in _settings.Timers.Where(t => t.Due <= now).ToArray())
         {
             _settings.Timers.Remove(timer); SaveSettings();
-            FeatureNotice("⏱ " + timer.Label + " · время вышло", () => OpenFeaturePage("timers"));
+            FeatureNotice("⏱ " + timer.Label + " · " + L("время вышло"), () => OpenFeaturePage("timers"));
             if (_settings.ReminderSound && !_isDndActive) System.Media.SystemSounds.Exclamation.Play();
         }
         foreach (var meeting in _meetings.Where(m => m.Join != null))
@@ -183,7 +186,7 @@ public partial class MainWindow
                 if (now < due || now - due > TimeSpan.FromMinutes(2) || _settings.DeliveredReminders.Contains(marker)) continue;
                 _settings.DeliveredReminders.Add(marker);
                 _settings.DeliveredReminders = _settings.DeliveredReminders.TakeLast(512).ToList(); SaveSettings();
-                FeatureNotice($"{meeting.Title} · {(minutes == 0 ? "начинается сейчас" : "через 10 минут")}", () => OpenWeb(meeting.Join!));
+                FeatureNotice($"{meeting.Title} · {L(minutes == 0 ? "начинается сейчас" : "через 10 минут")}", () => OpenWeb(meeting.Join!));
                 if (_settings.ReminderSound && !_isDndActive) System.Media.SystemSounds.Asterisk.Play();
             }
         }
@@ -193,7 +196,7 @@ public partial class MainWindow
         if (_gameFps != null)
         {
             GetWindowThreadProcessId(GetForegroundWindow(), out uint pid);
-            if (pid != Environment.ProcessId) _gameFps.TargetPid = (int)pid;
+            if (pid != 0 && pid != Environment.ProcessId) _gameFps.TargetPid = (int)pid;
         }
     }
 
@@ -213,6 +216,7 @@ public partial class MainWindow
 
     private void UpdateCursorAppearance()
     {
+        if (PresentationSource.FromVisual(IslandBorder) == null) return;
         var point = System.Windows.Forms.Cursor.Position;
         var center = IslandBorder.PointToScreen(new Point(IslandBorder.ActualWidth / 2, IslandBorder.ActualHeight / 2));
         double distance = Math.Sqrt(Math.Pow(point.X - center.X, 2) + Math.Pow(point.Y - center.Y, 2));
@@ -282,7 +286,7 @@ public partial class MainWindow
             });
             if (_windowClosed) return;
             if (_settings.LevelHud && _lastBrightness.HasValue && snapshot.Brightness is { } brightness && brightness != _lastBrightness)
-                LevelNotice($"Яркость · {brightness}%", brightness);
+                LevelNotice(L("Яркость") + $" · {brightness}%", brightness);
             _lastBrightness = snapshot.Brightness;
             if (readGpu) _lastGpuUsage = snapshot.Gpu ?? -1;
             if (snapshot.Calendar != null) _meetings = snapshot.Calendar;
@@ -302,9 +306,10 @@ public partial class MainWindow
             if (_settings.ExternalProgress && WindowSignals.Progress(window.Title) is { } percent)
             {
                 if (_jobs.TryGetValue(window.Handle, out var old) && old.Percent < 100 && percent == 100)
-                    FeatureNotice(window.Process + " · готово", () => ActivateWindow(window.Handle));
+                    FeatureNotice(window.Process + " · " + L("готово"), () => ActivateWindow(window.Handle));
                 _jobs[window.Handle] = (window.Process, percent);
             }
+            else _jobs.Remove(window.Handle);
             bool messenger = new[] { "telegram", "exdesktop", "discord" }.Any(s => window.Process.Contains(s, StringComparison.OrdinalIgnoreCase));
             if (!messenger) continue;
             int unread = WindowSignals.UnreadCount(window.Title);
@@ -312,7 +317,7 @@ public partial class MainWindow
             centerOff |= (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\PushNotifications", "ToastEnabled", 1) as int?) == 0;
             if (_settings.TitleUnreadFallback && (!_notifAccessGranted || centerOff) && NotificationsEnabled
                 && _unreadCounts.TryGetValue(window.Handle, out int oldUnread) && unread > oldUnread)
-                FeatureNotice(window.Process + " · новое сообщение", () => ActivateWindow(window.Handle));
+                FeatureNotice(window.Process + " · " + L("новое сообщение"), () => ActivateWindow(window.Handle));
             _unreadCounts[window.Handle] = unread;
         }
         foreach (var key in _jobs.Keys.Where(h => !windows.Any(w => w.Handle == h)).ToArray()) _jobs.Remove(key);
@@ -327,6 +332,15 @@ public partial class MainWindow
             CompactProgressPanel.Tag = job.Key;
         }
     }
+    private void SetExternalProgress(bool enabled)
+    {
+        _settings.ExternalProgress = enabled;
+        TglExternalProgress.IsChecked = enabled;
+        if (!enabled) { _jobs.Clear(); CompactProgressPanel.Visibility = Visibility.Collapsed; }
+        _nextFeatureScan = DateTime.MinValue;
+    }
+    private void TglExternalProgress_Click(object sender, RoutedEventArgs e)
+    { SetExternalProgress(TglExternalProgress.IsChecked == true); SaveSettings(); }
     private static void ActivateWindow(IntPtr handle) { if (IsIconic(handle)) ShowWindow(handle, 9); SetForegroundWindow(handle); }
     private void UpdateProgressRing(int percent)
     {
@@ -350,7 +364,7 @@ public partial class MainWindow
             VolumeIslandService.Snapshot latest;
             lock (_volumeGate) { latest = _pendingVolume; _volumeDispatchPending = false; }
             if (!_windowClosed && _settings.VolumeIslandHud == true)
-                LevelNotice(latest.Muted ? "Звук выключен" : $"Громкость · {latest.Volume:P0}", latest.Muted ? 0 : latest.Volume * 100);
+                LevelNotice(latest.Muted ? L("Звук выключен") : L("Громкость") + $" · {latest.Volume:P0}", latest.Muted ? 0 : latest.Volume * 100);
         }));
     }
 
@@ -367,14 +381,14 @@ public partial class MainWindow
 
     private void LevelNotice(string text, double value)
     {
-        LevelHudText.Text = text; LevelHudBar.Value = Math.Clamp(value, 0, 100);
+        LevelHudText.Text = L(text); LevelHudBar.Value = Math.Clamp(value, 0, 100);
         LevelHudBorder.Visibility = Visibility.Visible;
         _featureNoticeUntil = DateTime.UtcNow.AddSeconds(2);
     }
     private void FeatureNotice(string text, Action action)
     {
         if (_featureNotices.Count >= 20) _featureNotices.Dequeue();
-        _featureNotices.Enqueue((text, action)); DrainFeatureNotices();
+        _featureNotices.Enqueue((L(text), action)); DrainFeatureNotices();
     }
     private void DrainFeatureNotices()
     {

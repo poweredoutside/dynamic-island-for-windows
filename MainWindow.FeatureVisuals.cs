@@ -27,6 +27,41 @@ public partial class MainWindow
     private Color _albumAccent = Color.FromRgb(110, 231, 213);
     private bool _lyricsFetching;
 
+    private void RegisterLegacyMascot(Canvas canvas, string key)
+    {
+        canvas.RenderTransformOrigin = new Point(.5, .8);
+        var transforms = new TransformGroup(); transforms.Children.Add(new ScaleTransform());
+        transforms.Children.Add(new RotateTransform()); transforms.Children.Add(new TranslateTransform());
+        canvas.RenderTransform = transforms;
+        var eyes = new Canvas { Width = 36, Height = 36, Tag = "eyes", RenderTransform = new TranslateTransform() };
+        var existing = key switch
+        {
+            "Eyes" => canvas.Children.OfType<Ellipse>().Where(e => e.Width < 10).Cast<FrameworkElement>().ToArray(),
+            "Cat" => canvas.Children.OfType<Ellipse>().ToArray(),
+            "Claude Code" => canvas.Children.OfType<System.Windows.Shapes.Rectangle>().Where(e => e.Width < 5).Cast<FrameworkElement>().ToArray(),
+            _ => []
+        };
+        foreach (var eye in existing) { canvas.Children.Remove(eye); eyes.Children.Add(eye); }
+        if (existing.Length == 0 && key is "Ghost" or "Robot" or "Fish" or "Slime" or "Bunny" or "Owl" or "Dino" or "Star" or "Cloud")
+        {
+            double y = key == "Dino" ? 10 : key == "Slime" ? 22 : 18;
+            double[] positions = key == "Fish" ? [10] : key == "Dino" ? [22] : [12, 21];
+            foreach (double x in positions)
+            {
+                var eye = new Ellipse { Width = 3.5, Height = 4, Fill = key == "Robot" ? Brushes.Cyan : Brushes.Black };
+                Canvas.SetLeft(eye, x); Canvas.SetTop(eye, y); eyes.Children.Add(eye);
+            }
+        }
+        foreach (FrameworkElement eye in eyes.Children)
+        { eye.RenderTransformOrigin = new Point(.5, .5); eye.RenderTransform = new ScaleTransform(); }
+        canvas.Children.Add(eyes);
+        _animatedMascots.Add(new(canvas));
+    }
+
+    private static Point MascotGaze(Point mouse) => new(
+        Math.Clamp((mouse.X - 18) / 45, -2.2, 2.2),
+        Math.Clamp((mouse.Y - 18) / 45, -1.3, 1.3));
+
     private UIElement? CreateFeatureMascot(string key, double size)
     {
         if (key == "None") return new Border { Width = size, Height = size };
@@ -94,14 +129,17 @@ public partial class MainWindow
             Point mouse = canvas.PointFromScreen(new Point(pointer.X, pointer.Y));
             bool asleep = !_isMediaPlaying && DateTime.UtcNow - _lastCursorMovement > TimeSpan.FromSeconds(30);
             var transforms = (TransformGroup)canvas.RenderTransform;
-            ((RotateTransform)transforms.Children[1]).Angle = _isMediaPlaying ? Math.Sin(now * 7) * 7 : Math.Sin(now * 1.7) * 1.5;
+            ((RotateTransform)transforms.Children[1]).Angle = (_isMediaPlaying ? Math.Sin(now * 7) * 7 : Math.Sin(now * 1.7) * 1.5) + Math.Clamp((mouse.X - 18) / 180, -3, 3);
             ((TranslateTransform)transforms.Children[2]).Y = _isMediaPlaying ? -Math.Abs(Math.Sin(now * 7)) * 2 : Math.Sin(now * 1.7);
             if (canvas.Children.OfType<Canvas>().LastOrDefault() is { } eyes)
             {
-                ((TranslateTransform)eyes.RenderTransform).X = Math.Clamp((mouse.X - 18) / 25, -2, 2);
-                ((TranslateTransform)eyes.RenderTransform).Y = Math.Clamp((mouse.Y - 18) / 25, -1, 1);
+                var gaze = MascotGaze(mouse);
+                var offset = (TranslateTransform)eyes.RenderTransform;
+                double ease = 1 - Math.Exp(-dt * 18);
+                offset.X += (gaze.X - offset.X) * ease;
+                offset.Y += (gaze.Y - offset.Y) * ease;
                 bool blink = asleep || now % 5 > 4.85;
-                foreach (Ellipse eye in eyes.Children) ((ScaleTransform)eye.RenderTransform).ScaleY = blink ? .15 : 1;
+                foreach (FrameworkElement eye in eyes.Children) ((ScaleTransform)eye.RenderTransform).ScaleY = blink ? .15 : 1;
             }
         }
         if (pointer != _lastCursor) { _lastCursorMovement = DateTime.UtcNow; _lastCursor = pointer; }
@@ -130,7 +168,7 @@ public partial class MainWindow
         string track = _currentMediaTitle + "\n" + _currentMediaArtist;
         if (_isMediaPlaying && _lyricsTrack != track && !_lyricsFetching)
         { _lyrics = []; _lyricIndex = -1; _lyricsTrack = track; if (_settings.OnlineLyrics) _ = FetchLyricsAsync(track); }
-        bool show = _settings.Karaoke && _isMediaPlaying && _lyrics.Count > 0 && _currentState == IslandState.Compact && !_isGameModeActive && CompactProgressPanel.Visibility != Visibility.Visible;
+        bool show = _settings.Karaoke && _isMediaPlaying && _lyrics.Count > 0 && _currentState == IslandState.Compact && !_isGameModeActive;
         KaraokePanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (!show)
         {

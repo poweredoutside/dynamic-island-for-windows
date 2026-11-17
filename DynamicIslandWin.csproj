@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>1.1.5</Version>
+    <Version>1.1.7</Version>
     <Title>OC - Dynamic Island</Title>
     <Product>OC - Dynamic Island</Product>
     <Description>OC - Dynamic Island для Windows</Description>
@@ -21,12 +21,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Ical.Net" Version="4.3.1" />
-    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="System.Management" Version="10.0.2" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.1.21" />
   </ItemGroup>
   <ItemGroup><Content Include="THIRD_PARTY_NOTICES.md;licenses\**" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
+  <ItemGroup Condition="Exists('.tools\hardware\PawnIO_setup.exe')">
+    <Content Include=".tools\hardware\PawnIO_setup.exe" Link="Hardware\PawnIO_setup.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 
 </Project>

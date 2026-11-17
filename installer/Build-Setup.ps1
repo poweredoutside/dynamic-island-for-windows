@@ -35,7 +35,7 @@ $releaseSetup = Join-Path $release 'ocdynamicisland.exe'
 Copy-Item -LiteralPath $setup -Destination $releaseSetup -Force
 $standalone = Join-Path $projectRoot 'artifacts\ocdynamicisland.exe'
 Copy-Item -LiteralPath $setup -Destination $standalone -Force
-$hashes = foreach ($name in @('DynamicIsland.msix', 'ocdynamicisland.exe')) {
+$hashes = foreach ($name in @('DynamicIsland.msix', 'ocdynamicisland.exe', 'PawnIO-2.2.0-source.zip')) {
     (Get-FileHash -LiteralPath (Join-Path $release $name) -Algorithm SHA256).Hash + '  ' + $name
 }
 $hashes | Set-Content -LiteralPath (Join-Path $release 'SHA256SUMS.txt') -Encoding ASCII

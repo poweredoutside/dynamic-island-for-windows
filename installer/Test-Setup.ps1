@@ -5,7 +5,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if (!$Path) { $Path = Join-Path $PSScriptRoot '..\artifacts\ocdynamicisland.exe' }
-if (!$PackagePath) { $PackagePath = Join-Path $PSScriptRoot '..\artifacts\DynamicIsland-1.1.5.0-x64\DynamicIsland.msix' }
+if (!$PackagePath) { $PackagePath = Join-Path $PSScriptRoot '..\artifacts\DynamicIsland-1.1.7.0-x64\DynamicIsland.msix' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $fixture = Join-Path $projectRoot ('artifacts\setup-check-' + [guid]::NewGuid().ToString('N'))
 $isolated = Join-Path $fixture 'standalone with spaces'
@@ -21,6 +21,7 @@ try {
     if ($process.ExitCode -ne 0 -or !$report.success) { throw (Get-Content -LiteralPath $reportPath -Raw) }
     if ($report.subsystem -ne 'WindowsGui' -or !$report.hiddenPowerShell) { throw 'Installer opened a console.' }
     if ($report.embeddedPackageSha256 -ne (Get-FileHash -LiteralPath $PackagePath -Algorithm SHA256).Hash) { throw 'Embedded package differs from release.' }
+    if ($report.embeddedDriverSha256 -ne '1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032') { throw 'Embedded temperature driver differs from the verified dependency.' }
     $setupSignature = Get-AuthenticodeSignature -LiteralPath $setup
     $packageSignature = Get-AuthenticodeSignature -LiteralPath $PackagePath
     if (!$setupSignature.SignerCertificate -or $setupSignature.SignerCertificate.Thumbprint -ne $packageSignature.SignerCertificate.Thumbprint) { throw 'Setup publisher differs from package publisher.' }

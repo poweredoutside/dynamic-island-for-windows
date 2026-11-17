@@ -19,6 +19,7 @@ internal sealed class FpsService : IDisposable
     private NamedPipeServerStream? _pipe;
     internal int TargetPid;
     internal double? Fps;
+    internal int CpuTemperatureC = -1;
     internal string Status = "Измерение игры выключено.";
     private static readonly Guid Dxgi = new("CA11C036-0102-4A2D-A6AD-F03CFED5D3C9");
     private static readonly Guid D3d9 = new("783ACA0A-790E-4D7F-8451-AA850511C6B9");
@@ -42,14 +43,21 @@ internal sealed class FpsService : IDisposable
                 await writer.WriteLineAsync(TargetPid.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 string? line = await ReadBoundedLineAsync(reader, 64, _stop.Token);
                 if (line == null) break;
-                Fps = double.TryParse(line, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double value) && value is > 0 and < 10000 ? value : null;
-                Status = Fps.HasValue ? "Измеряется частота Present игры (DirectX)." : "Нет кадров DirectX у выбранного окна.";
+                ParseSample(line, out Fps, out CpuTemperatureC);
+                Status = Fps is > 0 ? "Измеряется частота Present игры (DirectX)." : "Нет кадров DirectX у выбранного окна.";
             }
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223) { Status = "Разрешение администратора отменено."; }
         catch (OperationCanceledException) { Status = "Сеанс измерения остановлен."; }
         catch (Exception ex) { AppLog.Error("FPS helper connection", ex); Status = "Счётчик игры недоступен. Попробуйте включить его снова."; }
-        finally { Fps = null; _pipe?.Dispose(); }
+        finally { Fps = null; CpuTemperatureC = -1; _pipe?.Dispose(); }
+    }
+
+    internal static void ParseSample(string line, out double? fps, out int temperature)
+    {
+        string[] fields = line.Split('|');
+        fps = fields.Length == 2 && double.TryParse(fields[0], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double value) && value is >= 0 and < 10000 ? value : null;
+        temperature = fields.Length == 2 && int.TryParse(fields[1], out int celsius) && celsius is >= 5 and <= 125 ? celsius : -1;
     }
 
     internal static bool IsPresent(Guid provider, int id) => (provider == Dxgi && id is 42 or 55) || (provider == D3d9 && id == 1);
@@ -83,6 +91,7 @@ internal sealed class FpsService : IDisposable
             var consume = Task.Run(() => trace.Source.Process());
             using var reader = new StreamReader(pipe, leaveOpen: true);
             using var writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
+            using var temperature = new CpuTemperatureService();
             try
             {
                 while (!stop.IsCancellationRequested)
@@ -92,7 +101,8 @@ internal sealed class FpsService : IDisposable
                     Volatile.Write(ref target, pid); Interlocked.Exchange(ref frames, 0);
                     var clock = Stopwatch.StartNew(); await Task.Delay(1000, stop.Token);
                     double fps = Interlocked.Exchange(ref frames, 0) / clock.Elapsed.TotalSeconds;
-                    await writer.WriteLineAsync(fps.ToString("F2", System.Globalization.CultureInfo.InvariantCulture));
+                    int celsius = temperature.ReadCelsius();
+                    await writer.WriteLineAsync(fps.ToString("F2", System.Globalization.CultureInfo.InvariantCulture) + "|" + celsius.ToString(System.Globalization.CultureInfo.InvariantCulture));
                 }
             }
             finally { trace.Stop(); await consume; }

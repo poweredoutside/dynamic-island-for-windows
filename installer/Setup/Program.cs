@@ -70,10 +70,13 @@ internal static class Program
         if (pe.PEHeaders.PEHeader?.Subsystem != Subsystem.WindowsGui) throw new Exception("Setup must use the Windows GUI subsystem.");
         using var package = File.OpenRead(Path.Combine(payload.DirectoryPath, "DynamicIsland.msix"));
         string hash = Convert.ToHexString(await SHA256.HashDataAsync(package));
+        using var driver = File.OpenRead(Path.Combine(payload.DirectoryPath, "PawnIO_setup.exe"));
+        string driverHash = Convert.ToHexString(await SHA256.HashDataAsync(driver));
+        if (driverHash != "1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032") throw new Exception("Embedded PawnIO installer differs from the verified dependency.");
         await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(new
         {
             success = true, standalone = true, subsystem = "WindowsGui", hiddenPowerShell = !console, existingInstallFlowChecked,
-            embeddedPackageSha256 = hash, plan = plan.RootElement.Clone()
+            embeddedPackageSha256 = hash, embeddedDriverSha256 = driverHash, plan = plan.RootElement.Clone()
         }, new JsonSerializerOptions { WriteIndented = true }));
     }
 }
@@ -86,7 +89,7 @@ internal sealed class InstallerPayload : IDisposable
     internal async Task ExtractAsync()
     {
         Directory.CreateDirectory(DirectoryPath);
-        foreach (string name in new[] { "DynamicIsland.msix", "DynamicIsland.cer", "Install.ps1" })
+        foreach (string name in new[] { "DynamicIsland.msix", "DynamicIsland.cer", "Install.ps1", "PawnIO_setup.exe" })
         {
             await using var source = Assembly.GetExecutingAssembly().GetManifestResourceStream("Payload." + name)
                 ?? throw new InvalidDataException("В установщике отсутствует файл " + name);
@@ -143,11 +146,13 @@ internal sealed class SetupWindow : Window
     private readonly TextBlock _details = new() { Text = "Нажмите «Установить», чтобы продолжить.", Foreground = Muted, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 0) };
     private readonly ProgressBar _progress = new() { Height = 4, Foreground = Mint, Background = new SolidColorBrush(Color.FromRgb(45, 53, 70)), Margin = new Thickness(0, 20, 0, 0) };
     private readonly CheckBox _launch = new() { Content = "Запустить OC - Dynamic Island после установки", IsChecked = true, Foreground = Ink, FontSize = 12, Margin = new Thickness(0, 18, 0, 0) };
+    private readonly CheckBox _temperatureDriver = new() { Content = "Установить PawnIO для температуры CPU (права администратора)", IsChecked = true, Foreground = Ink, FontSize = 12, Margin = new Thickness(0, 12, 0, 0) };
     private readonly Button _install = new() { Content = "Установить", MinWidth = 150, Padding = new Thickness(20, 11, 20, 11), Background = Mint, Foreground = new SolidColorBrush(Color.FromRgb(7, 36, 33)), FontSize = 13, FontWeight = FontWeights.SemiBold };
     private readonly Button _close = new() { Content = "Отмена", MinWidth = 96, Padding = new Thickness(18, 11, 18, 11), Margin = new Thickness(0, 0, 10, 0) };
     private bool _busy, _finished;
     private string? _errorLog;
     private string? _appId;
+    private bool _driverUnavailable;
 
     internal SetupWindow()
     {
@@ -165,7 +170,7 @@ internal sealed class SetupWindow : Window
         heading.Children.Add(new TextBlock { Text = "Установка версии " + InstallerPayload.Version + "  ·  Windows x64", Foreground = Muted, FontSize = 12 });
         root.Children.Add(heading);
         var cardContent = new StackPanel();
-        cardContent.Children.Add(_status); cardContent.Children.Add(_details); cardContent.Children.Add(_progress); cardContent.Children.Add(_launch);
+        cardContent.Children.Add(_status); cardContent.Children.Add(_details); cardContent.Children.Add(_progress); cardContent.Children.Add(_temperatureDriver); cardContent.Children.Add(_launch);
         var card = new Border { CornerRadius = new CornerRadius(16), Padding = new Thickness(22),
             Background = new LinearGradientBrush(Color.FromRgb(32, 40, 57), Color.FromRgb(24, 31, 45), 65),
             BorderBrush = new SolidColorBrush(Color.FromRgb(57, 69, 88)), BorderThickness = new Thickness(1),
@@ -201,7 +206,7 @@ internal sealed class SetupWindow : Window
             }
             Close(); return;
         }
-        _busy = true; _close.IsEnabled = false; _install.IsEnabled = false; _launch.IsEnabled = false;
+        _busy = true; _close.IsEnabled = false; _install.IsEnabled = false; _launch.IsEnabled = false; _temperatureDriver.IsEnabled = false;
         _progress.IsIndeterminate = true; _status.Text = "Подготовка файлов…";
         _details.Text = "Пакет приложения уже включён в ocdynamicisland.exe. Скачивать дополнительные файлы не нужно.";
         try
@@ -209,8 +214,9 @@ internal sealed class SetupWindow : Window
             using var payload = new InstallerPayload();
             await Task.Run(payload.ExtractAsync);
             var result = await InstallerPayload.RunPowerShellAsync(Path.Combine(payload.DirectoryPath, "Install.ps1"),
-                ["-NoLaunch", "-CloseRunningApp", "-Gui"], line =>
+                _temperatureDriver.IsChecked == true ? ["-NoLaunch", "-CloseRunningApp", "-Gui", "-InstallCpuTemperatureDriver"] : ["-NoLaunch", "-CloseRunningApp", "-Gui"], line =>
                 {
+                    if (line == "DI_WARNING:TemperatureDriver") _driverUnavailable = true;
                     if (line.StartsWith("DI_APPID:") && System.Text.RegularExpressions.Regex.IsMatch(line[9..], @"^DynamicIslandWin_[a-z0-9]{13}!App$"))
                         _appId = line[9..];
                     if (!line.StartsWith("DI_STATUS:")) return;
@@ -222,6 +228,7 @@ internal sealed class SetupWindow : Window
                             "Closing" => "Закрытие приложения перед обновлением…",
                             "Trust" => "Подтвердите запрос Windows…",
                             "Installing" => "Установка OC - Dynamic Island…",
+                            "TemperatureDriver" => "Установка драйвера датчиков CPU…",
                             _ => _status.Text
                         };
                         if (line == "DI_STATUS:Trust") _details.Text = "Windows запрашивает разрешение добавить сертификат тестовой сборки. Если отменить запрос, установка не продолжится.";
@@ -230,7 +237,7 @@ internal sealed class SetupWindow : Window
             if (result.ExitCode != 0) throw new InvalidOperationException(result.Output);
             if (_appId == null) throw new InvalidOperationException("Установка не подтвердила регистрацию приложения.");
             _status.Text = "OC - Dynamic Island установлен";
-            _details.Text = "Всё готово. Приложение доступно в меню «Пуск». При первом запуске разрешите доступ к уведомлениям.";
+            _details.Text = _driverUnavailable ? "Приложение установлено. Драйвер температуры CPU не установлен; повторить можно в игровом центре. FPS доступен после подтверждения запроса Windows." : "Всё готово. Приложение доступно в меню «Пуск». При первом запуске разрешите доступ к уведомлениям.";
             _progress.IsIndeterminate = false; _progress.Value = 100;
             _close.Content = "Закрыть"; _install.Content = "Готово"; _finished = true;
         }
@@ -245,6 +252,6 @@ internal sealed class SetupWindow : Window
             _close.Content = "Закрыть"; _progress.IsIndeterminate = false; _progress.Value = 0;
             _finished = _errorLog != null;
         }
-        finally { _busy = false; _close.IsEnabled = true; _install.IsEnabled = true; _launch.IsEnabled = true; }
+        finally { _busy = false; _close.IsEnabled = true; _install.IsEnabled = true; _launch.IsEnabled = true; _temperatureDriver.IsEnabled = true; }
     }
 }

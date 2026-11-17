@@ -19,6 +19,7 @@
   <ItemGroup Condition="'$(InstallerPayloadDirectory)' != ''">
     <EmbeddedResource Include="$(InstallerPayloadDirectory)\DynamicIsland.msix" LogicalName="Payload.DynamicIsland.msix" />
     <EmbeddedResource Include="$(InstallerPayloadDirectory)\DynamicIsland.cer" LogicalName="Payload.DynamicIsland.cer" />
+    <EmbeddedResource Include="$(InstallerPayloadDirectory)\PawnIO_setup.exe" LogicalName="Payload.PawnIO_setup.exe" />
     <EmbeddedResource Include="..\Install.ps1" LogicalName="Payload.Install.ps1" />
   </ItemGroup>
   <Target Name="RequirePayload" BeforeTargets="BeforeBuild" Condition="'$(InstallerPayloadDirectory)' == ''">

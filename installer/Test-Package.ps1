@@ -1,4 +1,4 @@
-param([string]$Path = (Join-Path $PSScriptRoot '..\artifacts\DynamicIsland-1.1.5.0-x64\DynamicIsland.msix'))
+param([string]$Path = (Join-Path $PSScriptRoot '..\artifacts\DynamicIsland-1.1.7.0-x64\DynamicIsland.msix'))
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $Path))
@@ -7,6 +7,12 @@ try {
         if (!$archive.GetEntry($required)) { throw "Missing package file: $required" }
     }
     $hostEntry = $archive.GetEntry('Activation/NotificationActivationHost.exe')
+    if (!$archive.GetEntry('LibreHardwareMonitorLib.dll') -or !$archive.GetEntry('Hardware/PawnIO_setup.exe') -or !$archive.GetEntry('licenses/LibreHardwareMonitor/LICENSE')) { throw 'CPU temperature dependency or its license is missing.' }
+    $driver = $archive.GetEntry('Hardware/PawnIO_setup.exe').Open()
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try {
+        if ([BitConverter]::ToString($sha.ComputeHash($driver)).Replace('-', '') -ne '1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032') { throw 'Bundled CPU temperature driver checksum mismatch.' }
+    } finally { $sha.Dispose(); $driver.Dispose() }
     if ($hostEntry.Length -lt 30000000) { throw 'Activation host is missing its self-contained runtime.' }
     $hostReader = [IO.BinaryReader]::new($hostEntry.Open())
     try { $hostHeader = $hostReader.ReadBytes(4096) } finally { $hostReader.Dispose() }

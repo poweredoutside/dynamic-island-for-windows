@@ -6,9 +6,18 @@ separate programs need to be installed.
 - NAudio 2.2.1 — MIT, https://github.com/naudio/NAudio
 - Ical.Net 4.3.1 — MIT, https://github.com/ical-org/ical.net
 - Microsoft.Diagnostics.Tracing.TraceEvent 3.1.21 — MIT, https://github.com/microsoft/perfview
-- System.Management 8.0.0 and System.Security.Cryptography.ProtectedData 8.0.0 — MIT,
+- LibreHardwareMonitorLib 0.9.6 — MPL-2.0. Unmodified source:
+  https://github.com/LibreHardwareMonitor/LibreHardwareMonitor/tree/3d331e3370efb858411f19511373eff65a218701
+  License and upstream notices are included in licenses/LibreHardwareMonitor.
+- System.Management 10.0.2 and System.Security.Cryptography.ProtectedData 8.0.0 — MIT,
   https://github.com/dotnet/runtime
 - NodaTime (Ical.Net dependency) — Apache-2.0, https://github.com/nodatime/nodatime
+- PawnIO 2.2.0 signed official installer, redistributed unmodified. Driver source
+  and GPL-2.0-or-later with IOCTL exception: https://github.com/namazso/PawnIO.
+  Official installer: https://github.com/namazso/PawnIO.Setup/releases/tag/2.2.0.
+  Corresponding driver source with submodules is available as
+  PawnIO-2.2.0-source.zip beside the application installer in the same GitHub release.
+  Driver installation is optional and is offered explicitly by the setup UI.
 
 Optional network services: Gemini Live (Google), LRCLIB and GitHub Releases.
 Their respective service terms apply. Gemini requires a user-supplied key.

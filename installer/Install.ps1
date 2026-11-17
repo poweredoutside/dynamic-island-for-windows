@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$NoLaunch, [switch]$ResolveOnly, [switch]$PlanOnly, [switch]$CloseRunningApp, [switch]$Gui)
+param([switch]$NoLaunch, [switch]$ResolveOnly, [switch]$PlanOnly, [switch]$CloseRunningApp, [switch]$Gui, [switch]$InstallCpuTemperatureDriver)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
@@ -71,7 +71,23 @@ if ($PlanOnly) {
 if ($action -eq 'RequireNewerVersion') {
     throw "Windows already has $($existing.PackageFullName). Install a package newer than $($existing.Version) to update safely. The existing app has been kept."
 }
+function Install-TemperatureDriver {
+    if (!$InstallCpuTemperatureDriver) { return }
+    $driverRegistration = Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO' -ErrorAction SilentlyContinue
+    if ($driverRegistration) { return }
+    $driverPath = Join-Path $packageDirectory 'PawnIO_setup.exe'
+    if ((Get-FileHash -LiteralPath $driverPath -Algorithm SHA256).Hash -ne '1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032') { throw 'PawnIO installer SHA-256 mismatch.' }
+    $driverSignature = Get-AuthenticodeSignature -LiteralPath $driverPath
+    if ($driverSignature.Status -ne 'Valid' -or $driverSignature.SignerCertificate.Thumbprint -ne 'F380DCC9F706E2756A5047B832FFE719E1BC35F5') { throw 'PawnIO signature is invalid.' }
+    if ($Gui) { Write-Output 'DI_STATUS:TemperatureDriver' }
+    try {
+        $driverInstall = Start-Process -FilePath $driverPath -Verb RunAs -WindowStyle Hidden -ArgumentList @('-install', '-silent') -Wait -PassThru
+        if ($driverInstall.ExitCode -ne 0) { Write-Output 'DI_WARNING:TemperatureDriver' }
+    }
+    catch { Write-Output 'DI_WARNING:TemperatureDriver' }
+}
 if ($action -eq 'AlreadyInstalled') {
+    Install-TemperatureDriver
     Write-Host "OC - Dynamic Island $incomingVersion is already installed."
     if ($Gui) { Write-Output ('DI_APPID:' + $existing.PackageFamilyName + '!App') }
     if (!$NoLaunch) { Start-Process -FilePath 'explorer.exe' -ArgumentList ('shell:AppsFolder\' + $existing.PackageFamilyName + '!App') }
@@ -129,6 +145,7 @@ if ($signature.Status -ne 'Valid') {
 # Runs as the original user; MSIX handles atomic updates and Settings > Apps removal.
 if ($Gui) { Write-Output 'DI_STATUS:Installing' }
 Add-AppxPackage -Path $packagePath -ErrorAction Stop
+Install-TemperatureDriver
 $installed = Get-AppxPackage -Name $identity.Name | Where-Object { $_.Publisher -eq $identity.Publisher -and [version]$_.Version -eq $incomingVersion -and [string]$_.Architecture -eq $incomingArchitecture } | Select-Object -First 1
 if (!$installed) { throw 'Windows did not register the expected OC - Dynamic Island version and architecture.' }
 Remove-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run' -Name 'DynamicIslandWin' -ErrorAction SilentlyContinue

@@ -30,7 +30,7 @@ try {
         $global:DynamicIslandUpdateTestPackage = if ($case.Version) {
             [pscustomobject]@{ Version = $case.Version; Architecture = $case.Architecture; Publisher = 'CN=DynamicIslandWin'; PackageFullName = 'test-existing-package' }
         } else { $null }
-        $plan = & (Join-Path $fixture 'Install.ps1') -PlanOnly
+        $plan = & (Join-Path $fixture 'Install.ps1') -PlanOnly -InstallCpuTemperatureDriver
         if ($plan.Action -ne $case.Expected) { throw "Unexpected update plan for $($case.Version)/$($case.Architecture): $($plan.Action)" }
     }
     Write-Host "PASS: $($cases.Count) installer update scenarios, including neutral-to-x64 migration."

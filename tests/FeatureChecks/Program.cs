@@ -17,6 +17,16 @@ internal static class Program
         void Check(bool result, string reason) { if (!result) throw new InvalidOperationException(reason); checks++; }
         if (args.Contains("--volume-events")) return CheckVolumeEvents();
         if (args.Contains("--verify-release")) return CheckPublishedRelease();
+        Check(CpuTemperatureService.SelectCelsius([("CPU Package", 72f), ("CPU Core #1", 81f)]) == 72, "CPU package temperature takes priority over individual cores");
+        Check(CpuTemperatureService.SelectCelsius([("CPU Core #1", 61f), ("CPU Core #2", 78f)]) == 78, "Hottest core used when package sensor is absent");
+        Check(CpuTemperatureService.SelectCelsius([("CPU Core #1", 41f), ("Distance to TjMax Core #1", 59f)]) == 41, "Distance from the thermal limit is never treated as the CPU temperature");
+        Check(CpuTemperatureService.SelectCelsius([("CPU Package", null), ("CPU Core #1", float.NaN), ("CPU Core #2", 200f)]) == -1, "Unavailable and invalid CPU sensors remain unavailable");
+        FpsService.ParseSample("144.20|72", out var measuredFps, out int measuredTemperature);
+        Check(measuredFps == 144.2 && measuredTemperature == 72, "Elevated helper delivers FPS and real CPU temperature");
+        FpsService.ParseSample("0.00|-1", out measuredFps, out measuredTemperature);
+        Check(measuredFps == 0 && measuredTemperature == -1, "Zero rendered frames differ from unavailable sensor");
+        FpsService.ParseSample("NaN|999", out measuredFps, out measuredTemperature);
+        Check(measuredFps == null && measuredTemperature == -1, "Malformed helper values rejected");
         var keys = new VolumeKeyRouter();
         var commands = new List<int>();
         bool Queue(int key) { commands.Add(key); return true; }
@@ -99,7 +109,7 @@ internal static class Program
         for (int i = 0; i < 1000; i++) Call("VolumeChanged", new VolumeIslandService.Snapshot(i / 999f, i == 999));
         Check((bool)typeof(MainWindow).GetField("_volumeDispatchPending", flags)!.GetValue(window)!, "Rapid changes schedule a single UI delivery");
         var drain = new DispatcherFrame(); Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => drain.Continue = false)); Dispatcher.PushFrame(drain);
-        Check(Element<TextBlock>("LevelHudText").Text == "Звук выключен", "Latest mute-only snapshot wins, without a system scan");
+        Check(Element<TextBlock>("LevelHudText").Text == "Muted", "Latest mute-only snapshot wins in the selected language, without a system scan");
         Call("SetVolumeIslandHud", false); Call("VolumeChanged", new VolumeIslandService.Snapshot(.5f, false));
         drain = new DispatcherFrame(); Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => drain.Continue = false)); Dispatcher.PushFrame(drain);
         Check(Element<Border>("LevelHudBorder").Visibility == Visibility.Collapsed, "Disabled HUD ignores already queued callbacks");

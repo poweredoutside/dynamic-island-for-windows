@@ -138,7 +138,7 @@ public partial class MainWindow : Window
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "DynamicIslandWin", "settings.json");
 
-    public record ClipboardHistoryItem(string Text, DateTime CopiedAt);
+    public record ClipboardHistoryItem(string Text, DateTime CopiedAt, string? ImageFile = null);
     private List<ClipboardHistoryItem> _clipboardHistory = new();
     private readonly string _clipboardHistoryPath = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -306,6 +306,8 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        CaptureAdditionalLabels(this);
+        CaptureAdditionalLabels(IslandBorder.ContextMenu);
     }
 
     private async void Window_Loaded(object sender, RoutedEventArgs e)
@@ -461,15 +463,17 @@ public partial class MainWindow : Window
 
     private void UpdateGameHudValues()
     {
+        int temperature = _gameFps?.CpuTemperatureC is >= 5 and <= 125 ? _gameFps.CpuTemperatureC : _lastCpuTempC;
         GameHudFpsText.Text     = _gameFps?.Fps is { } fps ? $"{fps:0}" : "—";
+        GameHudFpsText.ToolTip = L(_gameFps?.Status ?? "Для измерения FPS игры включите встроенный счётчик. Windows запросит права администратора для ETW. Дополнительных программ не требуется.");
         GameHudCpuText.Text     = $"{_lastCpuUsage}%";
-        GameHudCpuTempText.Text = _lastCpuTempC >= 0 ? $"{_lastCpuTempC}°C" : "—";
+        GameHudCpuTempText.Text = temperature >= 0 ? $"{temperature}°C" : "—";
         GameHudGpuText.Text     = _lastGpuUsage >= 0 ? $"{_lastGpuUsage}%" : "—";
 
         Brush tempBrush;
-        if (_lastCpuTempC >= 80)
+        if (temperature >= 80)
             tempBrush = (Brush)FindResource("ThemeDangerBrush");
-        else if (_lastCpuTempC >= 65)
+        else if (temperature >= 65)
             tempBrush = (Brush)FindResource("ThemeWarningBrush");
         else
             tempBrush = (Brush)FindResource("ThemeTextBrush");
@@ -477,6 +481,22 @@ public partial class MainWindow : Window
         GameHudCpuTempText.Foreground = tempBrush;
         if (GameHudTempIcon != null)
             GameHudTempIcon.Fill = tempBrush;
+    }
+
+    private void UpdateFpsTarget()
+    {
+        GetWindowThreadProcessId(GetForegroundWindow(), out uint pid);
+        if (_gameFps == null || pid == 0 || pid == Environment.ProcessId) return;
+        if (_gameFps.TargetPid != (int)pid) _gameFps.Fps = null;
+        _gameFps.TargetPid = (int)pid;
+    }
+
+    private void StartGameMetrics()
+    {
+        if (_gameFps != null) return;
+        _gameFps = new FpsService();
+        UpdateFpsTarget();
+        _ = _gameFps.StartAsync();
     }
 
     private void ApplyGameModeState(bool active, bool collapseToHud)
@@ -556,7 +576,7 @@ public partial class MainWindow : Window
             if (!string.IsNullOrEmpty(detectedChannel))
                 _discordChannelLabel = detectedChannel;
 
-            DiscordCallChannelText.Text  = _discordChannelLabel;
+            DiscordCallChannelText.Text  = L(_discordChannelLabel);
             DiscordCallTimerText.Text    = $"{_discordCallSeconds / 60:D2}:{_discordCallSeconds % 60:D2}";
             DiscordVoicePulseDot.Opacity = (_discordCallSeconds % 2 == 0) ? 1.0 : 0.45;
             DiscordCallBorder.Visibility = _currentState is IslandState.Settings or IslandState.Features ? Visibility.Collapsed : Visibility.Visible;
@@ -636,6 +656,7 @@ public partial class MainWindow : Window
     private void TglGameModeHud_Click(object sender, RoutedEventArgs e)
     {
         bool isChecked = TglGameModeHud.IsChecked ?? false;
+        if (isChecked) StartGameMetrics();
         ApplyGameModeState(isChecked, collapseToHud: isChecked);
         SaveSettings();
     }
@@ -644,6 +665,7 @@ public partial class MainWindow : Window
     {
         bool next = !(TglGameModeHud.IsChecked ?? false);
         TglGameModeHud.IsChecked = next;
+        if (next) StartGameMetrics();
         ApplyGameModeState(next, collapseToHud: next);
         SaveSettings();
     }
@@ -1183,6 +1205,7 @@ public partial class MainWindow : Window
             CustomBgBorder.CornerRadius = cr;
         }
 
+        UpdateGlassShadow();
         if (SettingsView.IsVisible && now - _lastMascotFrame >= 1.0 / 30)
             MascotBobTransform.Y = Math.Sin(now * 2.8) * 1.6;
         if (now - _lastMascotFrame >= 1.0 / 30)
@@ -1312,216 +1335,7 @@ public partial class MainWindow : Window
 
     #endregion
 
-    #region Мониторинг Буфера Обмена (История за 24 часа с автоочисткой)
-
-    private void LoadClipboardHistory()
-    {
-        try
-        {
-            if (File.Exists(_clipboardHistoryPath))
-            {
-                string json = File.ReadAllText(_clipboardHistoryPath, Encoding.UTF8);
-                var loaded = JsonSerializer.Deserialize<List<ClipboardHistoryItem>>(json);
-                if (loaded != null)
-                    _clipboardHistory = loaded;
-            }
-        }
-        catch { }
-
-        PruneExpiredClipboardItems(saveIfChanged: true);
-        RenderClipboardHistoryUi();
-    }
-
-    private void SaveClipboardHistory()
-    {
-        try
-        {
-            string? dir = System.IO.Path.GetDirectoryName(_clipboardHistoryPath);
-            if (!string.IsNullOrEmpty(dir))
-                Directory.CreateDirectory(dir);
-
-            string json = JsonSerializer.Serialize(_clipboardHistory, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(_clipboardHistoryPath, json, Encoding.UTF8);
-        }
-        catch { }
-    }
-
-    private void PruneExpiredClipboardItems(bool saveIfChanged = true)
-    {
-        DateTime cutoff = DateTime.Now.AddHours(-24);
-        int removed = _clipboardHistory.RemoveAll(item => item.CopiedAt < cutoff);
-        if (removed > 0)
-        {
-            if (saveIfChanged)
-                SaveClipboardHistory();
-            RenderClipboardHistoryUi();
-        }
-    }
-
-    private void OnClipboardChanged()
-    {
-        if (!(TglClipboardWatch.IsChecked ?? true)) return;
-
-        try
-        {
-            if (!System.Windows.Clipboard.ContainsText()) return;
-            string rawText = System.Windows.Clipboard.GetText().Trim();
-            if (string.IsNullOrEmpty(rawText)) return;
-
-            if (LooksLikePasswordOrSecret(rawText))
-            {
-                ShowSideBubble(Tr("Password hidden", "Пароль скрыт", "Пароль приховано", "Passwort ausgeblendet", "Contraseña oculta"), ToastCategory.Clipboard);
-                return;
-            }
-
-            string oneLine = Regex.Replace(rawText, @"\s+", " ");
-            if (oneLine == _lastClipboardHash) return;
-            _lastClipboardHash = oneLine;
-
-            PruneExpiredClipboardItems(saveIfChanged: false);
-
-            // Удаляем дубликат, если такой текст уже копировался сегодня, и поднимаем наверх со свежим временем
-            _clipboardHistory.RemoveAll(x => string.Equals(x.Text, rawText, StringComparison.Ordinal));
-            _clipboardHistory.Insert(0, new ClipboardHistoryItem(rawText, DateTime.Now));
-
-            // Ограничиваем разумным максимумом (например, 100 записей за сутки)
-            if (_clipboardHistory.Count > 100)
-                _clipboardHistory.RemoveRange(100, _clipboardHistory.Count - 100);
-
-            SaveClipboardHistory();
-            RenderClipboardHistoryUi();
-
-            string preview = oneLine.Length > 24 ? oneLine[..24] + "…" : oneLine;
-            string prefix = Tr("Copied", "Скопировано", "Скопійовано", "Kopiert", "Copiado");
-            ShowSideBubble($"{prefix}: {preview}", ToastCategory.Clipboard);
-        }
-        catch { }
-    }
-
-    private void RenderClipboardHistoryUi()
-    {
-        if (LblClipboardHeader == null || HomeClipboardPreview == null) return;
-
-        string baseTitle = Tr("Clipboard", "Буфер обмена", "Буфер обміну", "Zwischenablage", "Portapapeles");
-        LblClipboardHeader.Text = _clipboardHistory.Count > 0
-            ? $"{baseTitle} ({_clipboardHistory.Count})"
-            : baseTitle;
-
-        if (_clipboardHistory.Count > 0)
-        {
-            string latestOneLine = Regex.Replace(_clipboardHistory[0].Text, @"\s+", " ");
-            HomeClipboardPreview.Text = latestOneLine;
-        }
-        else
-        {
-            HomeClipboardPreview.Text = Tr("Copy any text to see it here", "Скопируйте текст, и он появится здесь", "Скопіюйте текст, щоб побачити тут", "Text kopieren für Vorschau", "Copia texto para verlo aquí");
-        }
-
-        if (ClipboardHistoryListStack == null || ClipboardEmptyStateText == null) return;
-
-        ClipboardHistoryListStack.Children.Clear();
-        ClipboardEmptyStateText.Visibility = _clipboardHistory.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-
-        foreach (var item in _clipboardHistory)
-        {
-            var rowBorder = new Border
-            {
-                Background = new SolidColorBrush(Color.FromArgb(0x22, 0xFF, 0xFF, 0xFF)),
-                BorderBrush = new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(12),
-                Padding = new Thickness(12, 8, 10, 8),
-                Margin = new Thickness(0, 0, 0, 6),
-                Cursor = System.Windows.Input.Cursors.Hand
-            };
-
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            string singleLinePreview = Regex.Replace(item.Text, @"\s+", " ");
-            var txtBlock = new TextBlock
-            {
-                Text = singleLinePreview,
-                Foreground = Brushes.White,
-                FontSize = 12,
-                FontWeight = FontWeights.Medium,
-                VerticalAlignment = VerticalAlignment.Center,
-                TextTrimming = TextTrimming.CharacterEllipsis,
-                ToolTip = item.Text
-            };
-            rowBorder.SetResourceReference(Border.BackgroundProperty, "ThemeSurfaceBrush");
-            rowBorder.SetResourceReference(Border.BorderBrushProperty, "ThemeBorderBrush");
-            txtBlock.SetResourceReference(TextBlock.ForegroundProperty, "ThemeTextBrush");
-            Grid.SetColumn(txtBlock, 0);
-
-            var timeBlock = new TextBlock
-            {
-                Text = item.CopiedAt.ToString("HH:mm"),
-                Foreground = new SolidColorBrush(Color.FromArgb(0x88, 0xFF, 0xFF, 0xFF)),
-                FontSize = 11,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(10, 0, 8, 0)
-            };
-            timeBlock.SetResourceReference(TextBlock.ForegroundProperty, "ThemeMutedBrush");
-            Grid.SetColumn(timeBlock, 1);
-
-            var delBtn = new System.Windows.Controls.Button
-            {
-                Style = (Style)FindResource("GlassPillBtn"),
-                Background = Brushes.Transparent,
-                Content = "✕",
-                Padding = new Thickness(7, 2, 7, 2),
-                FontSize = 11,
-                Foreground = new SolidColorBrush(Color.FromArgb(0xAA, 0xFF, 0xFF, 0xFF))
-            };
-            delBtn.Click += (_, e) =>
-            {
-                e.Handled = true;
-                _clipboardHistory.Remove(item);
-                SaveClipboardHistory();
-                RenderClipboardHistoryUi();
-            };
-            delBtn.SetResourceReference(Control.ForegroundProperty, "ThemeSecondaryBrush");
-            Grid.SetColumn(delBtn, 2);
-
-            grid.Children.Add(txtBlock);
-            grid.Children.Add(timeBlock);
-            grid.Children.Add(delBtn);
-            rowBorder.Child = grid;
-
-            rowBorder.MouseLeftButtonUp += (_, e) =>
-            {
-                e.Handled = true;
-                try
-                {
-                    _lastClipboardHash = Regex.Replace(item.Text, @"\s+", " ");
-                    System.Windows.Clipboard.SetText(item.Text);
-                    ShowSideBubble(Tr("Copied from history", "Скопировано из истории", "Скопійовано з історії", "Aus Verlauf kopiert", "Copiado del historial"), ToastCategory.Clipboard);
-                }
-                catch { }
-            };
-
-            ClipboardHistoryListStack.Children.Add(rowBorder);
-        }
-    }
-
-    private void OpenClipboardDashboard_Click(object sender, MouseButtonEventArgs e)
-    {
-        e.Handled = true;
-        MorphToState(IslandState.Clipboard);
-    }
-
-    private void BtnClearClipboardHistory_Click(object sender, RoutedEventArgs e)
-    {
-        e.Handled = true;
-        _clipboardHistory.Clear();
-        _lastClipboardHash = string.Empty;
-        SaveClipboardHistory();
-        RenderClipboardHistoryUi();
-    }
-
+    #region Clipboard privacy
     private static bool LooksLikePasswordOrSecret(string text)
     {
         if (text.Length > 220) return false;
@@ -1691,6 +1505,7 @@ public partial class MainWindow : Window
                 break;
         }
 
+        RegisterLegacyMascot(canvas, key);
         return new Viewbox { Width = size, Height = size, Child = canvas };
     }
 
@@ -1733,6 +1548,29 @@ public partial class MainWindow : Window
         "Dino"   => Tr("Dino", "Дино", "Діно", "Dino", "Dino"),
         "Star"   => Tr("Star", "Звёздочка", "Зірочка", "Stern", "Estrella"),
         "Cloud"  => Tr("Cloud", "Облачко", "Хмаринка", "Wolke", "Nube"),
+        "None" => Tr("No character", "Без персонажа", "Без персонажа", "Kein Charakter", "Sin personaje"),
+        "Puppy" => Tr("Puppy", "Щенок", "Цуценя", "Welpe", "Cachorro"),
+        "Fox" => Tr("Fox", "Лиса", "Лисиця", "Fuchs", "Zorro"),
+        "Panda" => Tr("Panda", "Панда", "Панда", "Panda", "Panda"),
+        "Bear" => Tr("Bear", "Медведь", "Ведмідь", "Bär", "Oso"),
+        "Frog" => Tr("Frog", "Лягушка", "Жаба", "Frosch", "Rana"),
+        "Penguin" => Tr("Penguin", "Пингвин", "Пінгвін", "Pinguin", "Pingüino"),
+        "Chick" => Tr("Chick", "Цыплёнок", "Курча", "Küken", "Pollito"),
+        "Piggy" => Tr("Piggy", "Поросёнок", "Порося", "Ferkel", "Cerdito"),
+        "Koala" => Tr("Koala", "Коала", "Коала", "Koala", "Koala"),
+        "Mouse" => Tr("Mouse", "Мышка", "Мишка", "Maus", "Ratón"),
+        "Bee" => Tr("Bee", "Пчела", "Бджола", "Biene", "Abeja"),
+        "Octopus" => Tr("Octopus", "Осьминог", "Восьминіг", "Oktopus", "Pulpo"),
+        "Mushroom" => Tr("Mushroom", "Гриб", "Гриб", "Pilz", "Seta"),
+        "Cactus" => Tr("Cactus", "Кактус", "Кактус", "Kaktus", "Cactus"),
+        "Alien" => Tr("Alien", "Пришелец", "Прибулець", "Alien", "Alienígena"),
+        "Bat" => Tr("Bat", "Летучая мышь", "Кажан", "Fledermaus", "Murciélago"),
+        "Moon" => Tr("Moon", "Луна", "Місяць", "Mond", "Luna"),
+        "Sun" => Tr("Sun", "Солнце", "Сонце", "Sonne", "Sol"),
+        "Flame" => Tr("Flame", "Огонёк", "Вогник", "Flamme", "Llama"),
+        "Droplet" => Tr("Droplet", "Капля", "Крапля", "Tropfen", "Gota"),
+        "Heart" => Tr("Heart", "Сердце", "Серце", "Herz", "Corazón"),
+        "Pumpkin" => Tr("Pumpkin", "Тыква", "Гарбуз", "Kürbis", "Calabaza"),
         _        => key
     };
 
@@ -1815,8 +1653,7 @@ public partial class MainWindow : Window
         if (ClipboardEmptyStateText != null)
             ClipboardEmptyStateText.Text = Tr("No copied text in the last 24 hours", "История за последние 24 часа пуста", "Історія за останні 24 години порожня", "Keine Einträge in den letzten 24 Stunden", "Sin textos en las últimas 24 horas");
         RenderClipboardHistoryUi();
-        if (string.IsNullOrEmpty(_lastClipboardHash))
-            HomeClipboardPreview.Text = Tr("Copy any text to see it here", "Скопируйте текст, и он появится здесь", "Скопіюйте текст, щоб побачити тут", "Text kopieren für Vorschau", "Copia texto para verlo aquí");
+
 
         TxtQuickRegion.Text    = Tr("Area", "Область", "Область", "Bereich", "Área");
         TxtQuickFull.Text      = Tr("Fullscreen", "Весь экран", "Весь екран", "Vollbild", "Pantalla");
@@ -1919,6 +1756,7 @@ public partial class MainWindow : Window
         LblAiHeader.Text        = Tr("AI Agents (Gemini / Claude / Codex / Antigravity)", "ИИ-агенты (Gemini / Claude / Codex / Antigravity)", "ШІ-агенти (Gemini / Claude / Codex / Antigravity)", "KI-Agenten (Gemini / Claude / Codex / Antigravity)", "Agentes IA (Gemini / Claude / Codex / Antigravity)");
         BtnLaunchAi.Content     = Tr("Launch AI Agent", "Запустить ИИ-агента", "Запустити ШІ-агента", "KI-Agent starten", "Iniciar agente IA");
 
+        ApplyAdditionalLocalization();
         UpdateDndVisuals();
         RenderWeatherUi();
     }
@@ -2062,8 +1900,8 @@ public partial class MainWindow : Window
         ApplyThemeResources(theme);
         Color c1 = (Color)ColorConverter.ConvertFromString(theme.C1);
         Color c2 = (Color)ColorConverter.ConvertFromString(theme.C2);
-        c1.A = _settings.LiquidGlass ? (byte)235 : (byte)255;
-        c2.A = _settings.LiquidGlass ? (byte)224 : (byte)255;
+        c1.A = _settings.LiquidGlass ? (byte)178 : (byte)255;
+        c2.A = _settings.LiquidGlass ? (byte)156 : (byte)255;
         var dur = TimeSpan.FromMilliseconds(240);
         GradStop1.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(c1, dur));
         GradStop2.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(c2, dur));
@@ -2889,6 +2727,7 @@ public partial class MainWindow : Window
             TglDndActiveState.IsChecked = _isDndActive;
 
         TglClipboardWatch.IsChecked   = _settings.ClipboardWatch;
+        SetExternalProgress(_settings.ExternalProgress);
         TglExcludeCapture.IsChecked   = _settings.ExcludeFromCapture;
         TglHideFullscreen.IsChecked   = _settings.HideInFullscreen;
         TglRunOnStartup.IsChecked     = _settings.RunOnStartup;

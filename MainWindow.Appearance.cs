@@ -9,6 +9,9 @@ using Button = System.Windows.Controls.Button;
 using Control = System.Windows.Controls.Control;
 using Brush = System.Windows.Media.Brush;
 using MouseEventArgs = System.Windows.Input.MouseEventArgs;
+using Size = System.Windows.Size;
+using Brushes = System.Windows.Media.Brushes;
+using Pen = System.Windows.Media.Pen;
 
 namespace DynamicIslandWin;
 
@@ -40,14 +43,14 @@ public partial class MainWindow
         Resources["ThemeBorderBrush"] = new SolidColorBrush(light ? Color.FromArgb(38, 22, 40, 65) : Color.FromArgb(45, 235, 244, 255));
         Resources["ThemePopupBrush"] = new SolidColorBrush(Blend(c1, c2, .5));
         Resources["ThemeFloatingBrush"] = glass
-            ? new LinearGradientBrush(WithAlpha(c1, 245), WithAlpha(c2, 230), 65)
+            ? new LinearGradientBrush(WithAlpha(c1, 194), WithAlpha(c2, 172), 65)
             : new SolidColorBrush(Blend(c1, c2, .5));
         Resources["ThemeSurfaceBrush"] = glass
             ? new LinearGradientBrush(light ? Color.FromArgb(155, 255, 255, 255) : Color.FromArgb(35, 255, 255, 255),
                 light ? Color.FromArgb(62, 255, 255, 255) : WithAlpha(c2, 90), 75)
             : new SolidColorBrush(Blend(c1, light ? Colors.White : c2, .4));
-        Resources["ThemeCapsuleBrush"] = new LinearGradientBrush(WithAlpha(c1, glass ? (byte)235 : (byte)255),
-            WithAlpha(c2, glass ? (byte)224 : (byte)255), 65);
+        Resources["ThemeCapsuleBrush"] = new LinearGradientBrush(WithAlpha(c1, glass ? (byte)178 : (byte)255),
+            WithAlpha(c2, glass ? (byte)156 : (byte)255), 65);
         Resources["GlassEdgeBrush"] = glass
             ? new LinearGradientBrush(light ? Color.FromArgb(240, 255, 255, 255) : Color.FromArgb(130, 235, 246, 255),
                 WithAlpha(accent, 45), 75)
@@ -89,5 +92,35 @@ public partial class MainWindow
         GlassSpecularBrush.Center = new Point(Math.Clamp(point.X / IslandBorder.ActualWidth, 0, 1),
             Math.Clamp(point.Y / IslandBorder.ActualHeight, 0, 1));
         GlassSpecularBrush.GradientOrigin = GlassSpecularBrush.Center;
+    }
+
+    private Size _shadowSize;
+    private double _shadowRadius;
+    private void UpdateGlassShadow()
+    {
+        IslandShadow.OpacityMask = _settings.IslandShadow ? null : Brushes.Transparent;
+        if (!_settings.IslandShadow) return;
+        var size = new Size(Math.Max(1, IslandBorder.Width), Math.Max(1, IslandBorder.Height));
+        double radius = IslandBorder.CornerRadius.TopLeft;
+        if (size == _shadowSize && radius == _shadowRadius) return;
+        _shadowSize = size; _shadowRadius = radius;
+        // Only draw outside the capsule. A filled shadow silhouette underneath
+        // translucent glass turns every theme opaque black.
+        var drawing = new DrawingGroup();
+        using (var context = drawing.Open())
+        {
+            context.DrawRectangle(Brushes.Transparent, null, new Rect(0, 0, size.Width + 56, size.Height + 56));
+            for (int distance = 24; distance >= 1; distance--)
+            {
+                byte alpha = (byte)(35 * Math.Exp(-distance * distance / 100.0));
+                var pen = new Pen(new SolidColorBrush(Color.FromArgb(alpha, 0, 0, 0)), 1.1);
+                context.DrawRoundedRectangle(null, pen,
+                    new Rect(28 - distance, 28 - distance, size.Width + distance * 2, size.Height + distance * 2),
+                    radius + distance, radius + distance);
+            }
+        }
+        drawing.Freeze();
+        IslandShadow.Source = new DrawingImage(drawing);
+        IslandShadow.Width = size.Width + 56; IslandShadow.Height = size.Height + 56;
     }
 }

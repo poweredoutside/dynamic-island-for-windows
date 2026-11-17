@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [version]$Version = '1.1.5.0',
+    [version]$Version = '1.1.7.0',
     [string]$PfxPath,
     [string]$PfxPassword = $env:DYNAMIC_ISLAND_PFX_PASSWORD
 )
@@ -15,6 +15,10 @@ $toolRoot = Join-Path $projectRoot '.tools\packages'
 New-Item -ItemType Directory -Force -Path $payload, $release | Out-Null
 & (Join-Path $PSScriptRoot 'Test-InstallerPaths.ps1')
 & (Join-Path $PSScriptRoot 'Test-InstallerUpdates.ps1')
+$hardwareInstaller = & (Join-Path $PSScriptRoot 'Get-HardwareDependency.ps1')
+Copy-Item -LiteralPath $hardwareInstaller -Destination (Join-Path $release 'PawnIO_setup.exe') -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot '.tools\hardware\PawnIO-2.2.0-source.zip') -Destination $release -Force
+Copy-Item -LiteralPath (Join-Path $projectRoot '.tools\hardware\PawnIO-2.2.0-source.zip') -Destination $outputRoot -Force
 
 function Invoke-Checked([string]$File, [string[]]$Arguments) {
     & $File @Arguments

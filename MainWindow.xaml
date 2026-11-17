@@ -188,16 +188,12 @@
         </Grid.ColumnDefinitions>
 
         <!-- ГЛАВНАЯ КАПСУЛА ОСТРОВА (По центру) -->
-        <Border x:Name="IslandShadow" Grid.Column="1" IsHitTestVisible="False"
-                Width="{Binding Width, ElementName=IslandBorder}" Height="{Binding Height, ElementName=IslandBorder}"
-                CornerRadius="{Binding CornerRadius, ElementName=IslandBorder}"
-                Visibility="{Binding Visibility, ElementName=IslandBorder}"
-                RenderTransform="{Binding RenderTransform, ElementName=IslandBorder}" RenderTransformOrigin="0.5,0"
-                Opacity="{Binding Opacity, ElementName=IslandBorder}"
-                HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,10,0,0" Background="Black">
-            <Border.CacheMode><BitmapCache/></Border.CacheMode>
-            <Border.Effect><DropShadowEffect BlurRadius="22" ShadowDepth="4" Opacity="0.3" Color="Black"/></Border.Effect>
-        </Border>
+        <Image x:Name="IslandShadow" Grid.Column="1" IsHitTestVisible="False"
+               Visibility="{Binding Visibility, ElementName=IslandBorder}"
+               RenderTransform="{Binding RenderTransform, ElementName=IslandBorder}" RenderTransformOrigin="0.5,0"
+               Opacity="{Binding Opacity, ElementName=IslandBorder}"
+               HorizontalAlignment="Center" VerticalAlignment="Top" Margin="-28,-18,-28,-28"
+               Stretch="Fill"/>
         <Border x:Name="IslandBorder"
                 Grid.Column="1"
                 Width="210" Height="38"
@@ -294,12 +290,6 @@
                     </Grid>
 
                     <TextBlock x:Name="CompactBatteryText" HorizontalAlignment="Right" Visibility="Collapsed" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextBrush}" FontSize="12"/>
-                    <Border x:Name="CompactProgressPanel" Visibility="Collapsed" Background="{DynamicResource ThemeCapsuleBrush}" CornerRadius="12" Padding="8,2" MouseLeftButtonUp="Progress_Click" Cursor="Hand">
-                        <Grid VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Grid Width="24" Height="24"><Ellipse Stroke="{DynamicResource ThemeBorderBrush}" StrokeThickness="2" Margin="2"/><Path x:Name="CompactProgressRing" Stroke="{DynamicResource ThemeAccentBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Grid>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock x:Name="CompactProgressLabel" Foreground="{DynamicResource ThemeTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis"/><ProgressBar x:Name="CompactProgressBar" Visibility="Collapsed" Maximum="100"/></StackPanel>
-                        </Grid>
-                    </Border>
                     <Grid x:Name="KaraokePanel" Visibility="Collapsed" IsHitTestVisible="False" Background="{DynamicResource ThemeCapsuleBrush}">
                         <Viewbox Stretch="Uniform" StretchDirection="DownOnly" Margin="6,0"><Grid>
                         <TextBlock x:Name="KaraokeOldLine" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource ThemeMutedBrush}"/>
@@ -1050,6 +1040,14 @@
 
                                             <!-- 2. ИГРОВОЙ РЕЖИМ (БЕЗ КНОПКИ ВКЛ/ВЫКЛ — ТОЛЬКО ТУМБЛЕР) -->
                                             <Grid Margin="0,0,0,12">
+                                                <StackPanel Margin="0,0,55,0" VerticalAlignment="Center">
+                                                    <TextBlock x:Name="LblExternalProgress" Text="Прогресс других программ справа" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                    <TextBlock x:Name="LblExternalProgressSub" Text="Отдельная капсула, не закрывающая часы и погоду" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                                <CheckBox x:Name="TglExternalProgress" Style="{StaticResource IslandSwitch}" IsChecked="True" HorizontalAlignment="Right" Click="TglExternalProgress_Click"/>
+                                            </Grid>
+
+                                            <Grid Margin="0,0,0,12">
                                                 <StackPanel Margin="0,0,60,0">
                                                     <TextBlock x:Name="LblGameModeHud" Text="Игровой режим (Показ FPS, CPU, °C, GPU)" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold"/>
                                                     <TextBlock x:Name="LblGameModeHudSub" Text="Во время игрового режима включается «Не беспокоить» и уведомления не приходят (кроме звонка Discord справа)" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="10.5" TextWrapping="Wrap" Margin="0,2,0,0"/>
@@ -1204,6 +1202,12 @@
 
         <!-- ПРАВАЯ КОЛОНКА (Col 2): ОТДЕЛЬНЫЙ ОСТРОВОК ЗВОНКА DISCORD + БОКОВАЯ КАПСУЛА УВЕДОМЛЕНИЙ -->
         <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0">
+                    <Border x:Name="CompactProgressPanel" Visibility="Collapsed" Background="{DynamicResource ThemeCapsuleBrush}" CornerRadius="12" Padding="8,2" Height="38" Width="190" Margin="0,0,8,0" BorderThickness="1" BorderBrush="{DynamicResource GlassEdgeBrush}" MouseLeftButtonUp="Progress_Click" Cursor="Hand">
+                        <Grid VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid Width="24" Height="24"><Ellipse Stroke="{DynamicResource ThemeBorderBrush}" StrokeThickness="2" Margin="2"/><Path x:Name="CompactProgressRing" Stroke="{DynamicResource ThemeAccentBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Grid>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock x:Name="CompactProgressLabel" Foreground="{DynamicResource ThemeTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis"/><ProgressBar x:Name="CompactProgressBar" Visibility="Collapsed" Maximum="100"/></StackPanel>
+                        </Grid>
+                    </Border>
             <Border x:Name="LevelHudBorder" Visibility="Collapsed" Background="{DynamicResource ThemeCapsuleBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="1" CornerRadius="16" Padding="14,8" Margin="0,0,8,0" Width="160">
                 <StackPanel><TextBlock x:Name="LevelHudText" Foreground="{DynamicResource ThemeTextBrush}" FontSize="11" Margin="0,0,0,5"/><ProgressBar x:Name="LevelHudBar" Maximum="100" Height="4" Foreground="{DynamicResource ThemeAccentBrush}" Background="{DynamicResource ThemeInputBrush}"/></StackPanel>
             </Border>

@@ -269,10 +269,10 @@ dotnet run --project tests/IntegrationChecks -- --toggle-dnd
 powershell -NoProfile -ExecutionPolicy Bypass -File installer/Test-InstallerUpdates.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Installer.ps1
 # Пересобрать только графический ocdynamicisland.exe из существующего подписанного пакета:
-powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Setup.ps1 -ReleaseDirectory artifacts/DynamicIsland-1.1.5.0-x64
+powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Setup.ps1 -ReleaseDirectory artifacts/DynamicIsland-1.1.7.0-x64
 powershell -NoProfile -ExecutionPolicy Bypass -File installer/Test-Setup.ps1
 # Следующая версия с тем же локальным сертификатом:
-powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Installer.ps1 -Version 1.1.5.0
+powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Installer.ps1 -Version 1.1.7.0
 ```
 
 Инструменты MakeAppx и SignTool берутся из официального пакета Microsoft SDK

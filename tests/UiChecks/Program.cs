@@ -27,6 +27,15 @@ internal static class Program
         int checks = 0;
         void Check(bool ok, string message) { if (!ok) throw new Exception(message); checks++; }
         var settings = Field<MainWindow.AppSettings>("_settings");
+        Check(!settings.LensGlass, "Experimental lens is opt-in for existing installations");
+        settings.LensGlass = true;
+        Call("ConfigureLensGlass");
+        Check(Element<System.Windows.Controls.Image>("LiquidGlassBackdrop").Source == null, "Unloaded window never captures a backdrop");
+        settings.ExcludeFromCapture = false; Call("ConfigureLensGlass");
+        Check(Element<System.Windows.Controls.Image>("LiquidGlassBackdrop").Visibility == Visibility.Collapsed, "Unloaded window does not capture in screenshot-inclusive mode either");
+        Check(System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>(System.Text.Json.JsonSerializer.Serialize(settings))!.LensGlass,
+            "Experimental glass choice survives settings serialization");
+        settings.LensGlass = false; settings.ExcludeFromCapture = true; Call("ConfigureLensGlass");
         var fpsType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.FpsService")!;
         var metrics = Activator.CreateInstance(fpsType, true)!;
         fpsType.GetField("Fps", flags)!.SetValue(metrics, (double?)144);
@@ -50,6 +59,9 @@ internal static class Program
         var captureUri = (Uri)recording.GetMethod("BuildCaptureUri", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, new object[] { request })!;
         Check(captureUri.Host == "capture" && captureUri.AbsolutePath == "/video", "Recording launches video capture rather than Game Bar");
         Check(captureUri.Query.Contains("redirect-uri=") && captureUri.Query.Contains(request.ToString()), "Recording callback and correlation included");
+        var imageUri = (Uri)recording.GetMethod("BuildImageUri", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [request])!;
+        Check(imageUri.Host == "capture" && imageUri.AbsolutePath == "/image" && imageUri.Query.Contains("rectangle&"), "Screenshot uses the explicit image endpoint and required bare mode");
+        Check(!imageUri.Query.Contains("redirect-uri"), "Direct screenshot results do not require protocol callbacks");
         var parseResponse = recording.GetMethod("TryReadResponse", BindingFlags.Static | BindingFlags.NonPublic)!;
         bool Accept(string value) => (bool)parseResponse.Invoke(null, new object?[] { value, request, 0, null })!;
         string response = $"dynamicisland-capture://response?code=200&file-access-token=test&x-request-correlation-id={request:D}";
@@ -395,8 +407,8 @@ internal static class Program
             string? error = null;
             try
             {
-                var task = (Task<string?>)type.GetMethod("RecordAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, null)!;
-                cancelled = await task.WaitAsync(TimeSpan.FromSeconds(60)) == null;
+                var task = (Task<string?>)type.GetMethod("RecordAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(service, [new System.Windows.Interop.WindowInteropHelper(fixture).Handle])!;
+                cancelled = await task.WaitAsync(TimeSpan.FromMinutes(3)) == null;
             }
             catch (Exception ex) { error = ex.GetType().Name; }
             await System.IO.File.WriteAllTextAsync(reportPath, System.Text.Json.JsonSerializer.Serialize(new { cancelled, error }));

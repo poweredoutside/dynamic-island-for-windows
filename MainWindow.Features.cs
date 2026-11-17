@@ -33,6 +33,7 @@ public partial class MainWindow
         public double CornerRounding { get; set; } = 1;
         public double IdleOpacity { get; set; } = 1;
         public double BackgroundTransparency { get; set; }
+        public bool LensGlass { get; set; }
         public bool IslandShadow { get; set; } = true;
         public string IslandFont { get; set; } = "Segoe UI";
         public string IdleCenter { get; set; } = "time";
@@ -103,6 +104,7 @@ public partial class MainWindow
         _settings.HiddenTabs ??= []; _settings.ActionOrder ??= []; _settings.Timers ??= []; _settings.DeliveredReminders ??= [];
         ApplyFeatureAppearance();
         ApplyTheme(_themes.FirstOrDefault(t => t.Key == _settings.SelectedTheme) ?? _themes[0]);
+        ConfigureLensGlass();
         BuildFeatureNavigation();
         IslandBorder.LostMouseCapture += (_, _) => { _isClickCandidate = false; if (_bodyDragging) { _bodyDragging = false; _settings.WindowLeft = Left; SaveSettings(); } };
         _settings.VolumeIslandHud ??= _settings.LevelHud;
@@ -138,6 +140,7 @@ public partial class MainWindow
 
     private void DisposeFeatures()
     {
+        DisposeLensGlass();
         _featureTimer.Stop(); _hoverDelay.Stop(); _watchdog?.Dispose();
         if (_volumeIsland != null) { _volumeIsland.Changed -= VolumeChanged; _volumeIsland.Dispose(); }
         _gameFps?.Dispose();

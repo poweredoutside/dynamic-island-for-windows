@@ -4,6 +4,10 @@ The installer includes these libraries and their transitive dependencies; no
 separate programs need to be installed.
 
 - NAudio 2.2.1 — MIT, https://github.com/naudio/NAudio
+- Liquid Glass lens math adapted from liquid_glass_easy — MIT, Ahmed Gamil.
+  Upstream: https://github.com/AhmeedGamil/liquid_glass_easy/tree/ba732aa38927a05c2a8604f843fa4bb54b87fb14.
+  WPF/HLSL adaptation: Services/GlassLensMap.cs and Shaders/LiquidGlass.hlsl.
+  License included in licenses/liquid_glass_easy/LICENSE. Flutter is not bundled.
 - Ical.Net 4.3.1 — MIT, https://github.com/ical-org/ical.net
 - Microsoft.Diagnostics.Tracing.TraceEvent 3.1.21 — MIT, https://github.com/microsoft/perfview
 - LibreHardwareMonitorLib 0.9.6 — MPL-2.0. Unmodified source:

@@ -20,6 +20,91 @@ internal sealed class ScreenRecordingService : IDisposable
         + "&user-agent=DynamicIslandWin&redirect-uri=" + Uri.EscapeDataString(CallbackScheme + "://response")
         + "&x-request-correlation-id=" + request.ToString("D"));
 
+    internal const string SnippingToolPackage = "Microsoft.ScreenSketch_8wekyb3d8bbwe";
+    internal static Uri BuildImageUri(Guid request) => new(
+        "ms-screenclip://capture/image?rectangle&api-version=1.2&enabledModes=SnippingAllModes"
+        + "&user-agent=DynamicIslandWin&x-request-correlation-id=" + request.ToString("D"));
+
+    private static LauncherOptions LaunchOptions(IntPtr owner)
+    {
+        var options = new LauncherOptions { TargetApplicationPackageFamilyName = SnippingToolPackage };
+        if (owner != IntPtr.Zero) WinRT.Interop.InitializeWithWindow.Initialize(options, owner);
+        return options;
+    }
+
+    private static async Task<string?> ReadCallbackAsync(NamedPipeServerStream pipe, CancellationToken token)
+    {
+        await pipe.WaitForConnectionAsync(token);
+        using var reader = new StreamReader(pipe, Encoding.UTF8, leaveOpen: true);
+        using var readTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        readTimeout.CancelAfter(TimeSpan.FromSeconds(3));
+        var chars = new char[16385];
+        int length = 0;
+        while (length < chars.Length)
+        {
+            int count = await reader.ReadAsync(chars.AsMemory(length, 1), readTimeout.Token);
+            if (count == 0 || chars[length] == '\n') break;
+            length += count;
+        }
+        return length <= 16384 ? new string(chars, 0, length).TrimEnd('\r') : null;
+    }
+
+    private static async Task VerifyRecordingProtocolAsync(IntPtr owner, CancellationToken token)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        Guid request = Guid.NewGuid();
+        await using var pipe = new NamedPipeServerStream(PipeName, PipeDirection.In, 1,
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+        var response = ReadCallbackAsync(pipe, timeout.Token);
+        var uri = new Uri("ms-screenclip://discover?user-agent=DynamicIslandWin&redirect-uri="
+            + Uri.EscapeDataString(CallbackScheme + "://response") + "&x-request-correlation-id=" + request);
+        if (!await Launcher.LaunchUriAsync(uri, LaunchOptions(owner)).AsTask(timeout.Token))
+            throw new InvalidOperationException("Snipping Tool is unavailable.");
+        while (true)
+        {
+            string? value = await response;
+            if (value != null && Uri.TryCreate(value, UriKind.Absolute, out var callback)
+                && callback.Scheme == CallbackScheme && callback.Host == "response")
+            {
+                var query = new Windows.Foundation.WwwFormUrlDecoder(callback.Query);
+                if (Guid.TryParse(query.GetFirstValueByName("x-request-correlation-id"), out var actual) && actual == request)
+                {
+                    using var document = System.Text.Json.JsonDocument.Parse(query.GetFirstValueByName("discover"));
+                    if (!document.RootElement.GetProperty("capabilities").EnumerateArray()
+                        .Any(c => c.GetProperty("path").GetString() == "capture/video"))
+                        throw new PlatformNotSupportedException("Snipping Tool does not support video recording.");
+                    return;
+                }
+            }
+            pipe.Disconnect(); response = ReadCallbackAsync(pipe, timeout.Token);
+        }
+    }
+
+    internal async Task<StorageFile?> CaptureImageAsync(IntPtr owner)
+    {
+        if (_busy) throw new InvalidOperationException("A capture request is already open.");
+        _busy = true;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        timeout.CancelAfter(TimeSpan.FromMinutes(5));
+        try
+        {
+            Guid request = Guid.NewGuid();
+            var result = await Launcher.LaunchUriForResultsAsync(BuildImageUri(request), LaunchOptions(owner)).AsTask(timeout.Token);
+            if (result.Status != LaunchUriStatus.Success || result.Result == null)
+                throw new InvalidOperationException("Snipping Tool did not return a screenshot result.");
+            var values = result.Result;
+            if (!values.TryGetValue("code", out var codeValue) || !int.TryParse(codeValue?.ToString(), out int code)
+                || !values.TryGetValue("x-request-correlation-id", out var id) || !Guid.TryParse(id?.ToString(), out var actual) || actual != request)
+                throw new InvalidDataException("Invalid screenshot response.");
+            if (code == 499) return null;
+            if (code != 200 || !values.TryGetValue("file-access-token", out var token) || token is not string value || string.IsNullOrWhiteSpace(value))
+                throw new InvalidOperationException($"Snipping Tool returned {code}.");
+            return await SharedStorageAccessManager.RedeemTokenForFileAsync(value).AsTask(timeout.Token);
+        }
+        finally { _busy = false; }
+    }
+
     internal static bool TryReadResponse(string value, Guid request, out int code, out string? token)
     {
         code = 0; token = null;
@@ -60,7 +145,7 @@ internal sealed class ScreenRecordingService : IDisposable
 
     // Returns null for user cancellation. The system overlay owns area selection,
     // countdown, audio options and Stop; no capture begins without the user's Start.
-    internal async Task<string?> RecordAsync()
+    internal async Task<string?> RecordAsync(IntPtr owner = default)
     {
         if (_busy) throw new InvalidOperationException("A screen recording request is already open.");
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000))
@@ -70,32 +155,22 @@ internal sealed class ScreenRecordingService : IDisposable
         timeout.CancelAfter(TimeSpan.FromHours(12));
         try
         {
+            // Fail promptly if Windows cannot activate the tool or route its
+            // callbacks, instead of leaving the Record button disabled for hours.
+            try { await VerifyRecordingProtocolAsync(owner, timeout.Token); }
+            catch (OperationCanceledException) when (!timeout.IsCancellationRequested)
+            { throw new TimeoutException("Snipping Tool did not respond. Restart Snipping Tool and retry."); }
             var request = Guid.NewGuid();
             await using var pipe = new NamedPipeServerStream(PipeName, PipeDirection.In, 1,
                 PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-            var connection = pipe.WaitForConnectionAsync(timeout.Token);
-            if (!await Launcher.LaunchUriAsync(BuildCaptureUri(request)).AsTask(timeout.Token))
+            var responseTask = ReadCallbackAsync(pipe, timeout.Token);
+            if (!await Launcher.LaunchUriAsync(BuildCaptureUri(request), LaunchOptions(owner)).AsTask(timeout.Token))
                 throw new InvalidOperationException("Windows could not launch screen recording.");
             AppLog.Notification("recording overlay launched");
             while (true)
             {
-                await connection;
-                string? response;
-                using (var reader = new StreamReader(pipe, Encoding.UTF8, leaveOpen: true))
-                {
-                    // Bound both wait time and input size; the callback is untrusted.
-                    using var readTimeout = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
-                    readTimeout.CancelAfter(TimeSpan.FromSeconds(3));
-                    var chars = new char[16385];
-                    int length = 0;
-                    while (length < chars.Length)
-                    {
-                        int count = await reader.ReadAsync(chars.AsMemory(length, 1), readTimeout.Token);
-                        if (count == 0 || chars[length] == '\n') break;
-                        length += count;
-                    }
-                    response = length <= 16384 ? new string(chars, 0, length).TrimEnd('\r') : null;
-                }
+                string? response = await responseTask;
+                AppLog.Notification($"recording callback received length={response?.Length ?? 0}");
                 if (response != null && TryReadResponse(response, request, out int code, out var token))
                 {
                     AppLog.Notification($"recording response code={code}");
@@ -114,7 +189,7 @@ internal sealed class ScreenRecordingService : IDisposable
                 }
                 // Ignore unsolicited or stale callbacks without ending a recording.
                 pipe.Disconnect();
-                connection = pipe.WaitForConnectionAsync(timeout.Token);
+                responseTask = ReadCallbackAsync(pipe, timeout.Token);
             }
         }
         finally { _busy = false; }

@@ -100,6 +100,8 @@ public partial class MainWindow
         DiscordCallBorder.BorderThickness = new Thickness(glass ? 1 : 0);
         if (_activeSettingsNav != null)
             _activeSettingsNav.SetResourceReference(Control.BackgroundProperty, "ThemeSelectionBrush");
+        LiquidGlassBackdrop.Opacity = BackgroundOpacity;
+        ConfigureLensGlass();
     }
 
     private static Color Blend(Color a, Color b, double amount) => Color.FromRgb(
@@ -114,6 +116,7 @@ public partial class MainWindow
         GlassSpecularBrush.Center = new Point(Math.Clamp(point.X / IslandBorder.ActualWidth, 0, 1),
             Math.Clamp(point.Y / IslandBorder.ActualHeight, 0, 1));
         GlassSpecularBrush.GradientOrigin = GlassSpecularBrush.Center;
+        if (_glassEffect != null) _glassEffect.Pointer = GlassSpecularBrush.Center;
     }
 
     private Size _shadowSize;

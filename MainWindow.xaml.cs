@@ -239,6 +239,7 @@ public partial class MainWindow : Window
     private const int HOTKEY_SNIP_S = 9003;
     private const int HOTKEY_CMD_SPACE = 9004;
     private const int HOTKEY_CYCLE_THEME_T = 9005;
+    private const int HOTKEY_RECORD_R = 9006;
 
     private const uint PDH_FMT_DOUBLE = 0x00000200;
 
@@ -350,6 +351,7 @@ public partial class MainWindow : Window
 
         RegisterCustomToggleHotkey(hwnd);
         RegisterHotKey(hwnd, HOTKEY_SNIP_S, MOD_CONTROL | MOD_ALT, 0x53);
+        RegisterHotKey(hwnd, HOTKEY_RECORD_R, MOD_CONTROL | MOD_ALT, 0x52);
         RegisterHotKey(hwnd, HOTKEY_CMD_SPACE, MOD_CONTROL | MOD_ALT, 0x20);
         RegisterHotKey(hwnd, HOTKEY_CYCLE_THEME_T, MOD_CONTROL | MOD_ALT, 0x54);
 
@@ -449,6 +451,7 @@ public partial class MainWindow : Window
         RemoveClipboardFormatListener(hwnd);
         UnregisterHotKey(hwnd, HOTKEY_CUSTOM_TOGGLE);
         UnregisterHotKey(hwnd, HOTKEY_SNIP_S);
+        UnregisterHotKey(hwnd, HOTKEY_RECORD_R);
         UnregisterHotKey(hwnd, HOTKEY_CMD_SPACE);
         UnregisterHotKey(hwnd, HOTKEY_CYCLE_THEME_T);
         if (_pdhTempQuery != IntPtr.Zero)
@@ -1205,6 +1208,7 @@ public partial class MainWindow : Window
             CustomBgBorder.CornerRadius = cr;
         }
 
+        UpdateGlassGeometry();
         UpdateGlassShadow();
         if (SettingsView.IsVisible && now - _lastMascotFrame >= 1.0 / 30)
             MascotBobTransform.Y = Math.Sin(now * 2.8) * 1.6;
@@ -2093,6 +2097,7 @@ public partial class MainWindow : Window
 
     private void ApplyExcludeFromCapture(bool exclude)
     {
+        _settings.ExcludeFromCapture = exclude;
         IntPtr hwnd = new WindowInteropHelper(this).Handle;
         SetWindowDisplayAffinity(hwnd, exclude ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
     }
@@ -2243,6 +2248,7 @@ public partial class MainWindow : Window
                 handled = true;
             }
             else if (id == HOTKEY_SNIP_S) { ActionSnipRegion_Click(this, new RoutedEventArgs()); handled = true; }
+            else if (id == HOTKEY_RECORD_R) { ActionRecord_Click(this, new RoutedEventArgs()); handled = true; }
             else if (id == HOTKEY_CMD_SPACE) { ActionRunCommand_Click(this, new RoutedEventArgs()); handled = true; }
             else if (id == HOTKEY_CYCLE_THEME_T) { CtxCycleTheme_Click(this, new RoutedEventArgs()); handled = true; }
         }
@@ -2518,11 +2524,87 @@ public partial class MainWindow : Window
         BtnQuickDnd.Visibility       = (ChkActDnd.IsChecked ?? true) ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void ActionSnipRegion_Click(object sender, RoutedEventArgs e) =>
-        Process.Start(new ProcessStartInfo("explorer.exe", "ms-screenclip:") { UseShellExecute = true });
+    private async void ActionSnipRegion_Click(object sender, RoutedEventArgs e) => await CaptureScreenshotAsync(false);
 
-    private void ActionFullScreenShot_Click(object sender, RoutedEventArgs e) =>
-        Process.Start(new ProcessStartInfo("snippingtool.exe") { UseShellExecute = true });
+    private async void ActionFullScreenShot_Click(object sender, RoutedEventArgs e) => await CaptureScreenshotAsync(true);
+
+    private bool _captureUiBusy;
+    private async Task CaptureScreenshotAsync(bool fullScreen)
+    {
+        if (_captureUiBusy) return;
+        _captureUiBusy = true;
+        try
+        {
+            PrepareCaptureUi();
+            await Task.Delay(350);
+            if (_windowClosed) return;
+            if (fullScreen)
+            {
+                var screen = Forms.Screen.FromHandle(new WindowInteropHelper(this).Handle).Bounds;
+                var frame = await Task.Run(() => GlassBackdropService.Capture(screen, maxPixels: 40_000_000));
+                if (frame == null) throw new InvalidOperationException("No screenshot frame returned");
+                await SaveScreenshotAsync(frame.Image);
+            }
+            else
+            {
+                _screenRecording ??= new ScreenRecordingService();
+                var file = await _screenRecording.CaptureImageAsync(new WindowInteropHelper(this).Handle);
+                if (file != null)
+                {
+                    using var stream = await file.OpenStreamForReadAsync();
+                    var bitmap = new BitmapImage(); bitmap.BeginInit(); bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                    bitmap.StreamSource = stream; bitmap.EndInit(); bitmap.Freeze();
+                    await SaveScreenshotAsync(bitmap);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (_windowClosed) { }
+        catch (Exception ex)
+        {
+            AppLog.Error("Screenshot", ex);
+            ShowSideBubble(L("Не удалось сделать скриншот. Перезапустите «Ножницы» и повторите попытку."), ToastCategory.Info, bypassDnd: true);
+        }
+        finally { _captureUiBusy = false; RestoreCaptureUi(); }
+    }
+
+    private async Task SaveScreenshotAsync(BitmapSource bitmap)
+    {
+        string directory = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "OC - Dynamic Island");
+        Directory.CreateDirectory(directory);
+        string path = System.IO.Path.Combine(directory, "Screenshot-" + DateTime.Now.ToString("yyyy-MM-dd-HHmmss-fff") + ".png");
+        await Task.Run(() =>
+        {
+            var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            using var file = File.Create(path); encoder.Save(file);
+        });
+        for (int attempt = 0; ; attempt++)
+        {
+            try { System.Windows.Clipboard.SetImage(bitmap); break; }
+            catch (ExternalException) when (attempt < 4) { await Task.Delay(80); }
+        }
+        ShowSideBubble(L("Скриншот скопирован и сохранён: Изображения / OC - Dynamic Island"), ToastCategory.Info, bypassDnd: true);
+    }
+
+    private void PrepareCaptureUi()
+    {
+        MorphToState(IslandState.Compact);
+        IslandBorder.ContextMenu.IsOpen = false;
+        if (Mouse.Captured != null) Mouse.Capture(null);
+        _glassGeneration++;
+        _glassTimer.Stop();
+        // Release the native magnifier while Snipping Tool owns capture. Keep
+        // the last glass frame visible until the system operation completes.
+        _glassCapture?.Dispose(); _glassCapture = null;
+        Topmost = false;
+        Activate();
+    }
+
+    private void RestoreCaptureUi()
+    {
+        if (_windowClosed) return;
+        Topmost = true;
+        ConfigureLensGlass();
+    }
 
     private void ActionTranslate_Click(object sender, RoutedEventArgs e)
     {
@@ -2533,21 +2615,23 @@ public partial class MainWindow : Window
 
     private async void ActionRecord_Click(object sender, RoutedEventArgs e)
     {
-        if (!BtnQuickRecord.IsEnabled) return;
+        if (!BtnQuickRecord.IsEnabled || _captureUiBusy) return;
+        _captureUiBusy = true;
         BtnQuickRecord.IsEnabled = false;
         BtnQuickRecord.ToolTip = Tr("Finish or cancel in Snipping Tool", "Завершите или отмените запись в «Ножницах»", "Завершіть запис у Ножицях", "Aufnahme im Snipping Tool beenden", "Finaliza en Recortes");
         try
         {
             _screenRecording ??= new ScreenRecordingService();
-            MorphToState(IslandState.Compact);
-            string? saved = await _screenRecording.RecordAsync();
+            PrepareCaptureUi();
+            await Task.Delay(350);
+            string? saved = await _screenRecording.RecordAsync(new WindowInteropHelper(this).Handle);
             if (_windowClosed || saved == null) return;
             ShowSideBubble(Tr("Video saved to Videos / OC - Dynamic Island", "Видео сохранено: Видео / OC - Dynamic Island", "Відео збережено: Відео / OC - Dynamic Island", "Video gespeichert: Videos / OC - Dynamic Island", "Vídeo guardado: Vídeos / OC - Dynamic Island"), ToastCategory.Info, bypassDnd: true);
             var reveal = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
             reveal.ArgumentList.Add("/select,"); reveal.ArgumentList.Add(saved);
             Process.Start(reveal);
         }
-        catch (OperationCanceledException) { /* Application is closing or request expired. */ }
+        catch (OperationCanceledException) when (_windowClosed) { }
         catch (Exception ex)
         {
             AppLog.Error("Screen recording", ex);
@@ -2558,6 +2642,7 @@ public partial class MainWindow : Window
         }
         finally
         {
+            _captureUiBusy = false; RestoreCaptureUi();
             if (!_windowClosed) { BtnQuickRecord.IsEnabled = true; BtnQuickRecord.ToolTip = null; }
         }
     }

@@ -48,6 +48,7 @@ public partial class MainWindow
         LblExternalProgressSub.Text = L("Отдельная капсула, не закрывающая часы и погоду");
         LblClipboardWatch.Text = L("Текст и скриншоты в буфере обмена");
         ClipboardEmptyStateText.Text = ClipboardEmptyHint;
+        UpdateLensGlassStatus();
         System.Windows.Automation.AutomationProperties.SetName(VolumeHudSlider, L("Громкость"));
         if (LevelHudBorder.Visibility == Visibility.Visible && VolumeHudSlider.Visibility == Visibility.Visible)
             ShowVolumeSnapshot(_displayedVolume);

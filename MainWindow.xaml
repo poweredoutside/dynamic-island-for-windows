@@ -240,7 +240,11 @@
                 </ContextMenu>
             </Border.ContextMenu>
 
-            <Grid>
+            <Grid x:Name="IslandSurfaceLayer">
+                <Canvas x:Name="LiquidGlassLayer" IsHitTestVisible="False">
+                    <Image x:Name="LiquidGlassBackdrop" IsHitTestVisible="False" Stretch="Fill" Visibility="Collapsed"
+                           Width="{Binding ActualWidth, ElementName=LiquidGlassLayer}" Height="{Binding ActualHeight, ElementName=LiquidGlassLayer}"/>
+                </Canvas>
                 <Border x:Name="CustomBgBorder" CornerRadius="19" Opacity="0.32" IsHitTestVisible="False">
                     <Border.Background>
                         <ImageBrush x:Name="CustomBgBrush" Stretch="UniformToFill"/>
@@ -865,6 +869,14 @@
                                                 <TextBlock Text="Прозрачность фона" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold"/>
                                                 <TextBlock x:Name="TransparencyValueText" Text="0%" HorizontalAlignment="Right" Foreground="{DynamicResource ThemeAccentBrush}"/>
                                                 <Slider x:Name="TransparencySlider" Grid.Row="1" Minimum="0" Maximum="90" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,8,0,0" ValueChanged="TransparencySlider_ValueChanged"/>
+                                            </Grid>
+
+                                            <Grid Margin="0,0,0,12">
+                                                <StackPanel Margin="0,0,48,0">
+                                                    <TextBlock Text="Стекло-линза · эксперимент" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                                    <TextBlock x:Name="LblLensGlassStatus" Text="Преломление живого фона во всех капсулах и меню. Работает при любом режиме скриншотов." Foreground="{DynamicResource ThemeMutedBrush}" FontSize="10.5" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                                                </StackPanel>
+                                                <CheckBox x:Name="TglLensGlass" Style="{StaticResource IslandSwitch}" HorizontalAlignment="Right" VerticalAlignment="Center" Click="TglLensGlass_Click"/>
                                             </Grid>
 
                                             <Grid>

@@ -8,6 +8,7 @@ internal static class AppLog
 
     // Callers supply only technical metadata, never notification text or fingerprints.
     public static void Notification(string metadata) => Write("notifications.log", metadata);
+    public static void Glass(string metadata) => Write("glass.log", metadata);
 
     public static void Error(string operation, Exception exception)
         => Write("integration.log", $"{operation}: {exception.GetType().Name} 0x{exception.HResult:X8}");

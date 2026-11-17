@@ -1902,6 +1902,7 @@ public partial class MainWindow : Window
         Color c2 = (Color)ColorConverter.ConvertFromString(theme.C2);
         c1.A = _settings.LiquidGlass ? (byte)178 : (byte)255;
         c2.A = _settings.LiquidGlass ? (byte)156 : (byte)255;
+        IslandBorder.Background.Opacity = BackgroundOpacity;
         var dur = TimeSpan.FromMilliseconds(240);
         GradStop1.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(c1, dur));
         GradStop2.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(c2, dur));
@@ -2706,6 +2707,9 @@ public partial class MainWindow : Window
 
         ScaleSlider.Value             = Math.Clamp(_settings.IslandScalePercent, 50, 130);
         ScaleValueText.Text           = $"{(int)ScaleSlider.Value}%";
+        _settings.BackgroundTransparency = double.IsFinite(_settings.BackgroundTransparency) ? Math.Clamp(_settings.BackgroundTransparency, 0, 90) : 0;
+        TransparencySlider.Value = _settings.BackgroundTransparency;
+        TransparencyValueText.Text = $"{_settings.BackgroundTransparency:0}%";
 
         TglExpandOnHover.IsChecked    = _settings.ExpandOnHover;
         TglCloseOnLeave.IsChecked     = _settings.CloseOnMouseLeave;

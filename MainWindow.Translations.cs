@@ -9,6 +9,10 @@ public partial class MainWindow
         .Select(line => line.Split('¦')).ToDictionary(parts => parts[0], parts => parts, StringComparer.Ordinal);
 
     private const string TranslationCatalog = """
+Прозрачность фона¦Background transparency¦Прозорість тла¦Hintergrundtransparenz¦Transparencia del fondo
+Громкость регулируется прямо в капсуле справа: ползунок, колесо мыши и кнопка звука.¦Adjust volume in the right capsule with its slider, mouse wheel and mute button.¦Регулюйте гучність у капсулі праворуч: повзунок, колесо миші та кнопка звуку.¦Lautstärke direkt in der rechten Kapsel: Regler, Mausrad und Stummschalttaste.¦Ajusta el volumen en la cápsula derecha con el deslizador, la rueda y el botón de silencio.
+Прозрачность фона настраивается в разделе «Оформление».¦Adjust background transparency in Appearance.¦Прозорість тла налаштовується в розділі «Оформлення».¦Die Hintergrundtransparenz lässt sich unter Darstellung einstellen.¦Ajusta la transparencia del fondo en Apariencia.
+В Telegram и exDesktop нужно включить системные уведомления Windows.¦Enable Windows system notifications in Telegram and exDesktop.¦У Telegram та exDesktop потрібно ввімкнути системні сповіщення Windows.¦In Telegram und exDesktop müssen Windows-Systembenachrichtigungen aktiviert sein.¦Activa las notificaciones del sistema Windows en Telegram y exDesktop.
 Установщик запущен. Приложение закроется на время обновления.¦Installer started. The app will close during the update.¦Інсталятор запущено. Програма закриється на час оновлення.¦Installer gestartet. Die App wird während des Updates geschlossen.¦Instalador iniciado. La aplicación se cerrará durante la actualización.
 Не удалось запустить установщик обновления. Повторите попытку или откройте релиз.¦Could not start the update installer. Retry or open the release.¦Не вдалося запустити інсталятор оновлення. Повторіть спробу або відкрийте реліз.¦Update-Installer konnte nicht gestartet werden. Erneut versuchen oder Version öffnen.¦No se pudo iniciar el instalador. Reintenta o abre la versión.
 Для температуры CPU нужен драйвер PawnIO. Он включён в установщик; Windows запросит права администратора.¦CPU temperature requires the bundled PawnIO driver. Windows will request administrator access.¦Для температури CPU потрібен драйвер PawnIO. Він є в інсталяторі; Windows запитає права адміністратора.¦Die CPU-Temperatur benötigt den enthaltenen PawnIO-Treiber. Windows fragt nach Administratorrechten.¦La temperatura de CPU requiere el controlador PawnIO incluido. Windows solicitará permisos de administrador.
@@ -188,7 +192,7 @@ LRCLIB · строк¦LRCLIB · lines¦LRCLIB · рядків¦LRCLIB · Zeilen�
 Указать город¦Set city¦Указати місто¦Stadt festlegen¦Elegir ciudad
 Переподключить¦Reconnect¦Перепідключити¦Neu verbinden¦Reconectar
 Открыть игровой центр¦Open game center¦Відкрити ігровий центр¦Spielcenter öffnen¦Abrir centro de juegos
-Версия приложения · 1.1.8¦App version · 1.1.8¦Версія програми · 1.1.8¦App-Version · 1.1.8¦Versión de la aplicación · 1.1.8
+Версия приложения · 1.1.9¦App version · 1.1.9¦Версія програми · 1.1.9¦App-Version · 1.1.9¦Versión de la aplicación · 1.1.9
 Обновления через GitHub¦Updates from GitHub¦Оновлення через GitHub¦Updates über GitHub¦Actualizaciones de GitHub
 Обновления OC - Dynamic Island загружаются из GitHub. Дополнительные программы не нужны. Проверяются контрольная сумма и подпись установщика ocdynamicisland.exe.¦Updates download from GitHub without extra software. The ocdynamicisland.exe checksum and signature are verified.¦Оновлення з GitHub без додаткових програм. Перевіряються контрольна сума й підпис ocdynamicisland.exe.¦Updates von GitHub ohne Zusatzsoftware. Prüfsumme und Signatur von ocdynamicisland.exe werden geprüft.¦Actualizaciones desde GitHub sin programas adicionales. Se verifica la suma y firma de ocdynamicisland.exe.
 Репозиторий owner/repository¦Repository owner/repository¦Репозиторій owner/repository¦Repository owner/repository¦Repositorio owner/repository
@@ -244,7 +248,7 @@ Discord · Голос¦Discord · Voice¦Discord · Голос¦Discord · Sprac
 новое сообщение¦new message¦нове повідомлення¦neue Nachricht¦nuevo mensaje
 Звук выключен¦Muted¦Звук вимкнено¦Stumm¦Silenciado
 Громкость¦Volume¦Гучність¦Lautstärke¦Volumen
-OC - Dynamic Island 1.1.8 · нажмите, чтобы увидеть новинки¦OC - Dynamic Island 1.1.8 · click for new features¦OC - Dynamic Island 1.1.8 · натисніть для перегляду новинок¦OC - Dynamic Island 1.1.8 · klicken für Neuigkeiten¦OC - Dynamic Island 1.1.8 · pulsa para ver novedades
+OC - Dynamic Island 1.1.9 · нажмите, чтобы увидеть новинки¦OC - Dynamic Island 1.1.9 · click for new features¦OC - Dynamic Island 1.1.9 · натисніть для перегляду новинок¦OC - Dynamic Island 1.1.9 · klicken für Neuigkeiten¦OC - Dynamic Island 1.1.9 · pulsa para ver novedades
 Измерение игры выключено.¦Game measurement off.¦Вимірювання гри вимкнено.¦Spielmessung deaktiviert.¦Medición del juego desactivada.
 Ожидание разрешения Windows…¦Waiting for Windows permission…¦Очікування дозволу Windows…¦Warte auf Windows-Berechtigung…¦Esperando permiso de Windows…
 ETW подключён. Ожидаю игру DirectX.¦ETW connected. Waiting for a DirectX game.¦ETW підключено. Очікую гру DirectX.¦ETW verbunden. Warte auf DirectX-Spiel.¦ETW conectado. Esperando un juego DirectX.

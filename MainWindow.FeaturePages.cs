@@ -368,7 +368,7 @@ public partial class MainWindow
     private void BuildDiagnosticsPage()
     {
         var header = FeatureCard("Проверка системы", "Отчёт содержит технические статусы, без сообщений, имён собеседников и API-ключей.");
-        header.Children.Add(FeatureButton("Копировать отчёт", () => Clipboard.SetText("OC - Dynamic Island 1.1.8\nWindows " + Environment.OSVersion.Version + "\n" + string.Join("\n", DiagnosticRows().Select(r => L(r.Name) + ": " + L(r.Status))))));
+        header.Children.Add(FeatureButton("Копировать отчёт", () => Clipboard.SetText("OC - Dynamic Island 1.1.9\nWindows " + Environment.OSVersion.Version + "\n" + string.Join("\n", DiagnosticRows().Select(r => L(r.Name) + ": " + L(r.Status))))));
         header.Children.Add(FeatureButton("Повторить проверку", () => OpenFeaturePage("diagnostics")));
         foreach (var row in DiagnosticRows())
         {
@@ -446,8 +446,8 @@ public partial class MainWindow
     }
     private void BuildNewsPage()
     {
-        var card = FeatureCard("OC - Dynamic Island 1.1.8", "Новые возможности островка");
-        foreach (string line in new[] { "Прогресс программ вынесен в отдельную капсулу справа и отключается в настройках.", "История буфера обмена хранит текст и скриншоты за последние 24 часа.", "Исправлены прозрачность стекла, переводы разделов и слежение персонажей за курсором.", "Своя раскладка, микшер, календарь, таймеры, караоке и Gemini Live доступны в центре." })
+        var card = FeatureCard("OC - Dynamic Island 1.1.9", "Новые возможности островка");
+        foreach (string line in new[] { "Громкость регулируется прямо в капсуле справа: ползунок, колесо мыши и кнопка звука.", "Прозрачность фона настраивается в разделе «Оформление».", "В Telegram и exDesktop нужно включить системные уведомления Windows.", "История буфера обмена хранит текст и скриншоты за последние 24 часа." })
             card.Children.Add(FeatureText("• " + L(line), 13));
         card.Children.Add(FeatureButton("Канал проекта", () => OpenWeb(new Uri("https://t.me/outsidecompany"))));
     }
@@ -463,7 +463,7 @@ public partial class MainWindow
         card.Children.Add(FeatureButton(_welcomeStep < 2 ? "Далее" : "Начать", () =>
         {
             if (_welcomeStep < 2) { _welcomeStep++; OpenFeaturePage("welcome"); }
-            else { _settings.OnboardingComplete = true; _settings.LastSeenVersion = "1.1.8"; SaveSettings(); MorphToState(IslandState.Compact); }
+            else { _settings.OnboardingComplete = true; _settings.LastSeenVersion = "1.1.9"; SaveSettings(); MorphToState(IslandState.Compact); }
         }));
     }
 }

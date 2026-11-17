@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [version]$Version = '1.1.8.0',
+    [version]$Version = '1.1.9.0',
     [string]$PfxPath,
     [string]$PfxPassword = $env:DYNAMIC_ISLAND_PFX_PASSWORD
 )

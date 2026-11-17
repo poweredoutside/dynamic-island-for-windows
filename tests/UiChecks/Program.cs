@@ -206,6 +206,36 @@ internal static class Program
         Check(((SolidColorBrush)window.FindResource("GlassSheenBrush")).Color.A == 0, "Glass off clears reflections on all auxiliary surfaces");
         Check(window.FindResource("ThemeFloatingBrush") is SolidColorBrush, "Glass off restores opaque popup surfaces");
 
+        settings.BackgroundTransparency = 60;
+        Call("ApplyTheme", themes.Single(t => t.Key == "Snow"));
+        Check(Math.Abs(island.Background.Opacity - .4) < .001 && island.Opacity == 1, "Transparency fades background without fading the island content");
+        Check(Math.Abs(((Brush)window.FindResource("ThemeCapsuleBrush")).Opacity - .4) < .001, "Volume and notification capsules share transparency");
+        Check(((SolidColorBrush)window.FindResource("ThemeTextBrush")).Opacity == 1, "Theme text remains fully opaque");
+        settings.LiquidGlass = true;
+        Call("ApplyTheme", themes.Single(t => t.Key == "Snow"));
+        Check(Math.Abs(((Brush)window.FindResource("GlassSheenBrush")).Opacity - .4) < .001 && Math.Abs(Element<Border>("CustomBgBorder").Opacity - .128) < .001, "Reflections and photo follow transparency");
+        var settingsJson = System.Text.Json.JsonSerializer.Serialize(settings);
+        Check(System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>(settingsJson)!.BackgroundTransparency == 60, "Transparency survives settings serialization");
+        settings.BackgroundTransparency = 0;
+        Call("ApplyTheme", themes.Single(t => t.Key == "Midnight"));
+        Check(island.Background.Opacity == 1, "Zero transparency restores original glass appearance");
+        var volumeSnapshotType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.VolumeIslandService+Snapshot")!;
+        Call("ShowVolumeSnapshot", Activator.CreateInstance(volumeSnapshotType, .45f, false));
+        Check(Element<Slider>("VolumeHudSlider").Visibility == Visibility.Visible && Math.Abs(Element<Slider>("VolumeHudSlider").Value - 45) < .001, "Volume notice exposes an interactive slider at the actual endpoint value");
+        Check(Element<ProgressBar>("LevelHudBar").Visibility == Visibility.Collapsed, "Volume replaces the read-only progress bar");
+        var wheel = new System.Windows.Input.MouseWheelEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, 120)
+            { RoutedEvent = UIElement.PreviewMouseWheelEvent };
+        Call("VolumeHud_MouseWheel", Element<Border>("LevelHudBorder"), wheel);
+        Check(wheel.Handled && Math.Abs(Element<Slider>("VolumeHudSlider").Value - 47) < .001, "Wheel adjusts volume by two percent without scrolling the island");
+        var volumeHud = Element<Border>("LevelHudBorder");
+        volumeHud.Measure(new Size(220, 80)); volumeHud.Arrange(new Rect(0, 0, 200, 65)); volumeHud.UpdateLayout();
+        SaveVisual(volumeHud, "interactive-volume", 220, 80, 10);
+        Call("ShowVolumeSnapshot", Activator.CreateInstance(volumeSnapshotType, .45f, true));
+        Check(Math.Abs(Element<Slider>("VolumeHudSlider").Value - 45) < .001, "Mute preserves the level for unmuting");
+        Call("LevelNotice", "Brightness", 70d, false);
+        Check(Element<Slider>("VolumeHudSlider").Visibility == Visibility.Collapsed && Element<Button>("VolumeMuteButton").Visibility == Visibility.Collapsed, "Brightness cannot change audio by mistake");
+        settings.LiquidGlass = false;
+
         // Language changes must reach detached popup menus and generated pages.
         var catalog = (Dictionary<string, string[]>)typeof(MainWindow).GetField("AdditionalTranslations", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         Check(catalog.Values.All(words => words.Length == 5 && words.All(w => !string.IsNullOrWhiteSpace(w))), "Every new label has all five translations");

@@ -17,11 +17,24 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
     private volatile bool _enabled, _available, _disposed;
     private uint _hookThreadId;
     private int _rebindPending;
+    private int _setPending, _requestedPercent;
     private MMDevice? _device;
     private IntPtr _hook;
     internal event Action<Snapshot>? Changed;
     internal bool Available => _available && _hook != IntPtr.Zero;
     internal bool Enabled { get => _enabled; set => _enabled = value; }
+
+    internal bool RequestSnapshot() => !_disposed && _available && _commands.TryAdd(2);
+    internal bool ToggleMute() => !_disposed && _commands.TryAdd(3);
+    internal bool SetVolume(double percent)
+    {
+        if (_disposed || !double.IsFinite(percent)) return false;
+        Interlocked.Exchange(ref _requestedPercent, (int)Math.Round(Math.Clamp(percent, 0, 100)));
+        if (Interlocked.Exchange(ref _setPending, 1) != 0) return true;
+        if (_commands.TryAdd(1)) return true;
+        Interlocked.Exchange(ref _setPending, 0);
+        return false;
+    }
 
     internal VolumeIslandService(bool enabled)
     {
@@ -73,18 +86,22 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
                     if (!_commands.TryTake(out int command, 2000))
                     { if (!_available) Rebind(enumerator); continue; }
                     if (command == 0) { Interlocked.Exchange(ref _rebindPending, 0); Rebind(enumerator); continue; }
-                    if (!_enabled || _device == null) continue;
+                    if (command == 1) Interlocked.Exchange(ref _setPending, 0);
+                    bool manual = command is 1 or 2 or 3;
+                    if ((!_enabled && !manual) || _device == null) continue;
                     try
                     {
                         var volume = _device.AudioEndpointVolume;
-                        if (command == 0xAD) volume.Mute = !volume.Mute;
-                        else
+                        if (command is 0xAD or 3) volume.Mute = !volume.Mute;
+                        else if (command != 2)
                         {
-                            volume.MasterVolumeLevelScalar = Math.Clamp(volume.MasterVolumeLevelScalar + (command == 0xAF ? .02f : -.02f), 0, 1);
+                            volume.MasterVolumeLevelScalar = command == 1
+                                ? Volatile.Read(ref _requestedPercent) / 100f
+                                : Math.Clamp(volume.MasterVolumeLevelScalar + (command == 0xAF ? .02f : -.02f), 0, 1);
                             if (volume.Mute) volume.Mute = false;
                         }
                         // Also acknowledge a key at 0/100%, where CoreAudio may emit no event.
-                        Publish(new(volume.MasterVolumeLevelScalar, volume.Mute));
+                        Publish(new(volume.MasterVolumeLevelScalar, volume.Mute), manual);
                     }
                     catch (Exception ex) { _available = false; AppLog.Error("Change endpoint volume", ex); }
                 }
@@ -108,7 +125,7 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
         catch { Detach(); } // No endpoint is normal while unplugging a headset.
     }
     private void OnVolume(AudioVolumeNotificationData data) => Publish(new(data.MasterVolume, data.Muted));
-    private void Publish(Snapshot snapshot) { if (_enabled && !_disposed) Changed?.Invoke(snapshot); }
+    private void Publish(Snapshot snapshot, bool manual = false) { if ((_enabled || manual) && !_disposed) Changed?.Invoke(snapshot); }
     private void Detach()
     {
         if (_device == null) return;

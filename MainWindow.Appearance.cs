@@ -19,6 +19,18 @@ public partial class MainWindow
 {
     private Button? _activeSettingsNav;
 
+    private double BackgroundOpacity => 1 - (double.IsFinite(_settings.BackgroundTransparency)
+        ? Math.Clamp(_settings.BackgroundTransparency, 0, 90) : 0) / 100;
+
+    private void TransparencySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_isLoadingSettings || TransparencyValueText == null) return;
+        _settings.BackgroundTransparency = e.NewValue;
+        TransparencyValueText.Text = $"{e.NewValue:0}%";
+        ApplyTheme(_themes.FirstOrDefault(t => t.Key == _settings.SelectedTheme) ?? _themes[0]);
+        SaveSettings();
+    }
+
     private void ApplyThemeResources(ThemePreset theme)
     {
         var c1 = (Color)ColorConverter.ConvertFromString(theme.C1);
@@ -55,7 +67,6 @@ public partial class MainWindow
             ? new LinearGradientBrush(light ? Color.FromArgb(240, 255, 255, 255) : Color.FromArgb(130, 235, 246, 255),
                 WithAlpha(accent, 45), 75)
             : new SolidColorBrush(Colors.Transparent);
-        Resources["ThemeFloatingEdgeBrush"] = glass ? Resources["GlassEdgeBrush"] : Resources["ThemeBorderBrush"];
         Resources["GlassSheenBrush"] = glass ? new LinearGradientBrush
         {
             StartPoint = new Point(0, 0), EndPoint = new Point(.85, 1),
@@ -66,6 +77,17 @@ public partial class MainWindow
                 new(Colors.Transparent, .6), new(WithAlpha(accent, 22), 1)
             }
         } : new SolidColorBrush(Colors.Transparent);
+        foreach (string key in new[] { "ThemeFloatingBrush", "ThemePopupBrush", "ThemeSurfaceBrush", "ThemeCapsuleBrush", "GlassEdgeBrush", "GlassSheenBrush" })
+        {
+            var background = ((Brush)Resources[key]).Clone();
+            background.Opacity = BackgroundOpacity;
+            Resources[key] = background;
+        }
+        Resources["ThemeFloatingEdgeBrush"] = glass ? Resources["GlassEdgeBrush"] : Resources["ThemeBorderBrush"];
+        CustomBgBorder.Opacity = .32 * BackgroundOpacity;
+        // The sheen brush already includes the background opacity. Only scale
+        // the independent specular reflection here, keeping foregrounds opaque.
+        GlassSpecularBorder.Opacity = .32 * BackgroundOpacity;
         // ContextMenu lives in a separate popup tree. Give it the same palette
         // explicitly so its custom template also updates while the menu is open.
         foreach (string key in Resources.Keys.OfType<string>())

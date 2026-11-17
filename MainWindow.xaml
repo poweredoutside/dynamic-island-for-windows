@@ -230,6 +230,7 @@
                     <MenuItem Header="Выровнять по центру" Tag="&#xE8E3;" Click="CenterIsland_Click"/>
                     <MenuItem Header="Сменить тему" Tag="&#xE790;" InputGestureText="Ctrl+Alt+T" Click="CtxCycleTheme_Click"/>
                     <MenuItem Header="Изменить размер…" Tag="&#xE740;" Click="StartManualResize"/>
+                    <MenuItem Header="Громкость" Tag="&#xE767;" Click="OpenVolume_Click"/>
                     <MenuItem Header="Новые возможности" Tag="&#xE80F;" Click="OpenFeatureHub_Click"/>
                     <Separator Style="{StaticResource IslandMenuSeparator}"/>
                     <MenuItem x:Name="CtxGameModeItem" Header="Игровой центр" Tag="&#xE7FC;" Click="CtxToggleGameMode_Click"/>
@@ -249,7 +250,7 @@
                 <Border x:Name="LiquidGlassOverlay" CornerRadius="19" IsHitTestVisible="False" Visibility="Visible">
                     <Grid IsHitTestVisible="False">
                         <Border CornerRadius="{Binding CornerRadius, ElementName=LiquidGlassOverlay}" Background="{DynamicResource GlassSheenBrush}"/>
-                        <Border CornerRadius="{Binding CornerRadius, ElementName=LiquidGlassOverlay}" Opacity="0.32">
+                        <Border x:Name="GlassSpecularBorder" CornerRadius="{Binding CornerRadius, ElementName=LiquidGlassOverlay}" Opacity="0.32">
                             <Border.Background>
                                 <RadialGradientBrush x:Name="GlassSpecularBrush" Center="0.2,0" GradientOrigin="0.2,0" RadiusX="0.7" RadiusY="1">
                                     <GradientStop Color="#88FFFFFF" Offset="0"/>
@@ -859,6 +860,13 @@
                                                 <CheckBox x:Name="TglLiquidGlass" Style="{StaticResource IslandSwitch}" IsChecked="True" HorizontalAlignment="Right" VerticalAlignment="Center" Click="TglLiquidGlass_Click"/>
                                             </Grid>
 
+                                            <Grid Margin="0,0,0,12">
+                                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                                <TextBlock Text="Прозрачность фона" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                                <TextBlock x:Name="TransparencyValueText" Text="0%" HorizontalAlignment="Right" Foreground="{DynamicResource ThemeAccentBrush}"/>
+                                                <Slider x:Name="TransparencySlider" Grid.Row="1" Minimum="0" Maximum="90" TickFrequency="1" IsSnapToTickEnabled="True" Margin="0,8,0,0" ValueChanged="TransparencySlider_ValueChanged"/>
+                                            </Grid>
+
                                             <Grid>
                                                 <StackPanel VerticalAlignment="Center">
                                                     <TextBlock x:Name="LblScaleTitle" Text="Compact Island Scale" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold"/>
@@ -1060,6 +1068,7 @@
                                                 <StackPanel Margin="0,0,60,0">
                                                     <TextBlock x:Name="LblMessengerNotifs" Text="Сообщения Telegram, exDesktop, Discord, Viber…" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold"/>
                                                     <TextBlock x:Name="LblMessengerNotifsSub" Text="Перехватывает уведомления мессенджеров и выводит их прямо в островок" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="10.5" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="В Telegram и exDesktop нужно включить системные уведомления Windows." Foreground="{DynamicResource ThemeMutedBrush}" FontSize="10.5" TextWrapping="Wrap" Margin="0,4,0,0"/>
                                                 </StackPanel>
                                                 <CheckBox x:Name="TglMessengerNotifs" Style="{StaticResource IslandSwitch}" IsChecked="True" HorizontalAlignment="Right" VerticalAlignment="Center" Click="TglNotificationHooks_Click"/>
                                             </Grid>
@@ -1208,8 +1217,15 @@
                             <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock x:Name="CompactProgressLabel" Foreground="{DynamicResource ThemeTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis"/><ProgressBar x:Name="CompactProgressBar" Visibility="Collapsed" Maximum="100"/></StackPanel>
                         </Grid>
                     </Border>
-            <Border x:Name="LevelHudBorder" Visibility="Collapsed" Background="{DynamicResource ThemeCapsuleBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="1" CornerRadius="16" Padding="14,8" Margin="0,0,8,0" Width="160">
-                <StackPanel><TextBlock x:Name="LevelHudText" Foreground="{DynamicResource ThemeTextBrush}" FontSize="11" Margin="0,0,0,5"/><ProgressBar x:Name="LevelHudBar" Maximum="100" Height="4" Foreground="{DynamicResource ThemeAccentBrush}" Background="{DynamicResource ThemeInputBrush}"/></StackPanel>
+            <Border x:Name="LevelHudBorder" Visibility="Collapsed" Background="{DynamicResource ThemeCapsuleBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="1" CornerRadius="16" Padding="12,7" Margin="0,0,8,0" Width="200" PreviewMouseWheel="VolumeHud_MouseWheel">
+                <StackPanel>
+                    <Grid>
+                        <TextBlock x:Name="LevelHudText" Foreground="{DynamicResource ThemeTextBrush}" FontSize="11" VerticalAlignment="Center" Margin="0,0,25,0"/>
+                        <Button x:Name="VolumeMuteButton" Style="{StaticResource GlassPillBtn}" HorizontalAlignment="Right" Padding="3,0" Content="&#xE767;" FontFamily="Segoe MDL2 Assets" ToolTip="Выключить звук" Click="VolumeMute_Click"/>
+                    </Grid>
+                    <Slider x:Name="VolumeHudSlider" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" Height="20" Margin="0,3,0,0" Foreground="{DynamicResource ThemeAccentBrush}" ValueChanged="VolumeHudSlider_ValueChanged" AutomationProperties.Name="Volume"/>
+                    <ProgressBar x:Name="LevelHudBar" Maximum="100" Height="4" Margin="0,5,0,0" Foreground="{DynamicResource ThemeAccentBrush}" Background="{DynamicResource ThemeInputBrush}"/>
+                </StackPanel>
             </Border>
 
             <Border x:Name="DiscordCallBorder"

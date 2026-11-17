@@ -1,4 +1,4 @@
-param([string]$Path = (Join-Path $PSScriptRoot '..\artifacts\DynamicIsland-1.1.8.0-x64\DynamicIsland.msix'))
+param([string]$Path = (Join-Path $PSScriptRoot '..\artifacts\DynamicIsland-1.1.9.0-x64\DynamicIsland.msix'))
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $Path))

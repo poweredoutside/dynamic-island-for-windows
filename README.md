@@ -2,6 +2,8 @@
 
 WPF / .NET 8, Windows 10 2004+ и Windows 11, x64.
 
+В сборке Windows 1.1.9 (релиз 0.0.2): регулировка системной громкости прямо в боковой капсуле — ползунком, колесом мыши и кнопкой отключения звука. Для открытия выберите «Громкость» в меню островка. В «Оформление» доступна настройка прозрачности фона; текст остаётся читаемым. Для уведомлений Telegram и exDesktop включите системные уведомления Windows в настройках самого мессенджера.
+
 [Полный список функций и условий их работы](FEATURES.ru.md).
 
 **[Скачать ocdynamicisland.exe](https://github.com/poweredoutside/dynamic-island-for-windows/releases/latest/download/ocdynamicisland.exe)** ·
@@ -278,10 +280,10 @@ dotnet run --project tests/IntegrationChecks -- --toggle-dnd
 powershell -NoProfile -ExecutionPolicy Bypass -File installer/Test-InstallerUpdates.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Installer.ps1
 # Пересобрать только графический ocdynamicisland.exe из существующего подписанного пакета:
-powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Setup.ps1 -ReleaseDirectory artifacts/DynamicIsland-1.1.8.0-x64
+powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Setup.ps1 -ReleaseDirectory artifacts/DynamicIsland-1.1.9.0-x64
 powershell -NoProfile -ExecutionPolicy Bypass -File installer/Test-Setup.ps1
 # Следующая версия с тем же локальным сертификатом:
-powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Installer.ps1 -Version 1.1.8.0
+powershell -NoProfile -ExecutionPolicy Bypass -File installer/Build-Installer.ps1 -Version 1.1.9.0
 ```
 
 Инструменты MakeAppx и SignTool берутся из официального пакета Microsoft SDK

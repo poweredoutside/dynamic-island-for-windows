@@ -32,6 +32,7 @@ public partial class MainWindow
         public double CompactHeight { get; set; } = 38;
         public double CornerRounding { get; set; } = 1;
         public double IdleOpacity { get; set; } = 1;
+        public double BackgroundTransparency { get; set; }
         public bool IslandShadow { get; set; } = true;
         public string IslandFont { get; set; } = "Segoe UI";
         public string IdleCenter { get; set; } = "time";
@@ -70,7 +71,9 @@ public partial class MainWindow
     private VolumeIslandService? _volumeIsland;
     private readonly object _volumeGate = new();
     private VolumeIslandService.Snapshot _pendingVolume;
+    private VolumeIslandService.Snapshot _displayedVolume;
     private bool _volumeDispatchPending;
+    private bool _updatingVolumeSlider, _manualVolumeOpen;
     private int? _lastBrightness;
     private IReadOnlyList<CalendarMeeting> _meetings = [];
     private IReadOnlyList<LyricLine> _lyrics = [];
@@ -115,11 +118,11 @@ public partial class MainWindow
         }, null, 10000, 15000);
         bool existed = File.Exists(_settingsPath);
         if (!existed && !_settings.OnboardingComplete) { _welcomeStep = 0; OpenFeaturePage("welcome"); }
-        else if (_settings.LastSeenVersion != "1.1.8")
+        else if (_settings.LastSeenVersion != "1.1.9")
         {
             _settings.OnboardingComplete = true;
-            FeatureNotice("OC - Dynamic Island 1.1.8 · нажмите, чтобы увидеть новинки", () => OpenFeaturePage("news"));
-            _settings.LastSeenVersion = "1.1.8"; SaveSettings();
+            FeatureNotice("OC - Dynamic Island 1.1.9 · нажмите, чтобы увидеть новинки", () => OpenFeaturePage("news"));
+            _settings.LastSeenVersion = "1.1.9"; SaveSettings();
         }
     }
 
@@ -165,7 +168,10 @@ public partial class MainWindow
         _uiHeartbeat = DateTime.UtcNow;
         if (_windowClosed) return;
         var now = DateTimeOffset.Now;
-        if (DateTime.UtcNow > _featureNoticeUntil) LevelHudBorder.Visibility = Visibility.Collapsed;
+        if (LevelHudBorder.IsMouseOver || VolumeHudSlider.IsKeyboardFocusWithin || VolumeHudSlider.IsMouseCaptureWithin)
+            _featureNoticeUntil = DateTime.UtcNow.AddSeconds(3);
+        else if (DateTime.UtcNow > _featureNoticeUntil)
+        { LevelHudBorder.Visibility = Visibility.Collapsed; _manualVolumeOpen = false; }
         DrainFeatureNotices();
         UpdateIdleContent(); UpdateLyricsFrame(); UpdateCursorAppearance();
         if (_gameFps != null) UpdateFpsTarget();
@@ -363,8 +369,8 @@ public partial class MainWindow
         {
             VolumeIslandService.Snapshot latest;
             lock (_volumeGate) { latest = _pendingVolume; _volumeDispatchPending = false; }
-            if (!_windowClosed && _settings.VolumeIslandHud == true)
-                LevelNotice(latest.Muted ? L("Звук выключен") : L("Громкость") + $" · {latest.Volume:P0}", latest.Muted ? 0 : latest.Volume * 100);
+            if (!_windowClosed && (_settings.VolumeIslandHud == true || _manualVolumeOpen))
+                ShowVolumeSnapshot(latest);
         }));
     }
 
@@ -373,14 +379,51 @@ public partial class MainWindow
         _settings.VolumeIslandHud = enabled;
         TglVolumeIsland.IsChecked = enabled;
         if (_volumeIsland != null) _volumeIsland.Enabled = enabled;
-        if (!enabled) LevelHudBorder.Visibility = Visibility.Collapsed;
+        if (!enabled && !_manualVolumeOpen) LevelHudBorder.Visibility = Visibility.Collapsed;
     }
 
     private void TglVolumeIsland_Click(object sender, RoutedEventArgs e)
     { SetVolumeIslandHud(TglVolumeIsland.IsChecked == true); SaveSettings(); }
 
-    private void LevelNotice(string text, double value)
+    private void ShowVolumeSnapshot(VolumeIslandService.Snapshot snapshot)
     {
+        _displayedVolume = snapshot;
+        _updatingVolumeSlider = true;
+        try { VolumeHudSlider.Value = Math.Clamp(snapshot.Volume * 100, 0, 100); }
+        finally { _updatingVolumeSlider = false; }
+        VolumeMuteButton.Content = snapshot.Muted ? "\uE74F" : "\uE767";
+        VolumeMuteButton.ToolTip = L(snapshot.Muted ? "Включить звук" : "Выключить звук");
+        LevelNotice(snapshot.Muted ? L("Звук выключен") : L("Громкость") + $" · {snapshot.Volume:P0}", snapshot.Volume * 100, true);
+    }
+
+    private void OpenVolume_Click(object sender, RoutedEventArgs e)
+    {
+        _manualVolumeOpen = true;
+        if (_volumeIsland?.RequestSnapshot() != true)
+        { _manualVolumeOpen = false; OpenFeaturePage("system"); }
+    }
+
+    private void VolumeHudSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_updatingVolumeSlider || !IsLoaded) return;
+        _featureNoticeUntil = DateTime.UtcNow.AddSeconds(3);
+        _volumeIsland?.SetVolume(e.NewValue);
+    }
+
+    private void VolumeMute_Click(object sender, RoutedEventArgs e)
+    { e.Handled = true; _volumeIsland?.ToggleMute(); }
+
+    private void VolumeHud_MouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        if (VolumeHudSlider.Visibility != Visibility.Visible) return;
+        e.Handled = true;
+        VolumeHudSlider.Value = Math.Clamp(VolumeHudSlider.Value + e.Delta / 120d * 2, 0, 100);
+    }
+
+    private void LevelNotice(string text, double value, bool volume = false)
+    {
+        VolumeHudSlider.Visibility = VolumeMuteButton.Visibility = volume ? Visibility.Visible : Visibility.Collapsed;
+        LevelHudBar.Visibility = volume ? Visibility.Collapsed : Visibility.Visible;
         LevelHudText.Text = L(text); LevelHudBar.Value = Math.Clamp(value, 0, 100);
         LevelHudBorder.Visibility = Visibility.Visible;
         _featureNoticeUntil = DateTime.UtcNow.AddSeconds(2);

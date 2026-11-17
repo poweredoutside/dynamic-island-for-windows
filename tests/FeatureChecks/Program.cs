@@ -212,6 +212,21 @@ internal static class Program
             received.Reset();
             endpoint.Mute = originalMute;
             if (received.WaitOne(150)) throw new Exception("Disabling did not restore passthrough mode");
+            if (!service.RequestSnapshot() || !WaitFor(snapshot => Math.Abs(snapshot.Volume - original) < .001))
+                throw new Exception("Manual volume control cannot open with automatic HUD disabled");
+            if (service.SetVolume(double.NaN)) throw new Exception("Invalid volume accepted");
+            double target = original < .98f ? Math.Round(original * 100) + 1 : Math.Round(original * 100) - 1;
+            for (int i = 0; i < 300; i++) service.SetVolume(i % 2 == 0 ? Math.Round(original * 100) : target);
+            service.SetVolume(target);
+            if (!WaitFor(snapshot => Math.Abs(snapshot.Volume - target / 100) < .001 && !snapshot.Muted)
+                || Math.Abs(endpoint.MasterVolumeLevelScalar - target / 100) > .001)
+                throw new Exception("Slider burst failed to apply the latest endpoint volume");
+            service.ToggleMute();
+            if (!WaitFor(snapshot => snapshot.Muted)) throw new Exception("Manual mute failed");
+            service.ToggleMute();
+            if (!WaitFor(snapshot => !snapshot.Muted)) throw new Exception("Manual unmute failed");
+            // Stop all queued work before restoring the user's exact original level.
+            service.Dispose();
             Console.WriteLine($"PASS: real endpoint callbacks, mute-only changes, disabled mode, hook ready; callback {latency:0.0} ms; original sound restored.");
             return 0;
         }

@@ -5,7 +5,7 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 if (!$Path) { $Path = Join-Path $PSScriptRoot '..\artifacts\ocdynamicisland.exe' }
-if (!$PackagePath) { $PackagePath = Join-Path $PSScriptRoot '..\artifacts\DynamicIsland-1.1.8.0-x64\DynamicIsland.msix' }
+if (!$PackagePath) { $PackagePath = Join-Path $PSScriptRoot '..\artifacts\DynamicIsland-1.1.9.0-x64\DynamicIsland.msix' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $fixture = Join-Path $projectRoot ('artifacts\setup-check-' + [guid]::NewGuid().ToString('N'))
 $isolated = Join-Path $fixture 'standalone with spaces'

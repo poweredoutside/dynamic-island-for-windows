@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Tag = 'v1.1.8', [string]$ReleaseName = 'OC - Dynamic Island 0.0.2 — исправление обновлений')
+param([string]$Tag = 'v1.1.9', [string]$ReleaseName = 'OC - Dynamic Island 0.0.2 — громкость и прозрачность')
 $ErrorActionPreference = 'Stop'
 $env:GCM_INTERACTIVE = 'Never'
 $env:GIT_TERMINAL_PROMPT = '0'

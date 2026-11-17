@@ -1,4 +1,4 @@
-# OC - Dynamic Island для Windows
+# powered by Outside Company - Dynamic Island для Windows
 
 WPF / .NET 8, Windows 10 2004+ и Windows 11, x64.
 

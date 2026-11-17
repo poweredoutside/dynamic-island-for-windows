@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param([string]$Tag = 'v1.1.9', [string]$ReleaseName = 'OC - Dynamic Island 0.0.2 — громкость и прозрачность')
 $ErrorActionPreference = 'Stop'
 $env:GCM_INTERACTIVE = 'Never'

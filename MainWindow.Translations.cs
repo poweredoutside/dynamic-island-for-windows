@@ -9,6 +9,17 @@ public partial class MainWindow
         .Select(line => line.Split('¦')).ToDictionary(parts => parts[0], parts => parts, StringComparer.Ordinal);
 
     private const string TranslationCatalog = """
+Закрепить на месте¦Lock position¦Закріпити на місці¦Position sperren¦Fijar posición
+У верхнего края (macOS)¦Top edge (macOS)¦Біля верхнього краю (macOS)¦Oberer Bildschirmrand (macOS)¦Borde superior (macOS)
+Выключено — плавающая капсула. Включено — остров у верхнего края экрана.¦Off: floating pill. On: island docked to the top edge.¦Вимкнено: плаваюча капсула. Увімкнено: острів біля верхнього краю.¦Aus: schwebende Kapsel. An: Insel am oberen Bildschirmrand.¦Desactivado: cápsula flotante. Activado: isla en el borde superior.
+Проверять обновления автоматически¦Check for updates automatically¦Автоматично перевіряти оновлення¦Automatisch nach Updates suchen¦Buscar actualizaciones automáticamente
+Проверка выполняется при запуске и периодически. Загрузка и установка — только вручную.¦Checks run at startup and periodically. Downloads and installation are manual.¦Перевірка відбувається під час запуску та періодично. Завантаження й встановлення — лише вручну.¦Beim Start und regelmäßig prüfen. Download und Installation erfolgen manuell.¦Se comprueba al iniciar y periódicamente. La descarga y la instalación son manuales.
+Трассировка кадров недоступна. Температура CPU проверяется отдельно.¦Frame tracing is unavailable. CPU temperature is checked separately.¦Трасування кадрів недоступне. Температура ЦП перевіряється окремо.¦Frame-Aufzeichnung nicht verfügbar. CPU-Temperatur wird separat geprüft.¦El seguimiento de fotogramas no está disponible. La temperatura de la CPU se comprueba por separado.
+Сборщик показателей отключился. Переключите игровой режим.¦The metrics helper disconnected. Toggle game mode off and on.¦Збирач показників відключився. Перемкніть ігровий режим.¦Die Messhilfe wurde getrennt. Schalten Sie den Spielmodus aus und wieder ein.¦El servicio de métricas se desconectó. Desactiva y vuelve a activar el modo juego.
+Температура CPU недоступна: установите PawnIO в игровом центре.¦CPU temperature is unavailable: install PawnIO in Game Center.¦Температура ЦП недоступна: встановіть PawnIO в ігровому центрі.¦CPU-Temperatur nicht verfügbar: PawnIO im Spielecenter installieren.¦La temperatura de la CPU no está disponible: instala PawnIO en el Centro de juegos.
+Датчик CPU пока не вернул температуру.¦The CPU sensor has not reported a temperature yet.¦Датчик ЦП ще не повернув температуру.¦Der CPU-Sensor hat noch keine Temperatur gemeldet.¦El sensor de la CPU aún no ha indicado la temperatura.
+Ожидаю показания датчика CPU.¦Waiting for the CPU sensor.¦Очікую на показання датчика ЦП.¦Warte auf den CPU-Sensor.¦Esperando al sensor de la CPU.
+Включите игровой режим, чтобы измерить температуру CPU.¦Enable game mode to measure CPU temperature.¦Увімкніть ігровий режим, щоб виміряти температуру ЦП.¦Spielmodus aktivieren, um die CPU-Temperatur zu messen.¦Activa el modo juego para medir la temperatura de la CPU.
 Не удалось сделать скриншот. Перезапустите «Ножницы» и повторите попытку.¦Could not capture a screenshot. Restart Snipping Tool and try again.¦Не вдалося зробити знімок. Перезапустіть Ножиці та спробуйте знову.¦Screenshot fehlgeschlagen. Snipping Tool neu starten und erneut versuchen.¦No se pudo capturar. Reinicia Recortes e inténtalo de nuevo.
 Скриншот скопирован и сохранён: Изображения / OC - Dynamic Island¦Screenshot copied and saved: Pictures / OC - Dynamic Island¦Знімок скопійовано та збережено: Зображення / OC - Dynamic Island¦Screenshot kopiert und gespeichert: Bilder / OC - Dynamic Island¦Captura copiada y guardada: Imágenes / OC - Dynamic Island
 Стекло-линза · эксперимент¦Lens glass · experimental¦Скло-лінза · експеримент¦Linsenglas · experimentell¦Cristal de lente · experimental
@@ -97,11 +108,12 @@ public partial class MainWindow
 Удалить¦Delete¦Видалити¦Löschen¦Eliminar
 Копировать код темы¦Copy theme code¦Копіювати код теми¦Themencode kopieren¦Copiar código del tema
 Игровой центр¦Game center¦Ігровий центр¦Spielcenter¦Centro de juegos
-Для измерения FPS игры включите встроенный счётчик. Windows запросит права администратора для ETW. Дополнительных программ не требуется.¦Enable the built-in game FPS counter. Windows requests administrator access for ETW. No extra software is needed.¦Увімкніть вбудований лічильник FPS. Windows запитає права адміністратора для ETW. Додаткові програми не потрібні.¦Integrierten FPS-Zähler aktivieren. Windows fragt nach Administratorrechten für ETW. Keine Zusatzsoftware nötig.¦Activa el contador FPS integrado. Windows solicitará permisos de administrador para ETW. No requiere programas adicionales.
+Игровой режим включает HUD, FPS и температуру CPU. Windows может запросить права администратора.¦Game mode enables the HUD, FPS, and CPU temperature. Windows may request administrator access.¦Ігровий режим вмикає HUD, FPS і температуру ЦП. Windows може запитати права адміністратора.¦Der Spielmodus aktiviert HUD, FPS und CPU-Temperatur. Windows kann Administratorrechte anfordern.¦El modo juego activa el HUD, los FPS y la temperatura de la CPU. Windows puede solicitar permisos de administrador.
+FPS DWM — кадры рабочего стола, не FPS игры.¦DWM FPS measures desktop frames, not game FPS.¦FPS DWM — кадри робочого столу, не FPS гри.¦DWM-FPS misst Desktop-Bilder, nicht Spiel-FPS.¦Los FPS de DWM miden el escritorio, no los FPS del juego.
 Автоматический HUD в полноэкранной игре¦Automatic HUD in fullscreen games¦Автоматичний HUD у повноекранній грі¦Automatisches HUD in Vollbildspielen¦HUD automático en juegos a pantalla completa
-Включить FPS игры¦Enable game FPS¦Увімкнути FPS гри¦Spiel-FPS aktivieren¦Activar FPS del juego
-Остановить счётчик¦Stop counter¦Зупинити лічильник¦Zähler stoppen¦Detener contador
-Измеряются кадры, отправленные через DirectX Present. Для игр OpenGL / Vulkan без событий DXGI счётчик может быть недоступен.¦Counts DirectX Present frames. OpenGL / Vulkan games without DXGI events may be unsupported.¦Рахує кадри DirectX Present. Ігри OpenGL / Vulkan без подій DXGI можуть не підтримуватися.¦Zählt DirectX-Present-Frames. OpenGL / Vulkan ohne DXGI-Ereignisse eventuell nicht unterstützt.¦Cuenta fotogramas DirectX Present. OpenGL / Vulkan sin eventos DXGI pueden no ser compatibles.
+Включить игровой режим¦Enable game mode¦Увімкнути ігровий режим¦Spielmodus aktivieren¦Activar modo juego
+Выключить игровой режим¦Disable game mode¦Вимкнути ігровий режим¦Spielmodus deaktivieren¦Desactivar modo juego
+FPS измеряется по событиям отправки кадров активной игры. Если игра не передаёт такие события, показание недоступно.¦FPS counts frame submissions from the active game. If the game does not emit these events, no reading is available.¦FPS вимірюється за подіями передавання кадрів активної гри. Без таких подій показник недоступний.¦FPS zählt Frame-Übermittlungen des aktiven Spiels. Ohne diese Ereignisse steht kein Messwert zur Verfügung.¦Los FPS se calculan a partir de los fotogramas enviados por el juego activo. Sin esos eventos no hay lectura.
 Громкость приложений¦App volumes¦Гучність програм¦App-Lautstärke¦Volumen de aplicaciones
 Регуляторы управляют настоящими звуковыми сессиями Windows.¦Controls actual Windows audio sessions.¦Регулятори керують звуковими сеансами Windows.¦Steuert echte Windows-Audiositzungen.¦Controla las sesiones de audio de Windows.
 Читаю аудиоустройства…¦Reading audio devices…¦Читаю аудіопристрої…¦Audiogeräte werden gelesen…¦Leyendo dispositivos de audio…
@@ -169,7 +181,6 @@ LRCLIB · строк¦LRCLIB · lines¦LRCLIB · рядків¦LRCLIB · Zeilen�
 Укажите город в настройках погоды.¦Choose a city in weather settings.¦Укажіть місто в налаштуваннях погоди.¦Stadt in Wettereinstellungen wählen.¦Elige una ciudad en los ajustes del tiempo.
 Данные ещё не получены. Проверьте интернет и город.¦No data yet. Check internet and city.¦Даних ще немає. Перевірте інтернет і місто.¦Noch keine Daten. Internet und Stadt prüfen.¦Sin datos aún. Comprueba internet y la ciudad.
 Интерфейс отрисовывается по необходимости.¦Interface renders on demand.¦Інтерфейс малюється за потреби.¦Oberfläche wird bei Bedarf gezeichnet.¦La interfaz se dibuja cuando es necesario.
-Счётчик игры можно включить на странице «Система».¦Enable the game counter on the System page.¦Увімкніть лічильник гри на сторінці «Система».¦Spielzähler auf der Systemseite aktivieren.¦Activa el contador del juego en Sistema.
 Стекло¦Glass¦Скло¦Glas¦Cristal
 Включено. Видимость при захвате настраивается отдельно.¦Enabled. Capture visibility is configured separately.¦Увімкнено. Видимість під час захоплення налаштовується окремо.¦Aktiviert. Sichtbarkeit bei Aufnahme separat einstellbar.¦Activado. La visibilidad en capturas se configura aparte.
 Выключено в настройках внешнего вида.¦Disabled in appearance settings.¦Вимкнено в налаштуваннях вигляду.¦In Darstellungseinstellungen deaktiviert.¦Desactivado en los ajustes de apariencia.
@@ -196,7 +207,7 @@ LRCLIB · строк¦LRCLIB · lines¦LRCLIB · рядків¦LRCLIB · Zeilen�
 Указать город¦Set city¦Указати місто¦Stadt festlegen¦Elegir ciudad
 Переподключить¦Reconnect¦Перепідключити¦Neu verbinden¦Reconectar
 Открыть игровой центр¦Open game center¦Відкрити ігровий центр¦Spielcenter öffnen¦Abrir centro de juegos
-Версия приложения · 1.1.9¦App version · 1.1.9¦Версія програми · 1.1.9¦App-Version · 1.1.9¦Versión de la aplicación · 1.1.9
+Версия приложения¦App version¦Версія програми¦App-Version¦Versión de la aplicación
 Обновления через GitHub¦Updates from GitHub¦Оновлення через GitHub¦Updates über GitHub¦Actualizaciones de GitHub
 Обновления OC - Dynamic Island загружаются из GitHub. Дополнительные программы не нужны. Проверяются контрольная сумма и подпись установщика ocdynamicisland.exe.¦Updates download from GitHub without extra software. The ocdynamicisland.exe checksum and signature are verified.¦Оновлення з GitHub без додаткових програм. Перевіряються контрольна сума й підпис ocdynamicisland.exe.¦Updates von GitHub ohne Zusatzsoftware. Prüfsumme und Signatur von ocdynamicisland.exe werden geprüft.¦Actualizaciones desde GitHub sin programas adicionales. Se verifica la suma y firma de ocdynamicisland.exe.
 Репозиторий owner/repository¦Repository owner/repository¦Репозиторій owner/repository¦Repository owner/repository¦Repositorio owner/repository
@@ -235,7 +246,8 @@ LRCLIB · строк¦LRCLIB · lines¦LRCLIB · рядків¦LRCLIB · Zeilen�
 Тяните правый / нижний край · ПКМ — закончить¦Drag right / bottom edge · right-click to finish¦Тягніть правий / нижній край · ПКМ — завершити¦Rechten / unteren Rand ziehen · Rechtsklick zum Beenden¦Arrastra borde derecho / inferior · clic derecho para terminar
 Спрятать островок¦Hide island¦Приховати острівець¦Insel ausblenden¦Ocultar isla
 Выровнять по центру¦Align to center¦Вирівняти по центру¦Zentrieren¦Centrar
-Сменить тему¦Change theme¦Змінити тему¦Thema wechseln¦Cambiar tema
+Проверить обновления¦Check for updates¦Перевірити оновлення¦Nach Updates suchen¦Buscar actualizaciones
+Игровой режим¦Game mode¦Ігровий режим¦Spielmodus¦Modo juego
 Изменить размер…¦Resize…¦Змінити розмір…¦Größe ändern…¦Cambiar tamaño…
 Новые возможности¦New features¦Нові можливості¦Neue Funktionen¦Nuevas funciones
 Выйти¦Exit¦Вийти¦Beenden¦Salir
@@ -255,9 +267,10 @@ Discord · Голос¦Discord · Voice¦Discord · Голос¦Discord · Sprac
 OC - Dynamic Island 1.1.9 · нажмите, чтобы увидеть новинки¦OC - Dynamic Island 1.1.9 · click for new features¦OC - Dynamic Island 1.1.9 · натисніть для перегляду новинок¦OC - Dynamic Island 1.1.9 · klicken für Neuigkeiten¦OC - Dynamic Island 1.1.9 · pulsa para ver novedades
 Измерение игры выключено.¦Game measurement off.¦Вимірювання гри вимкнено.¦Spielmessung deaktiviert.¦Medición del juego desactivada.
 Ожидание разрешения Windows…¦Waiting for Windows permission…¦Очікування дозволу Windows…¦Warte auf Windows-Berechtigung…¦Esperando permiso de Windows…
-ETW подключён. Ожидаю игру DirectX.¦ETW connected. Waiting for a DirectX game.¦ETW підключено. Очікую гру DirectX.¦ETW verbunden. Warte auf DirectX-Spiel.¦ETW conectado. Esperando un juego DirectX.
-Измеряется частота Present игры (DirectX).¦Measuring game Present rate (DirectX).¦Вимірюється частота Present гри (DirectX).¦Present-Rate des Spiels wird gemessen (DirectX).¦Midiendo frecuencia Present del juego (DirectX).
-Нет кадров DirectX у выбранного окна.¦No DirectX frames from selected window.¦Немає кадрів DirectX у вибраному вікні.¦Keine DirectX-Frames vom gewählten Fenster.¦Sin fotogramas DirectX de la ventana elegida.
+Сборщик подключён. Запускаю трассировку кадров…¦Monitor connected. Starting frame tracing…¦Збирач підключено. Запускаю трасування кадрів…¦Messhilfe verbunden. Frame-Aufzeichnung startet…¦Monitor conectado. Iniciando el seguimiento de fotogramas…
+Сборщик не ответил вовремя. Переключите игровой режим.¦The monitor timed out. Toggle game mode off and on.¦Збирач не відповів вчасно. Вимкніть і знову ввімкніть ігровий режим.¦Zeitüberschreitung bei der Messung. Schalten Sie den Spielmodus aus und wieder ein.¦El monitor no respondió a tiempo. Desactiva y vuelve a activar el modo juego.
+Измеряется частота кадров активной игры.¦Measuring the active game frame rate.¦Вимірюється частота кадрів активної гри.¦Bildrate des aktiven Spiels wird gemessen.¦Midiendo los FPS del juego activo.
+Нет событий отправки кадров у активного окна. Переключитесь на игру.¦No frame submissions from the active window. Switch to the game.¦Активне вікно не надсилає кадри. Перемкніться на гру.¦Keine Frame-Übermittlungen vom aktiven Fenster. Wechseln Sie zum Spiel.¦La ventana activa no envía fotogramas. Cambia al juego.
 Разрешение администратора отменено.¦Administrator permission canceled.¦Дозвіл адміністратора скасовано.¦Administratorberechtigung abgebrochen.¦Permiso de administrador cancelado.
 Сеанс измерения остановлен.¦Measurement session stopped.¦Сеанс вимірювання зупинено.¦Messung gestoppt.¦Sesión de medición detenida.
 Счётчик игры недоступен. Попробуйте включить его снова.¦Game counter unavailable. Try enabling it again.¦Лічильник гри недоступний. Спробуйте ввімкнути знову.¦Spielzähler nicht verfügbar. Erneut aktivieren.¦Contador del juego no disponible. Actívalo de nuevo.

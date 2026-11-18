@@ -121,14 +121,16 @@ public partial class MainWindow
 
     private Size _shadowSize;
     private double _shadowRadius;
+    private bool _shadowDocked;
     private void UpdateGlassShadow()
     {
         IslandShadow.OpacityMask = _settings.IslandShadow ? null : Brushes.Transparent;
         if (!_settings.IslandShadow) return;
         var size = new Size(Math.Max(1, IslandBorder.Width), Math.Max(1, IslandBorder.Height));
-        double radius = IslandBorder.CornerRadius.TopLeft;
-        if (size == _shadowSize && radius == _shadowRadius) return;
-        _shadowSize = size; _shadowRadius = radius;
+        double radius = IslandBorder.CornerRadius.BottomLeft;
+        bool docked = _settings.DockIslandAtTop;
+        if (size == _shadowSize && radius == _shadowRadius && docked == _shadowDocked) return;
+        _shadowSize = size; _shadowRadius = radius; _shadowDocked = docked;
         // Only draw outside the capsule. A filled shadow silhouette underneath
         // translucent glass turns every theme opaque black.
         var drawing = new DrawingGroup();
@@ -139,8 +141,9 @@ public partial class MainWindow
             {
                 byte alpha = (byte)(35 * Math.Exp(-distance * distance / 100.0));
                 var pen = new Pen(new SolidColorBrush(Color.FromArgb(alpha, 0, 0, 0)), 1.1);
+                double above = docked ? radius + distance : 0;
                 context.DrawRoundedRectangle(null, pen,
-                    new Rect(28 - distance, 28 - distance, size.Width + distance * 2, size.Height + distance * 2),
+                    new Rect(28 - distance, 28 - distance - above, size.Width + distance * 2, size.Height + distance * 2 + above),
                     radius + distance, radius + distance);
             }
         }

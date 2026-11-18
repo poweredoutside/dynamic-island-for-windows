@@ -1,4 +1,7 @@
 using System.Reflection;
+using System.IO.Pipes;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
@@ -7,6 +10,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using DynamicIslandWin;
 using DynamicIslandWin.Services;
+using Microsoft.Diagnostics.Tracing;
 
 internal static class Program
 {
@@ -16,7 +20,34 @@ internal static class Program
         int checks = 0;
         void Check(bool result, string reason) { if (!result) throw new InvalidOperationException(reason); checks++; }
         if (args.Contains("--volume-events")) return CheckVolumeEvents();
+        if (args.Contains("--probe-desktop-fps"))
+        {
+            var desktop = new DesktopCompositionFps();
+            desktop.Poll();
+            Thread.Sleep(1100);
+            desktop.Poll();
+            Check(desktop.Rate is >= 0, "Windows DWM supplies valid composition timings in the current desktop session");
+            Console.WriteLine($"PASS: DWM desktop composition: {desktop.Rate:0.0} FPS, without screen capture.");
+            return 0;
+        }
         if (args.Contains("--verify-release")) return CheckPublishedRelease();
+        if (args is ["--fps-trace", var path, var expectedPid, var expectedSource, var minimumFrames])
+        {
+            using var trace = new ETWTraceEventSource(path);
+            int targetPid = int.Parse(expectedPid);
+            var counts = new long[(int)FpsService.PresentKind.KernelPresent + 1];
+            trace.AllEvents += data =>
+            {
+                if (data.ProcessID == targetPid) counts[(int)FpsService.ClassifyPresent(data)]++;
+            };
+            trace.Process();
+            var source = counts[1] > 0 ? "runtime" : (counts[2] > 0 || counts[3] > 0) ? "history" : "present";
+            long frames = FpsService.SelectFrameCount(counts[1], counts[2], counts[3], counts[4]);
+            string result = $"PID {targetPid}: {frames} {source} frames (runtime={counts[1]}, history={counts[2]}, detailed={counts[3]}, present={counts[4]})";
+            Check(source == expectedSource && frames >= long.Parse(minimumFrames), result);
+            Console.WriteLine($"PASS: {result} from ETL.");
+            return 0;
+        }
         if (args.Contains("--probe-screenshot"))
         {
             var (frame, bounds) = ScreenCaptureService.CaptureDesktopAsync().GetAwaiter().GetResult();
@@ -40,10 +71,48 @@ internal static class Program
         Check(CpuTemperatureService.SelectCelsius([("CPU Package", null), ("CPU Core #1", float.NaN), ("CPU Core #2", 200f)]) == -1, "Unavailable and invalid CPU sensors remain unavailable");
         FpsService.ParseSample("144.20|72", out var measuredFps, out int measuredTemperature);
         Check(measuredFps == 144.2 && measuredTemperature == 72, "Elevated helper delivers FPS and real CPU temperature");
+        var desktopFps = new DesktopCompositionFps();
+        long second = System.Diagnostics.Stopwatch.Frequency;
+        desktopFps.Sample(100, second);
+        Check(desktopFps.Rate == null, "Desktop FPS needs two actual composition samples");
+        desktopFps.Sample(220, 3 * second);
+        Check(desktopFps.Rate == 60, "Desktop FPS uses measured frames and elapsed time");
+        desktopFps.Sample(220, 4 * second);
+        Check(desktopFps.Rate == 0, "Idle desktop reports zero new frames without substituting monitor refresh rate");
+        desktopFps.Sample(1, 5 * second);
+        Check(desktopFps.Rate == null, "A compositor reset never creates a bogus FPS spike");
+        desktopFps.Sample(null, 6 * second);
+        desktopFps.Sample(900, 7 * second);
+        Check(desktopFps.Rate == null, "Samples on opposite sides of a DWM failure are not compared");
+        desktopFps.Reset();
+        desktopFps.Sample(920, 8 * second);
+        Check(desktopFps.Rate == null, "Re-enabling game mode starts a fresh desktop FPS measurement");
         FpsService.ParseSample("0.00|-1", out measuredFps, out measuredTemperature);
         Check(measuredFps == 0 && measuredTemperature == -1, "Zero rendered frames differ from unavailable sensor");
         FpsService.ParseSample("NaN|999", out measuredFps, out measuredTemperature);
         Check(measuredFps == null && measuredTemperature == -1, "Malformed helper values rejected");
+        FpsService.ParseSample("-|62", out measuredFps, out measuredTemperature);
+        Check(measuredFps == null && measuredTemperature == 62, "Temperature remains readable when DirectX tracing is unavailable");
+        var pipeName = "DynamicIsland.Features." + Guid.NewGuid().ToString("N");
+        using (var identity = WindowsIdentity.GetCurrent())
+        using (var pipe = FpsService.CreateServerPipe(pipeName))
+        using (var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous, TokenImpersonationLevel.Identification))
+        {
+            var permissions = pipe.GetAccessControl();
+            var rules = permissions.GetAccessRules(true, true, typeof(SecurityIdentifier));
+            var user = identity.User!;
+            Check(user.Equals(permissions.GetOwner(typeof(SecurityIdentifier))) && rules.Count == 1
+                && rules[0] is PipeAccessRule { AccessControlType: AccessControlType.Allow } rule && user.Equals(rule.IdentityReference),
+                "Helper pipe is restricted to the actual account SID, not the token's default owner");
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var connected = pipe.WaitForConnectionAsync(timeout.Token);
+            client.ConnectAsync(2000, timeout.Token).GetAwaiter().GetResult();
+            connected.GetAwaiter().GetResult();
+            var buffer = new byte[1];
+            var reading = pipe.ReadAsync(buffer.AsMemory(), timeout.Token).AsTask();
+            client.WriteAsync(new byte[] { 37 }.AsMemory(), timeout.Token).AsTask().GetAwaiter().GetResult();
+            Check(reading.GetAwaiter().GetResult() == 1 && buffer[0] == 37, "Account-scoped pipe supports the identification-only client");
+        }
         var keys = new VolumeKeyRouter();
         var commands = new List<int>();
         bool Queue(int key) { commands.Add(key); return true; }
@@ -81,6 +150,10 @@ internal static class Program
             Check(VoiceLauncher.Resolve(bad) == null, "Voice launch rejects shell, local, credentialed or unknown protocol targets");
         Check(VoiceLauncher.Resolve("telegram") == "tg://" && VoiceLauncher.Resolve("https://example.com/path") != null, "Voice opens supported targets");
         Check(FpsService.IsPresent(new("CA11C036-0102-4A2D-A6AD-F03CFED5D3C9"), 42) && !FpsService.IsPresent(new("CA11C036-0102-4A2D-A6AD-F03CFED5D3C9"), 43), "FPS counts starts, not both start and stop");
+        Check(FpsService.SelectFrameCount(60, 60, 61, 62) == 60 && FpsService.SelectFrameCount(0, 60, 70, 50) == 70
+            && FpsService.SelectFrameCount(0, 0, 0, 50) == 50 && FpsService.SelectFrameCount(0, 0, 0, 0) == 0, "FPS falls back to one kernel source without adding overlapping frame counts");
+        FpsService.ParseSample("?|72", out var startingFps, out int startingTemperature);
+        Check(startingFps == null && startingTemperature == 72, "CPU samples are available before ETW finishes starting");
         Check(GitHubUpdateService.Repository("https://github.com/example/island/") == "example/island", "Update repository normalization");
         string releaseJson = "{\"tag_name\":\"v1.2.0\",\"name\":\"1.2\",\"assets\":[{\"name\":\"Setup.exe\",\"browser_download_url\":\"https://github.com/example/island/releases/download/v1.2.0/Setup.exe\"},{\"name\":\"SHA256SUMS.txt\",\"browser_download_url\":\"https://github.com/example/island/releases/download/v1.2.0/SHA256SUMS.txt\"}]}";
         Check(GitHubUpdateService.Parse("example/island", releaseJson).Version == new Version(1, 2, 0), "Update resolves exact same-repository installer");
@@ -99,6 +172,13 @@ internal static class Program
         var migrated = JsonSerializer.Deserialize<MainWindow.AppSettings>("{\"NotificationDurationSeconds\":7,\"SelectedTheme\":\"Ocean\"}")!;
         Check(migrated.CompactWidth == 210 && migrated.NotificationDurationSeconds == 7 && migrated.SelectedTheme == "Ocean" && !migrated.FollowCursorMonitor, "Settings migration preserves values and safe defaults");
         Check(migrated.UpdateRepository == "poweredoutside/dynamic-island-for-windows", "New and absent settings use the production update repository");
+        Check(migrated.AutoCheckUpdates && migrated.Language == "system", "System language and automatic update checks default on for missing settings");
+        Check(JsonSerializer.Deserialize<MainWindow.AppSettings>("{\"Language\":\"Deutsch\",\"AutoCheckUpdates\":false}") is { Language: "Deutsch", AutoCheckUpdates: false }, "Manual language and update preferences survive migration");
+        Check(MainWindow.LanguageForCulture("ru-RU") == "Русский" && MainWindow.LanguageForCulture("es-MX") == "Español"
+            && MainWindow.LanguageForCulture("ja-JP") == "English", "Windows UI locales match the supported base language or fall back to English");
+        var secondary = new System.Drawing.Rectangle(-1920, -240, 1920, 1080);
+        Check(MainWindow.IslandWindowLeft(secondary, 1360, 100, 1.5, true) == -1640, "Docked island ignores floating offsets on a secondary monitor");
+        Check(MainWindow.IslandWindowLeft(secondary, 1360, 100, 1.5, false) == -1490, "Floating island offsets are restored in monitor pixels");
         var due = DateTimeOffset.Now.AddMinutes(12);
         migrated.Timers.Add(new(Guid.NewGuid(), "Test", due));
         Check(JsonSerializer.Deserialize<MainWindow.AppSettings>(JsonSerializer.Serialize(migrated))!.Timers.Single().Due == due, "Timer deadlines survive serialization");
@@ -116,6 +196,7 @@ internal static class Program
         object? Call(string name, params object?[] values) => typeof(MainWindow).GetMethod(name, flags)!.Invoke(window, values);
         T Element<T>(string name) => (T)window.FindName(name);
         var settings = (MainWindow.AppSettings)typeof(MainWindow).GetField("_settings", flags)!.GetValue(window)!;
+        settings.Language = "English";
         settings.UpdateRepository = ""; Call("LoadFeatureThemes");
         Check(settings.UpdateRepository == GitHubUpdateService.DefaultRepository, "Existing empty update repository migrates to the default");
         settings.UpdateRepository = "example/custom"; Call("LoadFeatureThemes");

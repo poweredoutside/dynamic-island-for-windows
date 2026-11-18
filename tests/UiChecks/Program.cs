@@ -27,6 +27,7 @@ internal static class Program
         int checks = 0;
         void Check(bool ok, string message) { if (!ok) throw new Exception(message); checks++; }
         var settings = Field<MainWindow.AppSettings>("_settings");
+        settings.Language = "English";
         Check(!settings.LensGlass, "Experimental lens is opt-in for existing installations");
         settings.LensGlass = true;
         Call("ConfigureLensGlass");
@@ -47,10 +48,48 @@ internal static class Program
         Set("_isGameModeActive", true);
         Call("FeatureTick");
         Check(Element<TextBlock>("GameHudFpsText").Text == "144" && Element<TextBlock>("GameHudCpuTempText").Text == "72°C", "Active game HUD refreshes FPS and helper CPU temperature without rebuilding its page");
-        Set("_gameFps", null);
+        Check(Element<TextBlock>("HoverSysText").Text.Contains("144 FPS") && Element<TextBlock>("HoverSysText").Text.Contains("72°C")
+            && Element<TextBlock>("HomeTelemetryText").Text.Contains("72°C"), "Both regular telemetry summaries show real game and sensor samples");
+        string[] fpsHeaders = ["GamePageFpsText", "WeatherFpsText", "ClipboardFpsText", "SettingsFpsText"];
+        Check(fpsHeaders.All(name => Element<TextBlock>(name).Visibility == Visibility.Visible && Element<TextBlock>(name).Text == "144 FPS"),
+            "FPS stays visible in all expanded page headers during game mode");
+        var desktopFps = Field<object>("_desktopFps");
+        var sampleDesktop = desktopFps.GetType().GetMethod("Sample", flags)!;
+        long second = System.Diagnostics.Stopwatch.Frequency;
+        sampleDesktop.Invoke(desktopFps, new object[] { 100UL, second });
+        sampleDesktop.Invoke(desktopFps, new object[] { 150UL, 2 * second });
+        Call("UpdateGameHudValues");
+        Check(Element<TextBlock>("GameHudFpsText").Text == "144", "Foreground app FPS takes priority over desktop FPS");
+        fpsType.GetField("Fps", flags)!.SetValue(metrics, null);
+        Call("UpdateGameHudValues");
+        Check(Element<TextBlock>("GameHudFpsText").Text == "50" && Element<TextBlock>("GameHudFpsLabel").Text == "FPS · DWM"
+            && Element<TextBlock>("HomeTelemetryText").Text.Contains("50 FPS DWM") && Element<TextBlock>("GamePageFpsText").Text == "50 FPS DWM",
+            "Real desktop fallback is visibly labeled in every FPS display");
+        Set("_temperatureDriverInstalled", false);
+        Set("_windowClosed", true);
+        Element<CheckBox>("TglGameModeHud").IsChecked = true;
+        Element<MenuItem>("CtxGameModeItem").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Check(!Field<bool>("_isGameModeActive") && Field<object?>("_gameFps") == null && Element<CheckBox>("TglGameModeHud").IsChecked == false,
+            "One menu click turns off the game HUD and its metrics collector together");
+        Set("_windowClosed", false);
+        Check(!Element<TextBlock>("HoverSysText").Text.Contains("FPS") && !Element<TextBlock>("HoverSysText").Text.Contains("°C"), "Stopping the helper clears both readings from the hover summary");
+        Check(fpsHeaders.All(name => Element<TextBlock>(name).Visibility == Visibility.Collapsed), "FPS headers hide when game mode is off");
+        Check(((string)Call("GameTemperatureStatus")!).Contains("PawnIO"), "Missing driver is diagnosed independently of FPS");
         ((IDisposable)metrics).Dispose();
         Set("_isGameModeActive", false);
         Call("ApplyLocalization");
+        var islandMenu = Element<Border>("IslandBorder").ContextMenu;
+        var menuItems = islandMenu.Items.OfType<MenuItem>().ToArray();
+        Check(menuItems.All(item => !Equals(item.Header, "Change theme")), "Theme cycling is not in the island context menu");
+        var updateItem = menuItems.Single(item => item.Name == "CtxCheckUpdates");
+        Check(Equals(updateItem.Header, "Check for updates"), "Check for updates is localized in the island menu");
+        string savedRepo = settings.UpdateRepository;
+        settings.UpdateRepository = "?";
+        updateItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Check(Field<string>("_featurePage") == "updates" && Field<string>("_updateStatus").StartsWith("Укажите owner/repository"),
+            "Context menu opens the update page and runs the manual check immediately");
+        settings.UpdateRepository = savedRepo;
+        Set("_nextUpdateCheck", DateTime.MaxValue);
         var themes = Field<List<MainWindow.ThemePreset>>("_themes");
         var output = args.Length > 0 ? args[0] : "artifacts/ui-checks";
         System.IO.Directory.CreateDirectory(output);
@@ -245,6 +284,25 @@ internal static class Program
         Check(Element<Slider>("VolumeHudSlider").Visibility == Visibility.Collapsed && Element<Button>("VolumeMuteButton").Visibility == Visibility.Collapsed, "Brightness cannot change audio by mistake");
         settings.LiquidGlass = false;
 
+        Set("_isLoadingSettings", true);
+        Call("RefreshIslandPlacementControls");
+        var pinItem = island.ContextMenu.Items.OfType<MenuItem>().Single(item => item.Name == "CtxPinIsland");
+        var dockItem = island.ContextMenu.Items.OfType<MenuItem>().Single(item => item.Name == "CtxDockIsland");
+        var togglePin = Element<CheckBox>("TglPinPosition");
+        var toggleDock = Element<CheckBox>("TglDockIsland");
+        bool CanDrag() => (bool)typeof(MainWindow).GetProperty("CanDragIsland", flags)!.GetValue(window)!;
+        pinItem.IsChecked = true; Call("PinIsland_Click", pinItem, new RoutedEventArgs());
+        Check(settings.PinPosition && togglePin.IsChecked == true && !CanDrag(), "Context menu locks the current placement and updates settings");
+        togglePin.IsChecked = false; Call("PinIsland_Click", togglePin, new RoutedEventArgs());
+        Check(!pinItem.IsChecked && !settings.PinPosition && CanDrag(), "Unlocking from settings resynchronizes the menu and enables dragging");
+        dockItem.IsChecked = true; Call("DockIsland_Click", dockItem, new RoutedEventArgs());
+        Check(settings.DockIslandAtTop && toggleDock.IsChecked == true && island.Margin.Top == 0 && !CanDrag(), "macOS mode docks to the top and cannot be dragged off center");
+        Check(island.CornerRadius.TopLeft == 0 && island.CornerRadius.BottomLeft > 0, "Docked notch is square at the screen edge and rounded below");
+        var dockedSettings = System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>(System.Text.Json.JsonSerializer.Serialize(settings))!;
+        Check(dockedSettings.DockIslandAtTop && !dockedSettings.PinPosition, "Docked style survives serialization without changing the lock preference");
+        toggleDock.IsChecked = false; Call("DockIsland_Click", toggleDock, new RoutedEventArgs());
+        Check(!dockItem.IsChecked && island.Margin.Top == 10 && island.CornerRadius.TopLeft > 0 && CanDrag(), "Floating style restores its gap, rounded corners and dragging");
+
         // Language changes must reach detached popup menus and generated pages.
         var catalog = (Dictionary<string, string[]>)typeof(MainWindow).GetField("AdditionalTranslations", BindingFlags.Static | BindingFlags.NonPublic)!.GetValue(null)!;
         Check(catalog.Values.All(words => words.Length == 5 && words.All(w => !string.IsNullOrWhiteSpace(w))), "Every new label has all five translations");
@@ -253,11 +311,12 @@ internal static class Program
             settings.Language = language; Call("ApplyLocalization");
             string Translate(string text) => (string)Call("L", text)!;
             Check(((MenuItem)island.ContextMenu.Items[0]).Header.Equals(Translate("Спрятать островок")), language + ": popup language refreshed");
+            Check(Equals(pinItem.Header, Translate("Закрепить на месте")) && Equals(dockItem.Header, Translate("У верхнего края (macOS)")), language + ": pin and dock menu labels translated");
             Check(Element<TextBlock>("LblExternalProgress").Text == Translate("Прогресс других программ справа"), language + ": progress toggle language");
             Check((string)Element<StackPanel>("FeatureNavigation").Children.OfType<Button>().First().Content == Translate("⌂  Главная"), language + ": generated navigation language");
             Call("BuildCharactersGrid");
             Check((string)Call("GetLocalizedCharacterName", "Puppy")! == Translate("Щенок"), language + ": added character names translated");
-            foreach (string page in new[] { "BuildLayoutPage", "BuildUserThemesPage", "BuildTimersPage", "BuildMusicPage", "BuildNewsPage", "BuildWelcomePage" })
+            foreach (string page in new[] { "BuildLayoutPage", "BuildUserThemesPage", "BuildTimersPage", "BuildMusicPage", "BuildNewsPage", "BuildWelcomePage", "BuildUpdatesPage" })
             {
                 Element<StackPanel>("FeatureContent").Children.Clear(); Call(page);
                 IEnumerable<string> Labels(DependencyObject node)

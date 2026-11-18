@@ -11,7 +11,7 @@
   <Identity Name="DynamicIslandWin" Publisher="CN=DynamicIslandWin" Version="1.1.5.0" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>OC - Dynamic Island</DisplayName>
-    <PublisherDisplayName>OC - Dynamic Island</PublisherDisplayName>
+    <PublisherDisplayName>Outside Company</PublisherDisplayName>
     <Logo>Assets\StoreLogo.png</Logo>
     <desktop6:RegistryWriteVirtualization>disabled</desktop6:RegistryWriteVirtualization>
     <virtualization:RegistryWriteVirtualization>

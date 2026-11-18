@@ -108,9 +108,10 @@ public partial class MainWindow
         double width = surface.Layer.ActualWidth, height = surface.Layer.ActualHeight;
         if (surface.Image.Width != width) surface.Image.Width = width;
         if (surface.Image.Height != height) surface.Image.Height = height;
-        double radius = Math.Max(0, surface.Border.CornerRadius.TopLeft - surface.Border.BorderThickness.Left);
+        double radius = Math.Max(0, surface.Border.CornerRadius.BottomLeft - surface.Border.BorderThickness.Left);
         radius = Math.Min(radius, Math.Min(width, height) / 2);
-        surface.Clip.Rect = new Rect(0, 0, width, height);
+        double above = surface.Border == IslandBorder && _settings.DockIslandAtTop ? radius : 0;
+        surface.Clip.Rect = new Rect(0, -above, width, height + above);
         surface.Clip.RadiusX = surface.Clip.RadiusY = radius;
         if (surface.Effect != null && width > 0 && height > 0)
             surface.Effect.Sampling = new Point4D(GlassLensMap.MaxDisplacement / width,
@@ -134,7 +135,7 @@ public partial class MainWindow
         bool enabled = _settings.LiquidGlass && _settings.LensGlass;
         TglLensGlass.IsChecked = _settings.LensGlass;
         TglLensGlass.IsEnabled = _settings.LiquidGlass;
-        if (enabled && !_captureUiBusy && !_windowClosed && IsLoaded) _glassTimer.Start();
+        if (enabled && !_isGameModeActive && !_captureUiBusy && !_windowClosed && IsLoaded) _glassTimer.Start();
         else
         {
             _glassTimer.Stop();
@@ -163,7 +164,7 @@ public partial class MainWindow
 
     private async Task RefreshLensGlassAsync()
     {
-        if (_captureUiBusy || _glassCaptureBusy || _windowClosed || DateTime.UtcNow < _glassRetryAfter) return;
+        if (_isGameModeActive || _captureUiBusy || _glassCaptureBusy || _windowClosed || DateTime.UtcNow < _glassRetryAfter) return;
         if (!_settings.LiquidGlass || !_settings.LensGlass || !IsLoaded || !IsVisible || WindowState == WindowState.Minimized)
         { ClearLensBackdrop(); return; }
         _glassCaptureBusy = true;
@@ -182,7 +183,7 @@ public partial class MainWindow
                 Point bottomRight = element.PointToScreen(new Point(width, height));
                 var bounds = Rectangle.FromLTRB((int)Math.Floor(Math.Min(topLeft.X, bottomRight.X)), (int)Math.Floor(Math.Min(topLeft.Y, bottomRight.Y)),
                     (int)Math.Ceiling(Math.Max(topLeft.X, bottomRight.X)), (int)Math.Ceiling(Math.Max(topLeft.Y, bottomRight.Y)));
-                visible.Add((surface, bounds, width, height, (int)Math.Round(surface.Border.CornerRadius.TopLeft)));
+                visible.Add((surface, bounds, width, height, (int)Math.Round(surface.Border.CornerRadius.BottomLeft)));
             }
             if (visible.Count == 0) return;
             var excluded = visible.Select(s => (PresentationSource.FromVisual(s.Surface.Border) as HwndSource)?.Handle ?? IntPtr.Zero)

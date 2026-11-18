@@ -228,12 +228,15 @@
                 <ContextMenu Style="{StaticResource IslandContextMenu}" ItemContainerStyle="{StaticResource IslandMenuItem}" Opened="IslandContextMenu_Opened">
                     <MenuItem Header="Спрятать островок" Tag="&#xE70E;" Click="CtxHideUp_Click"/>
                     <MenuItem Header="Выровнять по центру" Tag="&#xE8E3;" Click="CenterIsland_Click"/>
-                    <MenuItem Header="Сменить тему" Tag="&#xE790;" InputGestureText="Ctrl+Alt+T" Click="CtxCycleTheme_Click"/>
+                    <MenuItem x:Name="CtxPinIsland" Header="Закрепить на месте" Tag="&#xE718;" IsCheckable="True" Click="PinIsland_Click"/>
+                    <MenuItem x:Name="CtxDockIsland" Header="У верхнего края (macOS)" Tag="&#xE73F;" IsCheckable="True" Click="DockIsland_Click"/>
+                    <MenuItem x:Name="CtxCheckUpdates" Header="Проверить обновления" Tag="&#xE895;" Click="CtxCheckUpdates_Click"/>
                     <MenuItem Header="Изменить размер…" Tag="&#xE740;" Click="StartManualResize"/>
                     <MenuItem Header="Громкость" Tag="&#xE767;" Click="OpenVolume_Click"/>
                     <MenuItem Header="Новые возможности" Tag="&#xE80F;" Click="OpenFeatureHub_Click"/>
                     <Separator Style="{StaticResource IslandMenuSeparator}"/>
-                    <MenuItem x:Name="CtxGameModeItem" Header="Игровой центр" Tag="&#xE7FC;" Click="CtxToggleGameMode_Click"/>
+                    <MenuItem x:Name="CtxGameModeItem" Header="Игровой режим" Tag="&#xE7FC;" Click="CtxToggleGameMode_Click"/>
+                    <MenuItem Header="Игровой центр" Tag="&#xE713;" Click="CtxOpenGameCenter_Click"/>
                     <Separator Style="{StaticResource IslandMenuSeparator}"/>
                     <MenuItem Header="Настройки" Tag="&#xE713;" Click="OpenSettingsBtn_Click"/>
                     <MenuItem Header="Выйти" Tag="&#xE7E8;" Foreground="{DynamicResource ThemeDangerBrush}" Click="ExitMenu_Click"/>
@@ -306,10 +309,10 @@
                         <Border Background="{DynamicResource ThemeSelectionBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" CornerRadius="12" Width="34" Height="46" Margin="0,0,8,0" ToolTip="Игровой центр">
                             <ContentControl x:Name="GameHudCharacterHost" Width="22" Height="22" VerticalAlignment="Center" HorizontalAlignment="Center"/>
                         </Border>
-                        <Border Style="{StaticResource GameMetricCard}" Width="90" Background="{DynamicResource ThemeSelectionBrush}" ToolTip="Частота обновления островка">
+                        <Border x:Name="GameHudFpsCard" Style="{StaticResource GameMetricCard}" Width="90" Background="{DynamicResource ThemeSelectionBrush}">
                             <StackPanel>
-                                <TextBlock Style="{StaticResource GameMetricLabel}" Text="FPS"/>
-                                <TextBlock x:Name="GameHudFpsText" Style="{StaticResource GameMetricValue}" Text="144" Foreground="{DynamicResource ThemeAccentBrush}"/>
+                                <TextBlock x:Name="GameHudFpsLabel" Style="{StaticResource GameMetricLabel}" Text="FPS"/>
+                                <TextBlock x:Name="GameHudFpsText" Style="{StaticResource GameMetricValue}" Text="—" Foreground="{DynamicResource ThemeAccentBrush}"/>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource GameMetricCard}" ToolTip="Загрузка процессора">
@@ -324,7 +327,7 @@
                                     <Path x:Name="GameHudTempIcon" Data="M15,13V5A3,3 0 0,0 12,2A3,3 0 0,0 9,5V13A5,5 0 0,0 7,17A5,5 0 0,0 12,22A5,5 0 0,0 17,17A5,5 0 0,0 15,13M12,4A1,1 0 0,1 13,5V8H11V5A1,1 0 0,1 12,4Z" Fill="{DynamicResource ThemeMutedBrush}" Width="6" Height="9" Stretch="Uniform" Margin="0,0,4,2"/>
                                     <TextBlock Style="{StaticResource GameMetricLabel}" Text="CPU °C"/>
                                 </StackPanel>
-                                <TextBlock x:Name="GameHudCpuTempText" Style="{StaticResource GameMetricValue}" Text="52°C"/>
+                                <TextBlock x:Name="GameHudCpuTempText" Style="{StaticResource GameMetricValue}" Text="—"/>
                             </StackPanel>
                         </Border>
                         <Border Style="{StaticResource GameMetricCard}" ToolTip="Загрузка графики">
@@ -355,7 +358,7 @@
                         <TextBlock x:Name="HoverTrackArtist" Text="Click to expand hub" Foreground="{DynamicResource ThemeSecondaryBrush}" FontSize="10" TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
 
-                    <TextBlock x:Name="HoverSysText" Grid.Column="2" Text="CPU 12% · GPU 18%" Foreground="{DynamicResource ThemeSecondaryBrush}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                    <TextBlock x:Name="HoverSysText" Grid.Column="2" Text="CPU — · GPU —" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource ThemeSecondaryBrush}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
 
                     <Button Grid.Column="3" Style="{StaticResource GlassPillBtn}" Padding="10,5" Click="OpenSettingsBtn_Click">
                         <StackPanel Orientation="Horizontal">
@@ -458,7 +461,7 @@
                                         <TextBlock x:Name="HomeWeatherLocationText" Text="Погода · Город не указан" Foreground="#FBBF24" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
                                     <TextBlock x:Name="HomeWeatherDetailsText" Text="Нажмите сюда, чтобы указать свой город" Foreground="{DynamicResource ThemeSecondaryBrush}" FontSize="10.5" FontWeight="SemiBold" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock x:Name="HomeTelemetryText" Text="144 FPS · CPU 12% (48°C) · GPU 18%" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="10" Margin="0,1,0,0"/>
+                                    <TextBlock x:Name="HomeTelemetryText" Text="CPU — · RAM —" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="10" Margin="0,1,0,0"/>
                                 </StackPanel>
                             </Border>
 
@@ -537,6 +540,7 @@
                         </StackPanel>
 
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock x:Name="WeatherFpsText" Style="{StaticResource GamePageFps}"/>
                             <ContentControl x:Name="WeatherDashCharacterHost" Width="26" Height="26" VerticalAlignment="Center" Margin="0,0,8,0"/>
                             <TextBlock x:Name="WeatherDashClockText" Text="21:42" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13.5" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,12,0"/>
                             <Button Style="{StaticResource GlassPillBtn}" Background="Transparent" Padding="8,5" Margin="0,0,4,0" Click="OpenSettingsBtn_Click" Content="⚙"/>
@@ -724,6 +728,7 @@
                         </StackPanel>
 
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock x:Name="ClipboardFpsText" Style="{StaticResource GamePageFps}"/>
                             <Button x:Name="BtnClearClipboardHistory" Style="{StaticResource GlassPillBtn}" Background="#38EF4444" Foreground="#FF8A8A"
                                     Padding="12,5" Margin="0,0,8,0" Click="BtnClearClipboardHistory_Click" Content="Очистить всё"/>
                             <Button Style="{StaticResource GlassPillBtn}" Padding="10,6" Click="CollapseBtn_Click">
@@ -751,6 +756,7 @@
                     <DockPanel Margin="0,0,0,16">
                         <Button DockPanel.Dock="Right" Style="{StaticResource GlassPillBtn}" Content="⌃" Click="CollapseBtn_Click"/>
                         <Button DockPanel.Dock="Right" Style="{StaticResource GlassPillBtn}" Content="Настройки" Click="OpenSettingsBtn_Click" Margin="0,0,8,0"/>
+                        <TextBlock x:Name="GamePageFpsText" DockPanel.Dock="Right" Style="{StaticResource GamePageFps}"/>
                         <StackPanel><TextBlock Text="Ваш островок" Foreground="{DynamicResource ThemeTextBrush}" FontSize="20" FontWeight="Bold"/><TextBlock Text="Музыка, встречи и дела — в одном месте" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11"/></StackPanel>
                     </DockPanel>
                     <Grid Grid.Row="1"><Grid.ColumnDefinitions><ColumnDefinition Width="150"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -779,6 +785,7 @@
                         </StackPanel>
 
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock x:Name="SettingsFpsText" Style="{StaticResource GamePageFps}"/>
                             <Grid Width="28" Height="24" Margin="0,0,8,0" VerticalAlignment="Center">
                                 <Grid.RenderTransform>
                                     <TranslateTransform x:Name="MascotBobTransform" Y="0"/>
@@ -985,12 +992,12 @@
                                             <Grid>
                                                 <StackPanel VerticalAlignment="Center">
                                                     <TextBlock x:Name="LblLangTitle" Text="Язык интерфейса" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold"/>
-                                                    <TextBlock x:Name="LblLangSub" Text="По умолчанию: English" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11"/>
+                                                    <TextBlock x:Name="LblLangSub" Text="По умолчанию используется язык Windows" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11"/>
                                                 </StackPanel>
                                                 <Button x:Name="LangDropdownBtn" Style="{StaticResource GlassPillBtn}" Background="{DynamicResource ThemeInputBrush}"
                                                         HorizontalAlignment="Right" VerticalAlignment="Center" Padding="14,7" Click="LangDropdownBtn_Click">
                                                     <Grid Width="175">
-                                                        <TextBlock x:Name="SelectedLangLabel" Text="English" Foreground="{DynamicResource ThemeTextBrush}" FontSize="12" HorizontalAlignment="Left"/>
+                                                        <TextBlock x:Name="SelectedLangLabel" Foreground="{DynamicResource ThemeTextBrush}" FontSize="12" Margin="0,0,16,0" TextTrimming="CharacterEllipsis"/>
                                                         <TextBlock Text="⌄" Foreground="{DynamicResource ThemeSecondaryBrush}" FontSize="12" HorizontalAlignment="Right"/>
                                                     </Grid>
                                                 </Button>
@@ -1031,7 +1038,15 @@
                                                     <TextBlock x:Name="LblPinPos" Text="Закрепить на месте (не перетаскивать)" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold"/>
                                                     <TextBlock x:Name="LblPinPosSub" Text="Выключите, чтобы свободно перетаскивать остров по верху" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11"/>
                                                 </StackPanel>
-                                                <CheckBox x:Name="TglPinPosition" Style="{StaticResource IslandSwitch}" IsChecked="False" HorizontalAlignment="Right" Click="SaveSettings_Click"/>
+                                                <CheckBox x:Name="TglPinPosition" Style="{StaticResource IslandSwitch}" IsChecked="False" HorizontalAlignment="Right" Click="PinIsland_Click"/>
+                                            </Grid>
+
+                                            <Grid Margin="0,0,0,12">
+                                                <StackPanel Margin="0,0,60,0">
+                                                    <TextBlock Text="У верхнего края (macOS)" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                                    <TextBlock Text="Выключено — плавающая капсула. Включено — остров у верхнего края экрана." Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                                <CheckBox x:Name="TglDockIsland" Style="{StaticResource IslandSwitch}" HorizontalAlignment="Right" VerticalAlignment="Center" Click="DockIsland_Click"/>
                                             </Grid>
 
                                             <Grid Margin="0,0,0,12">
@@ -1222,7 +1237,7 @@
         </Border>
 
         <!-- ПРАВАЯ КОЛОНКА (Col 2): ОТДЕЛЬНЫЙ ОСТРОВОК ЗВОНКА DISCORD + БОКОВАЯ КАПСУЛА УВЕДОМЛЕНИЙ -->
-        <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0">
+        <StackPanel x:Name="RightCapsuleStack" Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0">
                     <Border x:Name="CompactProgressPanel" Visibility="Collapsed" Background="{DynamicResource ThemeCapsuleBrush}" CornerRadius="12" Padding="8,2" Height="38" Width="190" Margin="0,0,8,0" BorderThickness="1" BorderBrush="{DynamicResource GlassEdgeBrush}" MouseLeftButtonUp="Progress_Click" Cursor="Hand">
                         <Grid VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <Grid Width="24" Height="24"><Ellipse Stroke="{DynamicResource ThemeBorderBrush}" StrokeThickness="2" Margin="2"/><Path x:Name="CompactProgressRing" Stroke="{DynamicResource ThemeAccentBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Grid>

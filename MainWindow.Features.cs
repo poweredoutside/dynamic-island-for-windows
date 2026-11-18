@@ -52,6 +52,7 @@ public partial class MainWindow
         public string GeminiModel { get; set; } = "gemini-3.8-live";
         public string GeminiVoice { get; set; } = "Kore";
         public string UpdateRepository { get; set; } = GitHubUpdateService.DefaultRepository;
+        public bool AutoCheckUpdates { get; set; } = true;
         public double GeminiGain { get; set; } = .8;
         public List<UserTheme> CustomThemes { get; set; } = [];
         public List<string> TabOrder { get; set; } = ["home", "system", "calendar", "timers", "music", "chat"];
@@ -95,6 +96,7 @@ public partial class MainWindow
     private int _welcomeStep;
     private readonly Queue<(string Text, Action Action)> _featureNotices = [];
     private FpsService? _gameFps;
+    private readonly DesktopCompositionFps _desktopFps = new();
 
     private string CalendarPath => Path.Combine(Path.GetDirectoryName(_settingsPath)!, "calendar.ics");
 
@@ -106,13 +108,14 @@ public partial class MainWindow
         ApplyTheme(_themes.FirstOrDefault(t => t.Key == _settings.SelectedTheme) ?? _themes[0]);
         ConfigureLensGlass();
         BuildFeatureNavigation();
-        IslandBorder.LostMouseCapture += (_, _) => { _isClickCandidate = false; if (_bodyDragging) { _bodyDragging = false; _settings.WindowLeft = Left; SaveSettings(); } };
+        IslandBorder.LostMouseCapture += (_, _) => { _isClickCandidate = false; if (_bodyDragging) { _bodyDragging = false; RememberIslandPlacement(); SaveSettings(); } };
         _settings.VolumeIslandHud ??= _settings.LevelHud;
         _volumeIsland = new VolumeIslandService(_settings.VolumeIslandHud == true);
         _volumeIsland.Changed += VolumeChanged;
         _hoverDelay.Tick += (_, _) => { _hoverDelay.Stop(); if (IslandBorder.IsMouseOver && !_isClickCandidate && !_bodyDragging && _currentState == IslandState.Compact && !_manualResize && !_isGameModeActive) MorphToState(IslandState.Hover); };
         _featureTimer.Tick += (_, _) => FeatureTick(); _featureTimer.Start();
-        if (_settings.GameModeHud || _settings.AutoGameHud) StartGameMetrics();
+        _nextUpdateCheck = DateTime.UtcNow.AddSeconds(5);
+        if (_settings.GameModeHud) StartGameMetrics();
         _watchdog = new System.Threading.Timer(_ =>
         {
             if (DateTime.UtcNow - _uiHeartbeat > TimeSpan.FromSeconds(5) && !_windowClosed)
@@ -143,7 +146,7 @@ public partial class MainWindow
         DisposeLensGlass();
         _featureTimer.Stop(); _hoverDelay.Stop(); _watchdog?.Dispose();
         if (_volumeIsland != null) { _volumeIsland.Changed -= VolumeChanged; _volumeIsland.Dispose(); }
-        _gameFps?.Dispose();
+        StopGameMetrics();
         _updateCancellation?.Cancel();
         if (_voice != null) _ = _voice.DisposeAsync();
     }
@@ -177,8 +180,15 @@ public partial class MainWindow
         { LevelHudBorder.Visibility = Visibility.Collapsed; _manualVolumeOpen = false; }
         DrainFeatureNotices();
         UpdateIdleContent(); UpdateLyricsFrame(); UpdateCursorAppearance();
-        if (_gameFps != null) UpdateFpsTarget();
-        if (_isGameModeActive) UpdateGameHudValues();
+        if (_isGameModeActive)
+        {
+            UpdateFpsTarget();
+            _desktopFps.Poll();
+            UpdateGameHudValues();
+        }
+        if (_currentState == IslandState.Features && _featurePage == "system") RefreshGameMetricsControls();
+        if (_settings.AutoCheckUpdates && !_updateBusy && DateTime.UtcNow >= _nextUpdateCheck)
+            _ = CheckForUpdatesAsync(_settings.UpdateRepository, automatic: true);
         if (NeedsIslandFrames()) StartIslandFrames();
         foreach (var timer in _settings.Timers.Where(t => t.Due <= now).ToArray())
         {
@@ -202,11 +212,6 @@ public partial class MainWindow
         if (_featureScan is { IsCompleted: false } || DateTime.UtcNow < _nextFeatureScan) return;
         _nextFeatureScan = DateTime.UtcNow.AddSeconds(3);
         _featureScan = ScanFeaturesAsync();
-        if (_gameFps != null)
-        {
-            GetWindowThreadProcessId(GetForegroundWindow(), out uint pid);
-            if (pid != 0 && pid != Environment.ProcessId) _gameFps.TargetPid = (int)pid;
-        }
     }
 
     private void UpdateIdleContent()
@@ -233,27 +238,12 @@ public partial class MainWindow
         double opacity = IslandBorder.Opacity + (desired - IslandBorder.Opacity) * .45;
         if (Math.Abs(desired - opacity) < .005) opacity = desired;
         if (IslandBorder.Opacity != opacity) IslandBorder.Opacity = opacity;
-        if (_settings.FollowCursorMonitor && _currentState == IslandState.Compact && !_isClickCandidate && !_manualResize && !IslandBorder.IsMouseOver)
+        if (_settings.FollowCursorMonitor && !_settings.PinPosition && _currentState == IslandState.Compact && !_isClickCandidate && !_bodyDragging && !_manualResize && !IslandBorder.IsMouseOver)
         {
             var screen = System.Windows.Forms.Screen.FromPoint(point);
             var current = System.Windows.Forms.Screen.FromHandle(new System.Windows.Interop.WindowInteropHelper(this).Handle);
             if (screen.DeviceName != current.DeviceName) MoveToMonitor(screen);
         }
-    }
-
-    [DllImport("shcore.dll")] private static extern int GetDpiForMonitor(IntPtr monitor, int type, out uint x, out uint y);
-    [DllImport("user32.dll")] private static extern IntPtr MonitorFromPoint(System.Drawing.Point point, uint flags);
-    [DllImport("user32.dll", SetLastError = true)] private static extern bool SetWindowPos(IntPtr window, IntPtr after, int x, int y, int cx, int cy, uint flags);
-    private void MoveToMonitor(System.Windows.Forms.Screen screen)
-    {
-        // SetWindowPos takes physical coordinates; WPF Left/Top use DIPs and cannot
-        // be combined with monitor pixel bounds on a mixed-DPI desktop.
-        var center = new System.Drawing.Point(screen.Bounds.Left + screen.Bounds.Width / 2, screen.Bounds.Top + 10);
-        GetDpiForMonitor(MonitorFromPoint(center, 2), 0, out uint dpi, out _);
-        if (dpi == 0) dpi = 96;
-        int width = (int)(Width * dpi / 96.0), height = (int)(Height * dpi / 96.0);
-        SetWindowPos(new System.Windows.Interop.WindowInteropHelper(this).Handle, IntPtr.Zero,
-            screen.Bounds.Left + (screen.Bounds.Width - width) / 2, screen.WorkingArea.Top, width, height, 0x0014);
     }
 
     private sealed record WindowSignal(IntPtr Handle, int Pid, string Process, string Title);

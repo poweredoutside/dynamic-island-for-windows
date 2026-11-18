@@ -110,6 +110,14 @@
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Margin" Value="0,0,0,2"/>
     </Style>
+    <Style x:Key="GamePageFps" TargetType="TextBlock">
+        <Setter Property="Visibility" Value="Collapsed"/>
+        <Setter Property="Foreground" Value="{DynamicResource ThemeAccentBrush}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="0,0,12,0"/>
+    </Style>
     <Style x:Key="GameMetricValue" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}"/>
         <Setter Property="FontSize" Value="14"/>

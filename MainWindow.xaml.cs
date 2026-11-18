@@ -72,6 +72,7 @@ public partial class MainWindow : Window
 
     // Состояние игрового режима и звонка Discord
     private bool _isGameModeActive;
+    private bool _pauseAutoGameHud;
     private WindowsDndService.State? _dndStateBeforeGameMode;
     private bool _gameModeOwnsDnd;
     private bool _isDiscordCallActive;
@@ -126,12 +127,8 @@ public partial class MainWindow : Window
     private Forms.NotifyIcon? _trayIcon;
     private ulong _prevIdleTime, _prevKernelTime, _prevUserTime;
     private int _lastCpuUsage = 12;
+    private int _lastRamUsage;
     private int _lastGpuUsage = 18;
-    private int _lastCpuTempC = 48;
-    private double _smoothedCpuTemp = 48.0;
-    private IntPtr _pdhTempQuery = IntPtr.Zero;
-    private IntPtr _pdhTempCounter = IntPtr.Zero;
-    private bool _pdhTempInitialized;
 
     private AppSettings _settings = new();
     private readonly string _settingsPath = System.IO.Path.Combine(
@@ -170,11 +167,11 @@ public partial class MainWindow : Window
         "Dino", "Star", "Cloud", "None", "Puppy", "Fox", "Panda", "Bear", "Frog", "Penguin", "Chick", "Piggy", "Koala", "Mouse", "Bee", "Octopus", "Mushroom", "Cactus", "Alien", "Bat", "Moon", "Sun", "Flame", "Droplet", "Heart", "Pumpkin"
     ];
 
-    private readonly string[] _availableLanguages = ["English", "Русский", "Українська", "Deutsch", "Español"];
+    private readonly string[] _availableLanguages = [SystemLanguage, "English", "Русский", "Українська", "Deutsch", "Español"];
 
     public partial class AppSettings
     {
-        public string Language { get; set; } = "English";
+        public string Language { get; set; } = SystemLanguage;
         public string SelectedTheme { get; set; } = "Midnight";
         public string SelectedCharacter { get; set; } = "Eyes";
         public string CustomPhotoPath { get; set; } = "";
@@ -183,6 +180,9 @@ public partial class MainWindow : Window
         public bool LiquidGlass { get; set; } = true;
         public double IslandScalePercent { get; set; } = 100;
         public double? WindowLeft { get; set; } = null;
+        public string? IslandMonitor { get; set; }
+        public double IslandOffset { get; set; }
+        public bool DockIslandAtTop { get; set; }
 
         public bool ExpandOnHover { get; set; } = true;
         public bool CloseOnMouseLeave { get; set; } = true;
@@ -238,32 +238,7 @@ public partial class MainWindow : Window
     private const int HOTKEY_CUSTOM_TOGGLE = 9001;
     private const int HOTKEY_SNIP_S = 9003;
     private const int HOTKEY_CMD_SPACE = 9004;
-    private const int HOTKEY_CYCLE_THEME_T = 9005;
     private const int HOTKEY_RECORD_R = 9006;
-
-    private const uint PDH_FMT_DOUBLE = 0x00000200;
-
-    [DllImport("pdh.dll", CharSet = CharSet.Unicode)]
-    private static extern uint PdhOpenQuery(string? szDataSource, IntPtr dwUserData, out IntPtr phQuery);
-
-    [DllImport("pdh.dll", CharSet = CharSet.Unicode)]
-    private static extern uint PdhAddEnglishCounter(IntPtr hQuery, string szFullCounterPath, IntPtr dwUserData, out IntPtr phCounter);
-
-    [DllImport("pdh.dll")]
-    private static extern uint PdhCollectQueryData(IntPtr hQuery);
-
-    [DllImport("pdh.dll")]
-    private static extern uint PdhGetFormattedCounterValue(IntPtr hCounter, uint dwFormat, out uint lpdwType, out PDH_FMT_COUNTERVALUE pValue);
-
-    [DllImport("pdh.dll")]
-    private static extern uint PdhCloseQuery(IntPtr hQuery);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PDH_FMT_COUNTERVALUE
-    {
-        public uint CStatus;
-        public double doubleValue;
-    }
 
     [DllImport("user32.dll")] private static extern int GetWindowLong(IntPtr hwnd, int index);
     [DllImport("user32.dll")] private static extern int SetWindowLong(IntPtr hwnd, int index, int newStyle);
@@ -326,14 +301,8 @@ public partial class MainWindow : Window
         PollWindowsDndState(notifyIfChanged: false);
         LoadClipboardHistory();
         InitializeTrayIcon();
-        BuildLanguageDropdown();
         ApplyCurrentSettingsToUi();
-
-        if (_settings.WindowLeft.HasValue && !_settings.PinPosition)
-            Left = Math.Clamp(_settings.WindowLeft.Value, -Width / 2, SystemParameters.PrimaryScreenWidth - Width / 2);
-        else
-            CenterIslandOnScreen();
-        Top = 0;
+        RestoreIslandPlacement();
 
         _isLoadingSettings = false;
 
@@ -353,7 +322,6 @@ public partial class MainWindow : Window
         RegisterHotKey(hwnd, HOTKEY_SNIP_S, MOD_CONTROL | MOD_ALT, 0x53);
         RegisterHotKey(hwnd, HOTKEY_RECORD_R, MOD_CONTROL | MOD_ALT, 0x52);
         RegisterHotKey(hwnd, HOTKEY_CMD_SPACE, MOD_CONTROL | MOD_ALT, 0x20);
-        RegisterHotKey(hwnd, HOTKEY_CYCLE_THEME_T, MOD_CONTROL | MOD_ALT, 0x54);
 
         StartIslandFrames();
 
@@ -453,24 +421,31 @@ public partial class MainWindow : Window
         UnregisterHotKey(hwnd, HOTKEY_SNIP_S);
         UnregisterHotKey(hwnd, HOTKEY_RECORD_R);
         UnregisterHotKey(hwnd, HOTKEY_CMD_SPACE);
-        UnregisterHotKey(hwnd, HOTKEY_CYCLE_THEME_T);
-        if (_pdhTempQuery != IntPtr.Zero)
-        {
-            PdhCloseQuery(_pdhTempQuery);
-            _pdhTempQuery = IntPtr.Zero;
-        }
         _trayIcon?.Dispose();
     }
 
     #region 1. Звонок Discord справа + 2. Игровой режим (FPS, CPU, °C, GPU + Не беспокоить)
 
+    private (string Value, bool Desktop) GameFpsReading() => _gameFps?.Fps is { } rate
+        ? ($"{rate:0}", false) : _desktopFps.Rate is { } desktop ? ($"{desktop:0}", true) : ("—", false);
+
+    private string GameFpsStatus()
+    {
+        string status = L(_gameFps?.Status ?? "Игровой режим включает HUD, FPS и температуру CPU. Windows может запросить права администратора.");
+        return _isGameModeActive && GameFpsReading().Desktop
+            ? L("FPS DWM — кадры рабочего стола, не FPS игры.") + "\n" + status : status;
+    }
+
     private void UpdateGameHudValues()
     {
-        int temperature = _gameFps?.CpuTemperatureC is >= 5 and <= 125 ? _gameFps.CpuTemperatureC : _lastCpuTempC;
-        GameHudFpsText.Text     = _gameFps?.Fps is { } fps ? $"{fps:0}" : "—";
-        GameHudFpsText.ToolTip = L(_gameFps?.Status ?? "Для измерения FPS игры включите встроенный счётчик. Windows запросит права администратора для ETW. Дополнительных программ не требуется.");
+        int temperature = _gameFps?.CpuTemperatureC ?? -1;
+        var (fps, desktop) = GameFpsReading();
+        GameHudFpsText.Text     = fps;
+        GameHudFpsLabel.Text    = desktop ? "FPS · DWM" : "FPS";
+        GameHudFpsCard.ToolTip  = GameFpsStatus();
         GameHudCpuText.Text     = $"{_lastCpuUsage}%";
         GameHudCpuTempText.Text = temperature >= 0 ? $"{temperature}°C" : "—";
+        GameHudCpuTempText.ToolTip = temperature >= 0 ? null : L(GameTemperatureStatus());
         GameHudGpuText.Text     = _lastGpuUsage >= 0 ? $"{_lastGpuUsage}%" : "—";
 
         Brush tempBrush;
@@ -484,22 +459,57 @@ public partial class MainWindow : Window
         GameHudCpuTempText.Foreground = tempBrush;
         if (GameHudTempIcon != null)
             GameHudTempIcon.Fill = tempBrush;
+        UpdateTelemetrySummaries();
     }
 
     private void UpdateFpsTarget()
     {
+        if (_gameFps == null) return;
         GetWindowThreadProcessId(GetForegroundWindow(), out uint pid);
-        if (_gameFps == null || pid == 0 || pid == Environment.ProcessId) return;
-        if (_gameFps.TargetPid != (int)pid) _gameFps.Fps = null;
-        _gameFps.TargetPid = (int)pid;
+        if (pid == Environment.ProcessId) return;
+        int target = (int)pid;
+        if (_gameFps.TargetPid != target) _gameFps.Fps = null;
+        _gameFps.TargetPid = target;
+    }
+
+    private void UpdateTelemetrySummaries()
+    {
+        var (rate, desktop) = GameFpsReading();
+        string fps = desktop ? $"{rate} FPS DWM" : rate == "—" ? "FPS —" : $"{rate} FPS";
+        var visibility = _isGameModeActive ? Visibility.Visible : Visibility.Collapsed;
+        string? tooltip = _isGameModeActive ? GameFpsStatus() : null;
+        UpdateIndicator(GamePageFpsText);
+        UpdateIndicator(WeatherFpsText);
+        UpdateIndicator(ClipboardFpsText);
+        UpdateIndicator(SettingsFpsText);
+        string fpsPrefix = _isGameModeActive ? fps + " · " : "";
+        string temperature = _gameFps?.CpuTemperatureC is >= 0 ? $" ({_gameFps.CpuTemperatureC}°C)" : "";
+        HoverSysText.Text = $"{fpsPrefix}CPU {_lastCpuUsage}%{temperature} · GPU {(_lastGpuUsage >= 0 ? _lastGpuUsage + "%" : "—")}";
+        HomeTelemetryText.Text = $"{fpsPrefix}CPU {_lastCpuUsage}%{temperature} · RAM {_lastRamUsage}%";
+
+        void UpdateIndicator(TextBlock indicator)
+        {
+            indicator.Visibility = visibility;
+            indicator.Text = _isGameModeActive ? fps : "";
+            indicator.ToolTip = tooltip;
+        }
     }
 
     private void StartGameMetrics()
     {
-        if (_gameFps != null) return;
+        if (_gameFps?.IsRunning == true) return;
+        _gameFps?.Dispose();
+        _temperatureDriverInstalled = CpuTemperatureService.IsDriverInstalled;
         _gameFps = new FpsService();
         UpdateFpsTarget();
         _ = _gameFps.StartAsync();
+    }
+
+    private void StopGameMetrics()
+    {
+        _gameFps?.Dispose();
+        _gameFps = null;
+        UpdateTelemetrySummaries();
     }
 
     private void ApplyGameModeState(bool active, bool collapseToHud)
@@ -516,9 +526,12 @@ public partial class MainWindow : Window
         }
 
         _isGameModeActive = active;
+        ConfigureLensGlass();
 
         if (_isGameModeActive)
         {
+            _desktopFps.Poll();
+            if (!_isLoadingSettings && _gameFps == null) StartGameMetrics();
             _pendingNotification = null;
             HideNotificationBubble();
             if (_windowsDnd.TryRead(out var previousDnd))
@@ -546,6 +559,8 @@ public partial class MainWindow : Window
         }
         else
         {
+            _desktopFps.Reset();
+            UpdateTelemetrySummaries();
             RestoreDndAfterGameMode();
 
             CompactGameHudPanel.Visibility  = Visibility.Collapsed;
@@ -658,24 +673,28 @@ public partial class MainWindow : Window
 
     private void TglGameModeHud_Click(object sender, RoutedEventArgs e)
     {
-        bool isChecked = TglGameModeHud.IsChecked ?? false;
-        if (isChecked) StartGameMetrics();
-        ApplyGameModeState(isChecked, collapseToHud: isChecked);
+        SetGameModeEnabled(TglGameModeHud.IsChecked == true);
+    }
+
+    private void SetGameModeEnabled(bool enabled)
+    {
+        TglGameModeHud.IsChecked = enabled;
+        _pauseAutoGameHud = !enabled && _settings.AutoGameHud;
+        if (!enabled) StopGameMetrics();
+        else if (!_isLoadingSettings) StartGameMetrics();
+        ApplyGameModeState(enabled, collapseToHud: enabled);
+        RefreshGameMetricsControls();
         SaveSettings();
     }
 
-    private void CtxToggleGameMode_Click(object sender, RoutedEventArgs e)
-    {
-        bool next = !(TglGameModeHud.IsChecked ?? false);
-        TglGameModeHud.IsChecked = next;
-        if (next) StartGameMetrics();
-        ApplyGameModeState(next, collapseToHud: next);
-        SaveSettings();
-    }
+    private void CtxToggleGameMode_Click(object sender, RoutedEventArgs e) => SetGameModeEnabled(!_isGameModeActive);
+
+    private void CtxOpenGameCenter_Click(object sender, RoutedEventArgs e) => OpenFeaturePage("system");
 
     private void IslandContextMenu_Opened(object sender, RoutedEventArgs e)
     {
         CtxGameModeItem.IsChecked = _isGameModeActive;
+        RefreshIslandPlacementControls();
     }
 
     #endregion
@@ -797,7 +816,7 @@ public partial class MainWindow : Window
 
         try
         {
-            string langCode = _settings.Language switch
+            string langCode = InterfaceLanguage switch
             {
                 "Русский"    => "ru",
                 "Українська" => "uk",
@@ -997,7 +1016,7 @@ public partial class MainWindow : Window
         string[] ru = ["С", "СВ", "В", "ЮВ", "Ю", "ЮЗ", "З", "СЗ"];
         string[] uk = ["Пн", "ПнСх", "Сх", "ПдСх", "Пд", "ПдЗх", "Зх", "ПнЗх"];
         int idx = (int)Math.Round((deg % 360) / 45.0) % 8;
-        return _settings.Language switch
+        return InterfaceLanguage switch
         {
             "Русский"    => ru[idx],
             "Українська" => uk[idx],
@@ -1200,12 +1219,10 @@ public partial class MainWindow : Window
         if (Math.Abs(_targetH - _curH) > 0.05 || Math.Abs(_velH) > 0.05)
             IslandBorder.Height = Math.Max(28, _curH);
 
-        if (Math.Abs(_targetR - _curR) > 0.05)
+        var corners = IslandCorners(Math.Abs(_targetR - _curR) > .05 ? Math.Round(_curR, 2) : _targetR);
+        if (IslandBorder.CornerRadius != corners)
         {
-            var cr = new CornerRadius(Math.Max(4, _curR));
-            IslandBorder.CornerRadius = cr;
-            LiquidGlassOverlay.CornerRadius = cr;
-            CustomBgBorder.CornerRadius = cr;
+            IslandBorder.CornerRadius = LiquidGlassOverlay.CornerRadius = CustomBgBorder.CornerRadius = corners;
         }
 
         UpdateGlassGeometry();
@@ -1528,7 +1545,7 @@ public partial class MainWindow : Window
 
     #region ПОЛНАЯ ЛОКАЛИЗАЦИЯ ВСЕХ ЭЛЕМЕНТОВ ИНТЕРФЕЙСА (5 ЯЗЫКОВ)
 
-    private string Tr(string en, string ru, string uk, string de, string es) => _settings.Language switch
+    private string Tr(string en, string ru, string uk, string de, string es) => InterfaceLanguage switch
     {
         "Русский"    => ru,
         "Українська" => uk,
@@ -1606,7 +1623,7 @@ public partial class MainWindow : Window
                 Background = _settings.Language == lang
                     ? new SolidColorBrush(Color.FromArgb(0x55, 0x34, 0xF5, 0xC5))
                     : Brushes.Transparent,
-                Content = lang,
+                Content = LanguageChoiceLabel(lang),
                 HorizontalContentAlignment = System.Windows.HorizontalAlignment.Left,
                 Margin = new Thickness(0, 2, 0, 2)
             };
@@ -1614,10 +1631,8 @@ public partial class MainWindow : Window
             btn.Click += async (_, _) =>
             {
                 _settings.Language = lang;
-                SelectedLangLabel.Text = lang;
                 LangListPopup.Visibility = Visibility.Collapsed;
                 ApplyLocalization();
-                BuildLanguageDropdown();
                 BuildThemesGrid();
                 BuildCharactersGrid();
                 RebuildTrayMenu();
@@ -1714,7 +1729,7 @@ public partial class MainWindow : Window
         LblUseFahrenheit.Text        = Tr("Use Fahrenheit (°F) instead of Celsius (°C)", "Использовать Фаренгейты (°F) вместо Цельсия (°C)", "Використовувати Фаренгейти (°F) замість Цельсія (°C)", "Fahrenheit (°F) statt Celsius (°C) verwenden", "Usar Fahrenheit (°F) en lugar de Celsius (°C)");
 
         LblLangTitle.Text          = Tr("Interface Language", "Язык интерфейса", "Мова інтерфейсу", "Sprache", "Idioma de interfaz");
-        LblLangSub.Text            = Tr("Default: English", "По умолчанию: English", "За замовчуванням: English", "Standard: English", "Por defecto: English");
+        LblLangSub.Text            = Tr("Defaults to the Windows display language", "По умолчанию используется язык Windows", "Типово використовується мова Windows", "Standard: Windows-Anzeigesprache", "Por defecto se usa el idioma de Windows");
         LblExpandHover.Text        = Tr("Expand on hover", "Раскрывать при наведении", "Розкривати при наведенні", "Beim Hover öffnen", "Expandir al pasar el ratón");
         LblCloseOnLeave.Text       = Tr("Close settings when mouse leaves", "Закрывать настройки при отводе мыши", "Закривати налаштування при відведенні миші", "Schließen wenn Maus verlässt", "Cerrar al apartar el ratón");
         LblCloseOnLeaveSub.Text    = Tr("Automatically collapse back to compact pill when cursor moves away", "Автоматически сворачивать остров, когда курсор уходит в сторону", "Автоматично згортати острів при відведенні курсора", "Automatisch einklappen beim Wegbewegen", "Contraer al alejar el cursor");
@@ -2007,7 +2022,9 @@ public partial class MainWindow : Window
         if (!_bodyDragging && Math.Abs(currentPos.X - _dragStartPoint.X) <= 8 && Math.Abs(currentPos.Y - _dragStartPoint.Y) <= 8)
             return;
 
-        if (!(TglPinPosition.IsChecked ?? false) && _currentState is IslandState.Compact or IslandState.Hover)
+        if (!CanDragIsland) { _isClickCandidate = false; return; }
+
+        if (_currentState is IslandState.Compact or IslandState.Hover)
         {
             _bodyDragging = true; _isClickCandidate = false;
             double scale = VisualTreeHelper.GetDpi(this).DpiScaleX;
@@ -2021,7 +2038,7 @@ public partial class MainWindow : Window
         bool drag = _bodyDragging;
         _isClickCandidate = false; _bodyDragging = false;
         if (IslandBorder.IsMouseCaptured) IslandBorder.ReleaseMouseCapture();
-        if (drag) { _settings.WindowLeft = Left; SaveSettings(); }
+        if (drag) { RememberIslandPlacement(); SaveSettings(); }
         if (click && _currentState is IslandState.Compact or IslandState.Hover)
         {
             MorphToState(IslandState.Expanded);
@@ -2073,16 +2090,11 @@ public partial class MainWindow : Window
         IslandBorder.Visibility = Visibility.Collapsed;
     }
 
-    private void CtxCycleTheme_Click(object sender, RoutedEventArgs e)
+    private async void CtxCheckUpdates_Click(object sender, RoutedEventArgs e)
     {
-        int idx = _themes.FindIndex(t => t.Key == _settings.SelectedTheme);
-        var nextTheme = _themes[(idx + 1) % _themes.Count];
-        _settings.SelectedTheme = nextTheme.Key;
-        CustomBgBrush.ImageSource = null;
-        ApplyTheme(nextTheme);
-        BuildThemesGrid();
-        SaveSettings();
-        ShowSideBubble($"{Tr("Theme", "Тема", "Тема", "Thema", "Tema")}: {GetLocalizedThemeName(nextTheme.Key)}", ToastCategory.Info, bypassDnd: true);
+        OpenFeaturePage("updates");
+        e.Handled = true;
+        await CheckForUpdatesAsync(_settings.UpdateRepository, automatic: false);
     }
 
     #endregion
@@ -2155,7 +2167,14 @@ public partial class MainWindow : Window
         }
 
         bool fullscreen = ((TglHideFullscreen.IsChecked ?? false) || _settings.AutoGameHud) && IsForegroundGameOrFullscreen();
-        if (_settings.AutoGameHud && !(TglGameModeHud.IsChecked ?? false)) ApplyGameModeState(fullscreen, collapseToHud: fullscreen);
+        if (!fullscreen)
+        {
+            GetWindowThreadProcessId(GetForegroundWindow(), out uint pid);
+            if (pid != 0 && pid != Environment.ProcessId) _pauseAutoGameHud = false;
+        }
+        bool gameMode = TglGameModeHud.IsChecked == true || (_settings.AutoGameHud && !_pauseAutoGameHud && fullscreen);
+        if (!gameMode && !_settings.AutoGameHud && _gameFps != null) StopGameMetrics();
+        ApplyGameModeState(gameMode, collapseToHud: gameMode);
         if ((TglHideFullscreen.IsChecked ?? false) && !_isGameModeActive)
         {
             Visibility = fullscreen ? Visibility.Hidden : Visibility.Visible;
@@ -2250,7 +2269,6 @@ public partial class MainWindow : Window
             else if (id == HOTKEY_SNIP_S) { ActionSnipRegion_Click(this, new RoutedEventArgs()); handled = true; }
             else if (id == HOTKEY_RECORD_R) { ActionRecord_Click(this, new RoutedEventArgs()); handled = true; }
             else if (id == HOTKEY_CMD_SPACE) { ActionRunCommand_Click(this, new RoutedEventArgs()); handled = true; }
-            else if (id == HOTKEY_CYCLE_THEME_T) { CtxCycleTheme_Click(this, new RoutedEventArgs()); handled = true; }
         }
         return IntPtr.Zero;
     }
@@ -2267,18 +2285,13 @@ public partial class MainWindow : Window
         _renderedFramesCount = 0;
 
         _lastCpuUsage = GetCpuUsage();
-        int ram = GetRamUsage();
-        _lastCpuTempC = GetCpuTemperatureC(_lastCpuUsage);
+        _lastRamUsage = GetRamUsage();
 
-        HoverSysText.Text      = $"CPU {_lastCpuUsage}% · GPU {(_lastGpuUsage >= 0 ? _lastGpuUsage + "%" : "—")}";
-        HomeTelemetryText.Text = $"CPU {_lastCpuUsage}% · RAM {ram}%";
+        UpdateTelemetrySummaries();
 
         UpdateDiscordCallState();
 
         PruneExpiredClipboardItems();
-
-        bool gameModeShouldBeActive = (TglGameModeHud.IsChecked ?? false) || (_settings.AutoGameHud && IsForegroundGameOrFullscreen());
-        ApplyGameModeState(gameModeShouldBeActive, collapseToHud: false);
 
         await RefreshMediaSessionStateAsync();
     }
@@ -2352,49 +2365,6 @@ public partial class MainWindow : Window
             MediaTitleText.Text   = Tr("No active media", "Нет активного медиа", "Немає активного медіа", "Keine aktiven Medien", "Sin multimedia");
             MediaArtistText.Text  = Tr("Spotify · YouTube · Browser", "Spotify · Яндекс Музыка · Браузер", "Spotify · YouTube · Браузер", "Spotify · YouTube · Browser", "Spotify · YouTube · Navegador");
         }
-    }
-
-    private int GetCpuTemperatureC(int cpuLoadPercent)
-    {
-        try
-        {
-            if (!_pdhTempInitialized)
-            {
-                _pdhTempInitialized = true;
-                if (PdhOpenQuery(null, IntPtr.Zero, out _pdhTempQuery) == 0)
-                {
-                    string[] paths =
-                    [
-                        "\\Thermal Zone Information(\\_TZ.THM0)\\Temperature",
-                        "\\Thermal Zone Information(\\_TZ.TZ00)\\Temperature",
-                        "\\Thermal Zone Information(\\_TZ.TZ01)\\Temperature",
-                        "\\Thermal Zone Information(*)\\Temperature"
-                    ];
-                    foreach (string path in paths)
-                    {
-                        if (PdhAddEnglishCounter(_pdhTempQuery, path, IntPtr.Zero, out _pdhTempCounter) == 0 && _pdhTempCounter != IntPtr.Zero)
-                            break;
-                    }
-                }
-            }
-
-            if (_pdhTempQuery != IntPtr.Zero && _pdhTempCounter != IntPtr.Zero && PdhCollectQueryData(_pdhTempQuery) == 0)
-            {
-                if (PdhGetFormattedCounterValue(_pdhTempCounter, PDH_FMT_DOUBLE, out _, out PDH_FMT_COUNTERVALUE val) == 0 && val.CStatus == 0)
-                {
-                    double raw = val.doubleValue;
-                    double celsius = raw > 2000 ? (raw / 10.0) - 273.15 : raw - 273.15;
-                    if (celsius is >= 32.0 and <= 105.0)
-                    {
-                        _smoothedCpuTemp = _smoothedCpuTemp * 0.65 + celsius * 0.35;
-                        return (int)Math.Round(_smoothedCpuTemp);
-                    }
-                }
-            }
-        }
-        catch { }
-
-        return -1; // Windows does not expose a CPU sensor on every machine.
     }
 
     private int GetCpuUsage()
@@ -2666,14 +2636,9 @@ public partial class MainWindow : Window
     {
         CenterIslandOnScreen();
         _settings.WindowLeft = null;
-        TglPinPosition.IsChecked = true;
+        _settings.IslandOffset = 0;
+        RememberIslandPlacement();
         SaveSettings();
-    }
-
-    private void CenterIslandOnScreen()
-    {
-        Left = (SystemParameters.PrimaryScreenWidth - Width) / 2;
-        Top = 0;
     }
 
     private void CustomCmdTextBox_TextChanged(object sender, TextChangedEventArgs e)
@@ -2773,7 +2738,6 @@ public partial class MainWindow : Window
         LoadFeatureThemes();
         TglVolumeIsland.IsChecked = _settings.VolumeIslandHud ?? _settings.LevelHud;
 
-        SelectedLangLabel.Text        = _settings.Language;
         WeatherCityInput.Text         = _settings.WeatherCity;
         DashCityTextBox.Text          = _settings.WeatherCity;
         TglFahrenheit.IsChecked       = _settings.UseFahrenheit;
@@ -2789,7 +2753,8 @@ public partial class MainWindow : Window
 
         TglExpandOnHover.IsChecked    = _settings.ExpandOnHover;
         TglCloseOnLeave.IsChecked     = _settings.CloseOnMouseLeave;
-        TglPinPosition.IsChecked      = _settings.PinPosition;
+        RefreshIslandPlacementControls();
+        ApplyIslandPlacementStyle();
         TglShowCapsLock.IsChecked     = _settings.ShowCapsLock;
         TglShowNumLock.IsChecked      = _settings.ShowNumLock;
         TglShowLayout.IsChecked       = _settings.ShowLayout;
@@ -2863,8 +2828,7 @@ public partial class MainWindow : Window
         if (File.Exists(_settingsPath)) File.Delete(_settingsPath);
         _hasWeatherData = false;
         ApplyCurrentSettingsToUi();
-        BuildLanguageDropdown();
-        CenterIslandOnScreen();
+        RestoreIslandPlacement();
         SaveSettings();
         await FetchWeatherForCityAsync(_settings.WeatherCity, false);
     }

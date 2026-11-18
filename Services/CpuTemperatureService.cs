@@ -16,22 +16,26 @@ internal sealed class CpuTemperatureService : IDisposable
     {
         get
         {
-            using var registry = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64);
-            using var driver = registry.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO");
-            return Version.TryParse(driver?.GetValue("DisplayVersion") as string, out var version) && version >= new Version(2, 0);
+            foreach (var view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
+            {
+                using var registry = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, view);
+                using var driver = registry.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\PawnIO");
+                if (Version.TryParse(driver?.GetValue("DisplayVersion") as string, out var version) && version >= new Version(2, 0)) return true;
+            }
+            return false;
         }
     }
 
     internal static async Task InstallDriverAsync()
     {
-        string path = Path.Combine(AppContext.BaseDirectory, "Hardware", "PawnIO_setup.exe");
+        string path = DesktopProcess.PhysicalFilePath(Path.Combine(AppContext.BaseDirectory, "Hardware", "PawnIO_setup.exe"));
         await using (var file = File.OpenRead(path))
         {
             string hash = Convert.ToHexString(await SHA256.HashDataAsync(file));
             if (hash != "1F519A22E47187F70A1379A48CA604981C4FCF694F4E65B734AAA74A9FBA3032")
                 throw new IOException("PawnIO installer SHA-256 mismatch.");
         }
-        using var process = Process.Start(new ProcessStartInfo(path) { Verb = "runas", UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden, Arguments = "-install -silent" })
+        using var process = await Task.Run(() => Process.Start(new ProcessStartInfo(path) { Verb = "runas", UseShellExecute = true, WindowStyle = ProcessWindowStyle.Hidden, Arguments = "-install -silent" }))
             ?? throw new IOException("PawnIO installer did not start.");
         await process.WaitForExitAsync();
         if (process.ExitCode != 0 || !IsDriverInstalled) throw new IOException("PawnIO installation failed.");
@@ -41,19 +45,23 @@ internal sealed class CpuTemperatureService : IDisposable
     {
         try
         {
-            if (!IsDriverInstalled) return -1;
             if (!_initialized)
             {
-                _initialized = true;
+                if (!IsDriverInstalled) return -1;
                 _computer = new Computer { IsCpuEnabled = true };
                 _computer.Open();
+                _initialized = true;
             }
             var readings = new List<(string Name, float? Value)>();
             foreach (var cpu in _computer!.Hardware.Where(h => h.HardwareType == HardwareType.Cpu))
                 ReadHardware(cpu, readings);
             return SelectCelsius(readings);
         }
-        catch { return -1; }
+        catch
+        {
+            Dispose();
+            return -1;
+        }
     }
 
     private static void ReadHardware(IHardware hardware, List<(string Name, float? Value)> readings)
@@ -78,5 +86,6 @@ internal sealed class CpuTemperatureService : IDisposable
     {
         try { _computer?.Close(); } catch { }
         _computer = null;
+        _initialized = false;
     }
 }

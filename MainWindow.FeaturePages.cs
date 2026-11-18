@@ -226,25 +226,60 @@ public partial class MainWindow
         menu.Opened += (_, _) => { foreach (string key in Resources.Keys.OfType<string>()) if ((key.StartsWith("Theme") || key.StartsWith("Glass")) && Resources[key] is Brush brush) menu.Resources[key] = brush; };
         return menu;
     }
+    private TextBlock? _gameMetricsStatus;
+    private TextBlock? _gameTemperatureStatus;
+    private Button? _gameModeButton;
+    private bool? _temperatureDriverInstalled;
+
+    private string GameTemperatureStatus()
+    {
+        if (_gameFps?.CpuTemperatureC is >= 0) return $"CPU: {_gameFps.CpuTemperatureC}°C";
+        if ((_temperatureDriverInstalled ??= CpuTemperatureService.IsDriverInstalled) == false)
+            return "Температура CPU недоступна: установите PawnIO в игровом центре.";
+        if (_gameFps?.HasSample == true) return "Датчик CPU пока не вернул температуру.";
+        return _gameFps?.IsRunning == true ? "Ожидаю показания датчика CPU." : "Включите игровой режим, чтобы измерить температуру CPU.";
+    }
+
+    private void RefreshGameMetricsControls()
+    {
+        if (_gameMetricsStatus != null)
+            _gameMetricsStatus.Text = GameFpsStatus();
+        if (_gameTemperatureStatus != null) _gameTemperatureStatus.Text = L(GameTemperatureStatus());
+        if (_gameModeButton != null)
+            _gameModeButton.Content = L(_isGameModeActive ? "Выключить игровой режим" : "Включить игровой режим");
+    }
+
     private async Task BuildSystemPageAsync()
     {
-        var game = FeatureCard("Игровой центр", _gameFps?.Status ?? "Для измерения FPS игры включите встроенный счётчик. Windows запросит права администратора для ETW. Дополнительных программ не требуется.");
-        FeatureToggle(game, "Автоматический HUD в полноэкранной игре", _settings.AutoGameHud, v => { _settings.AutoGameHud = v; if (v) StartGameMetrics(); });
-        if (!CpuTemperatureService.IsDriverInstalled)
+        var game = FeatureCard("Игровой центр");
+        _gameMetricsStatus = FeatureText("", 11, "ThemeMutedBrush"); game.Children.Add(_gameMetricsStatus);
+        _gameTemperatureStatus = FeatureText("", 11, "ThemeMutedBrush"); game.Children.Add(_gameTemperatureStatus);
+        _gameModeButton = FeatureButton("Включить игровой режим", () => SetGameModeEnabled(!_isGameModeActive));
+        game.Children.Add(_gameModeButton);
+        FeatureToggle(game, "Автоматический HUD в полноэкранной игре", _settings.AutoGameHud, enabled =>
+        {
+            _settings.AutoGameHud = enabled;
+            _pauseAutoGameHud = false;
+        });
+        _temperatureDriverInstalled = CpuTemperatureService.IsDriverInstalled;
+        if (_temperatureDriverInstalled == false)
         {
             game.Children.Add(FeatureText("Для температуры CPU нужен драйвер PawnIO. Он включён в установщик; Windows запросит права администратора.", 11, "ThemeMutedBrush"));
             game.Children.Add(FeatureButton("Установить драйвер температуры CPU", async () =>
             {
-                try { await CpuTemperatureService.InstallDriverAsync(); StartGameMetrics(); OpenFeaturePage("system"); }
+                try
+                {
+                    await CpuTemperatureService.InstallDriverAsync();
+                    if (_windowClosed) return;
+                    _temperatureDriverInstalled = true;
+                    if (_isGameModeActive) { StopGameMetrics(); StartGameMetrics(); }
+                    if (_currentState == IslandState.Features && _featurePage == "system") OpenFeaturePage("system");
+                }
                 catch (Exception ex) { AppLog.Error("Install CPU temperature driver", ex); FeatureNotice("Не удалось установить драйвер температуры CPU.", () => OpenFeaturePage("system")); }
             }));
         }
-        game.Children.Add(FeatureButton(_gameFps == null ? "Включить FPS игры" : "Остановить счётчик", () =>
-        {
-            if (_gameFps != null) { _gameFps.Dispose(); _gameFps = null; OpenFeaturePage("system"); return; }
-            StartGameMetrics(); OpenFeaturePage("system");
-        }));
-        game.Children.Add(FeatureText("Измеряются кадры, отправленные через DirectX Present. Для игр OpenGL / Vulkan без событий DXGI счётчик может быть недоступен.", 11, "ThemeMutedBrush"));
+        RefreshGameMetricsControls();
+        game.Children.Add(FeatureText("FPS измеряется по событиям отправки кадров активной игры. Если игра не передаёт такие события, показание недоступно.", 11, "ThemeMutedBrush"));
         var card = FeatureCard("Громкость приложений", "Регуляторы управляют настоящими звуковыми сессиями Windows.");
         var placeholder = FeatureText("Читаю аудиоустройства…", 12, "ThemeMutedBrush"); card.Children.Add(placeholder);
         try
@@ -357,7 +392,7 @@ public partial class MainWindow
         ("Уведомления", _notifAccessGranted ? "Доступ Windows разрешён; исходные обработчики открывают чаты." : "Нет доступа Windows. Доступен счётчик заголовка, если мессенджер его публикует.", "ms-settings:privacy-notifications"),
         ("Музыка", _mediaManager != null ? "Системный канал медиа подключён." : "Нет подключения к системному каналу медиа.", null),
         ("Погода", _hasWeatherData ? "Данные получены." : string.IsNullOrWhiteSpace(_settings.WeatherCity) ? "Укажите город в настройках погоды." : "Данные ещё не получены. Проверьте интернет и город.", null),
-        ("FPS", L("Интерфейс отрисовывается по необходимости.") + " " + L(_gameFps?.Status ?? "Счётчик игры можно включить на странице «Система»."), null),
+        ("FPS", L("Интерфейс отрисовывается по необходимости.") + " " + L(_gameFps?.Status ?? "Игровой режим включает HUD, FPS и температуру CPU. Windows может запросить права администратора."), null),
         ("Стекло", _settings.LiquidGlass ? "Включено. Видимость при захвате настраивается отдельно." : "Выключено в настройках внешнего вида.", null),
         ("Автозапуск", _settings.RunOnStartup ? "Запрошен в настройках; Windows может ограничить запуск." : "Выключен.", "ms-settings:startupapps"),
         ("Обновления", string.IsNullOrWhiteSpace(_settings.UpdateRepository) ? "Укажите репозиторий GitHub в разделе обновлений." : "Источник задан. Доступность новой версии проверяется в разделе обновлений.", null),
@@ -385,29 +420,68 @@ public partial class MainWindow
     private GitHubUpdateService.Release? _availableUpdate;
     private string? _downloadedUpdate;
     private bool _updateBusy;
+    private bool _checkingUpdates;
     private string _updateStatus = "Версия приложения · " + GitHubUpdateService.CurrentVersion.ToString(3);
     private CancellationTokenSource? _updateCancellation;
+    private DateTime _nextUpdateCheck = DateTime.MaxValue;
+    private readonly HashSet<(Uri Installer, Version Version)> _notifiedUpdates = [];
+
+    private async Task CheckForUpdatesAsync(string repository, bool automatic)
+    {
+        if (_updateBusy || _windowClosed) return;
+        _updateBusy = _checkingUpdates = true;
+        _nextUpdateCheck = DateTime.UtcNow.AddMinutes(30);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        _updateCancellation = cancellation;
+        try
+        {
+            if (!automatic && _currentState == IslandState.Features && _featurePage == "updates") OpenFeaturePage("updates");
+            string normalized = GitHubUpdateService.Repository(repository);
+            if (!automatic && !string.Equals(normalized, _settings.UpdateRepository, StringComparison.OrdinalIgnoreCase))
+            {
+                _settings.UpdateRepository = normalized;
+                _availableUpdate = null;
+                _downloadedUpdate = null;
+                SaveSettings();
+            }
+            var release = await GitHubUpdateService.CheckAsync(normalized, cancellation.Token);
+            if (_windowClosed || automatic && !_settings.AutoCheckUpdates) return;
+            _nextUpdateCheck = DateTime.UtcNow.AddHours(6);
+            var available = GitHubUpdateService.IsNewerVersion(release.Version, GitHubUpdateService.CurrentVersion) ? release : null;
+            if (_availableUpdate != available) _downloadedUpdate = null;
+            _availableUpdate = available;
+            _updateStatus = _downloadedUpdate != null ? "Установщик загружен; SHA-256 и подпись издателя проверены."
+                : available != null ? "Доступна версия " + available.Version : "Установлена актуальная версия.";
+            if (available != null && _notifiedUpdates.Add((available.Installer, available.Version)) && automatic)
+                FeatureNotice(_updateStatus, () => OpenFeaturePage("updates"));
+        }
+        catch (FormatException ex) { if (!automatic) _updateStatus = ex.Message; }
+        catch (Exception ex)
+        {
+            if (!_windowClosed && !cancellation.IsCancellationRequested) AppLog.Error("Check GitHub update", ex);
+            if (!automatic) _updateStatus = "Не удалось проверить релиз. Проверьте адрес публичного репозитория и интернет.";
+        }
+        finally
+        {
+            _updateCancellation = null;
+            _updateBusy = _checkingUpdates = false;
+            if (!_windowClosed && _currentState == IslandState.Features && _featurePage == "updates") OpenFeaturePage("updates");
+        }
+    }
+
     private void BuildUpdatesPage()
     {
         var card = FeatureCard("Обновления через GitHub", "Обновления OC - Dynamic Island загружаются из GitHub. Дополнительные программы не нужны. Проверяются контрольная сумма и подпись установщика ocdynamicisland.exe.");
         var repo = FeatureInput(card, "Репозиторий owner/repository", _settings.UpdateRepository);
-        var status = FeatureText(_updateStatus, 12, "ThemeMutedBrush"); card.Children.Add(status);
-        var actions = new WrapPanel();
-        actions.Children.Add(FeatureButton("Проверить", async () =>
+        FeatureToggle(card, "Проверять обновления автоматически", _settings.AutoCheckUpdates, enabled =>
         {
-            if (_updateBusy) return;
-            try
-            {
-                _settings.UpdateRepository = GitHubUpdateService.Repository(repo.Text); SaveSettings();
-                _updateBusy = true; _updateCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(30)); status.Text = L("Проверяю опубликованные релизы…");
-                var release = await GitHubUpdateService.CheckAsync(_settings.UpdateRepository, _updateCancellation.Token);
-                _availableUpdate = GitHubUpdateService.IsNewerVersion(release.Version, GitHubUpdateService.CurrentVersion) ? release : null; _downloadedUpdate = null;
-                _updateStatus = _availableUpdate != null ? "Доступна версия " + release.Version : "Установлена актуальная версия.";
-            }
-            catch (FormatException ex) { _updateStatus = ex.Message; }
-            catch (Exception ex) { AppLog.Error("Check GitHub update", ex); _updateStatus = "Не удалось проверить релиз. Проверьте адрес публичного репозитория и интернет."; }
-            finally { _updateBusy = false; _updateCancellation?.Dispose(); _updateCancellation = null; if (_featurePage == "updates") OpenFeaturePage("updates"); }
-        }));
+            _settings.AutoCheckUpdates = enabled;
+            if (enabled) _nextUpdateCheck = DateTime.UtcNow;
+        });
+        card.Children.Add(FeatureText("Проверка выполняется при запуске и периодически. Загрузка и установка — только вручную.", 11, "ThemeMutedBrush"));
+        var status = FeatureText(_checkingUpdates ? "Проверяю опубликованные релизы…" : _updateStatus, 12, "ThemeMutedBrush"); card.Children.Add(status);
+        var actions = new WrapPanel();
+        actions.Children.Add(FeatureButton("Проверить", async () => await CheckForUpdatesAsync(repo.Text, automatic: false)));
         actions.Children.Add(FeatureButton("Что нового", () => OpenFeaturePage("news"))); card.Children.Add(actions);
         if (_availableUpdate is { } release)
         {

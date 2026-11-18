@@ -23,6 +23,7 @@ try {
     try { $manifest = [xml]$reader.ReadToEnd() } finally { $reader.Dispose() }
     if ($manifest.Package.Identity.Name -ne 'DynamicIslandWin') { throw 'Unexpected package identity' }
     if ($manifest.Package.Properties.DisplayName -ne 'OC - Dynamic Island' -or $manifest.Package.Applications.Application.VisualElements.DisplayName -ne 'OC - Dynamic Island') { throw 'Incorrect product display name' }
+    if ($manifest.Package.Properties.PublisherDisplayName -ne 'Outside Company') { throw 'Incorrect publisher display name' }
     if (@($manifest.Package.Capabilities.ChildNodes | Where-Object { $_.NamespaceURI -eq 'http://schemas.microsoft.com/appx/manifest/uap/windows10/3' -and $_.GetAttribute('Name') -eq 'userNotificationListener' }).Count -ne 1) { throw 'Notification capability missing' }
     if (!$manifest.SelectSingleNode('//*[local-name()="StartupTask" and @TaskId="DynamicIslandStartup"]')) { throw 'Startup task missing' }
     if ($manifest.Package.Applications.Application.Executable -ne 'DynamicIslandWin.exe') { throw 'Wrong entry point' }

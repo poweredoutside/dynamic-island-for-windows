@@ -87,6 +87,7 @@ function Install-TemperatureDriver {
     catch { Write-Output 'DI_WARNING:TemperatureDriver' }
 }
 if ($action -eq 'AlreadyInstalled') {
+    if ($Gui) { Write-Output 'DI_STATUS:AlreadyInstalled' }
     Install-TemperatureDriver
     Write-Host "OC - Dynamic Island $incomingVersion is already installed."
     if ($Gui) { Write-Output ('DI_APPID:' + $existing.PackageFamilyName + '!App') }
@@ -111,38 +112,46 @@ if (Get-Process -Name DynamicIslandWin -ErrorAction SilentlyContinue) {
     }
 }
 
-# Production packages signed by a trusted publisher skip this development step.
-$signature = Get-AuthenticodeSignature -LiteralPath $packagePath
-if ($signature.Status -ne 'Valid') {
+function Confirm-PublisherTrust {
     $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new($certificatePath)
-    if (!$signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $certificate.Thumbprint) {
-        throw 'The package signature does not match DynamicIsland.cer.'
+    try {
+        $thumbprint = $certificate.Thumbprint
+        if (Test-Path -LiteralPath ('Cert:\LocalMachine\TrustedPeople\' + $thumbprint)) { return }
+        $signature = Get-AuthenticodeSignature -LiteralPath $packagePath
+        if ($signature.Status -eq 'Valid') { return }
+        if (!$signature.SignerCertificate -or $signature.SignerCertificate.Thumbprint -ne $thumbprint) {
+            throw 'The package signature does not match DynamicIsland.cer.'
+        }
+        # Windows PowerShell maps CERT_E_UNTRUSTEDROOT to UnknownError for MSIX.
+        # Accept only that chain condition. Add-AppxPackage validates the signature
+        # and the payload using Windows deployment policy after trust is installed.
+        $chain = [Security.Cryptography.X509Certificates.X509Chain]::new()
+        try {
+            $chain.ChainPolicy.RevocationMode = [Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+            [void]$chain.Build($certificate)
+            $chainErrors = @($chain.ChainStatus | Where-Object { $_.Status -ne [Security.Cryptography.X509Certificates.X509ChainStatusFlags]::UntrustedRoot })
+        } finally {
+            $chain.Dispose()
+        }
+        if ($signature.Status -notin @('NotTrusted', 'UnknownError') -or $chainErrors.Count -gt 0) {
+            throw "Invalid package signature or certificate: $($signature.Status)"
+        }
+        Write-Host ('Installing the development publisher certificate: ' + $thumbprint)
+        if ($Gui) { Write-Output 'DI_STATUS:Trust' }
+        Write-Host 'Windows will request administrator permission to trust this certificate.'
+        $escapedPath = $certificatePath.Replace("'", "''")
+        $command = "`$ErrorActionPreference='Stop'; `$cert=Import-Certificate -FilePath '$escapedPath' -CertStoreLocation Cert:\LocalMachine\TrustedPeople; if (`$cert.Thumbprint -ne '$thumbprint') { exit 1 }"
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $elevated = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -Verb RunAs -WindowStyle Hidden -ArgumentList @('-NoProfile', '-EncodedCommand', $encoded) -Wait -PassThru
+        if ($elevated.ExitCode -ne 0) { throw 'Publisher certificate installation was cancelled or failed.' }
+        if (!(Test-Path -LiteralPath ('Cert:\LocalMachine\TrustedPeople\' + $thumbprint))) { throw 'Publisher certificate was not installed.' }
+    } finally {
+        $certificate.Dispose()
     }
-    # Windows PowerShell maps CERT_E_UNTRUSTEDROOT to UnknownError for MSIX.
-    # Accept only that chain condition. Add-AppxPackage validates the signature
-    # and the payload using Windows deployment policy after trust is installed.
-    $chain = [Security.Cryptography.X509Certificates.X509Chain]::new()
-    $chain.ChainPolicy.RevocationMode = [Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
-    [void]$chain.Build($certificate)
-    $chainErrors = @($chain.ChainStatus | Where-Object { $_.Status -ne [Security.Cryptography.X509Certificates.X509ChainStatusFlags]::UntrustedRoot })
-    $chain.Dispose()
-    if ($signature.Status -notin @('NotTrusted', 'UnknownError') -or $chainErrors.Count -gt 0) {
-        throw "Invalid package signature or certificate: $($signature.Status)"
-    }
-    Write-Host ('Installing the development publisher certificate: ' + $certificate.Thumbprint)
-    if ($Gui) { Write-Output 'DI_STATUS:Trust' }
-    Write-Host 'Windows will request administrator permission to trust this certificate.'
-    $escapedPath = $certificatePath.Replace("'", "''")
-    $thumbprint = $certificate.Thumbprint
-    $command = "`$ErrorActionPreference='Stop'; `$cert=Import-Certificate -FilePath '$escapedPath' -CertStoreLocation Cert:\LocalMachine\TrustedPeople; if (`$cert.Thumbprint -ne '$thumbprint') { exit 1 }"
-    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-    $elevated = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe') -Verb RunAs -WindowStyle Hidden -ArgumentList @('-NoProfile', '-EncodedCommand', $encoded) -Wait -PassThru
-    if ($elevated.ExitCode -ne 0) { throw 'Publisher certificate installation was cancelled or failed.' }
-    if (!(Test-Path -LiteralPath ('Cert:\LocalMachine\TrustedPeople\' + $thumbprint))) { throw 'Publisher certificate was not installed.' }
-    $certificate.Dispose()
 }
 
 # Runs as the original user; MSIX handles atomic updates and Settings > Apps removal.
+Confirm-PublisherTrust
 if ($Gui) { Write-Output 'DI_STATUS:Installing' }
 Add-AppxPackage -Path $packagePath -ErrorAction Stop
 Install-TemperatureDriver

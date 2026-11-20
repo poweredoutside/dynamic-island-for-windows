@@ -21,6 +21,7 @@ internal static class Program
         var window = new MainWindow();
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
         object? Call(string name, params object?[] values) => typeof(MainWindow).GetMethod(name, flags)!.Invoke(window, values);
+        string Translate(string text) => (string)Call("L", text)!;
         void Set(string name, object? value) => typeof(MainWindow).GetField(name, flags)!.SetValue(window, value);
         T Field<T>(string name) => (T)typeof(MainWindow).GetField(name, flags)!.GetValue(window)!;
         T Element<T>(string name) => (T)window.FindName(name);
@@ -48,9 +49,13 @@ internal static class Program
         Set("_isGameModeActive", true);
         Call("FeatureTick");
         Check(Element<TextBlock>("GameHudFpsText").Text == "144" && Element<TextBlock>("GameHudCpuTempText").Text == "72°C", "Active game HUD refreshes FPS and helper CPU temperature without rebuilding its page");
-        Check(Element<TextBlock>("HoverSysText").Text.Contains("144 FPS") && Element<TextBlock>("HoverSysText").Text.Contains("72°C")
-            && Element<TextBlock>("HomeTelemetryText").Text.Contains("72°C"), "Both regular telemetry summaries show real game and sensor samples");
-        string[] fpsHeaders = ["GamePageFpsText", "WeatherFpsText", "ClipboardFpsText", "SettingsFpsText"];
+        Check(Element<TextBlock>("HoverSysText").Text == "144 FPS (72°C)"
+            && !Element<TextBlock>("HoverSysText").Text.Contains("CPU") && !Element<TextBlock>("HoverSysText").Text.Contains("GPU"),
+            "The hover summary shows FPS and temperature without CPU/GPU load");
+        var weatherContent = (StackPanel)Element<Border>("HomeWeatherWidget").Child;
+        Check(weatherContent.Children.Count == 2 && weatherContent.Children.Contains(Element<TextBlock>("HomeWeatherDetailsText")),
+            "Home weather shows only location and weather details with game mode enabled");
+        string[] fpsHeaders = ["DashboardFpsText", "SettingsFpsText"];
         Check(fpsHeaders.All(name => Element<TextBlock>(name).Visibility == Visibility.Visible && Element<TextBlock>(name).Text == "144 FPS"),
             "FPS stays visible in all expanded page headers during game mode");
         var desktopFps = Field<object>("_desktopFps");
@@ -63,7 +68,7 @@ internal static class Program
         fpsType.GetField("Fps", flags)!.SetValue(metrics, null);
         Call("UpdateGameHudValues");
         Check(Element<TextBlock>("GameHudFpsText").Text == "50" && Element<TextBlock>("GameHudFpsLabel").Text == "FPS · DWM"
-            && Element<TextBlock>("HomeTelemetryText").Text.Contains("50 FPS DWM") && Element<TextBlock>("GamePageFpsText").Text == "50 FPS DWM",
+            && fpsHeaders.All(name => Element<TextBlock>(name).Text == "50 FPS DWM"),
             "Real desktop fallback is visibly labeled in every FPS display");
         Set("_temperatureDriverInstalled", false);
         Set("_windowClosed", true);
@@ -75,20 +80,113 @@ internal static class Program
         Check(!Element<TextBlock>("HoverSysText").Text.Contains("FPS") && !Element<TextBlock>("HoverSysText").Text.Contains("°C"), "Stopping the helper clears both readings from the hover summary");
         Check(fpsHeaders.All(name => Element<TextBlock>(name).Visibility == Visibility.Collapsed), "FPS headers hide when game mode is off");
         Check(((string)Call("GameTemperatureStatus")!).Contains("PawnIO"), "Missing driver is diagnosed independently of FPS");
+        var hideItem = (MenuItem)Element<Border>("IslandBorder").ContextMenu.Items[0];
+        var hiddenHandle = Element<Button>("HiddenIslandHandle");
+        var hostVisibility = window.Visibility;
+        Check(hiddenHandle.Visibility == Visibility.Collapsed, "The reveal handle is hidden by default");
+        hideItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Check(Element<Border>("IslandBorder").Visibility == Visibility.Collapsed && hiddenHandle.Visibility == Visibility.Visible
+            && hiddenHandle.Width == 74 && window.Visibility == hostVisibility, "Manual hide replaces the capsule with a narrow reveal handle");
+        hiddenHandle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(hiddenHandle.Visibility == Visibility.Collapsed && Element<Border>("IslandBorder").Visibility == Visibility.Visible
+            && Element<Grid>("CompactView").Visibility == Visibility.Visible, "Clicking the handle restores the compact island");
         ((IDisposable)metrics).Dispose();
         Set("_isGameModeActive", false);
         Call("ApplyLocalization");
         var islandMenu = Element<Border>("IslandBorder").ContextMenu;
         var menuItems = islandMenu.Items.OfType<MenuItem>().ToArray();
         Check(menuItems.All(item => !Equals(item.Header, "Change theme")), "Theme cycling is not in the island context menu");
+        Check(menuItems.All(item => !Equals(item.Header, Translate("Новые возможности"))), "The old hub entry is removed");
         var updateItem = menuItems.Single(item => item.Name == "CtxCheckUpdates");
         Check(Equals(updateItem.Header, "Check for updates"), "Check for updates is localized in the island menu");
         string savedRepo = settings.UpdateRepository;
         settings.UpdateRepository = "?";
         updateItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
-        Check(Field<string>("_featurePage") == "updates" && Field<string>("_updateStatus").StartsWith("Укажите owner/repository"),
-            "Context menu opens the update page and runs the manual check immediately");
+        Check(Field<string>("_settingsFeaturePage") == "updates" && Element<Grid>("SettingsView").Visibility == Visibility.Visible
+            && Field<string>("_updateStatus").StartsWith("Укажите owner/repository"),
+            "Context menu opens updates in Settings and runs the manual check immediately");
         settings.UpdateRepository = savedRepo;
+        var dashboardNavigation = Element<StackPanel>("DashboardNavigation");
+        string[] dashboardKeys = ["home", "music", "weather", "chat", "timers", "clipboard", "calendar", "system"];
+        settings.TabOrder.AddRange(["layout", "themes", "updates", "diagnostics", "news"]);
+        Call("BuildDashboardNavigation");
+        Check(dashboardNavigation.Children.OfType<Button>().Select(button => (string)button.Tag).SequenceEqual(dashboardKeys),
+            "Legacy tab order cannot put Settings pages or release notes into the dashboard");
+        Button DashboardTab(string key) => dashboardNavigation.Children.OfType<Button>().Single(button => Equals(button.Tag, key));
+        void SelectDashboardTab(string key) => DashboardTab(key).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(dashboardNavigation.Children.OfType<Button>().All(button => button.ToolTip is string { Length: > 0 }
+            && ((StackPanel)button.Content).Children[0] is System.Windows.Shapes.Path { Data: not null }),
+            "Every dashboard tab has a vector icon and tooltip");
+        settings.HiddenTabs.AddRange(["home", "chat"]);
+        Call("BuildDashboardNavigation");
+        Check(dashboardNavigation.Children.OfType<Button>().Any(button => Equals(button.Tag, "home"))
+            && dashboardNavigation.Children.OfType<Button>().All(button => !Equals(button.Tag, "chat")),
+            "Tabs honor visibility preferences without hiding Home");
+        settings.HiddenTabs.Clear();
+        Call("BuildDashboardNavigation");
+        foreach (string key in dashboardKeys)
+        {
+            SelectDashboardTab(key);
+            string expectedView = key switch
+            {
+                "home" => "ExpandedView", "weather" => "WeatherDashboardView", "clipboard" => "ClipboardDashboardView",
+                _ => "DashboardSectionView"
+            };
+            Check(Element<FrameworkElement>(expectedView).Visibility == Visibility.Visible && Element<Grid>("DashboardHeader").Visibility == Visibility.Visible
+                && ((StackPanel)DashboardTab(key).Content).Children.OfType<TextBlock>().Single().Text == (string)DashboardTab(key).ToolTip
+                && (expectedView != "DashboardSectionView" || Field<string>("_featurePage") == key),
+                key + ": opens directly and shows the selected label");
+        }
+        SelectDashboardTab("home");
+        var dashboardHeader = Element<Grid>("DashboardHeader");
+        var dashboardFps = Element<TextBlock>("DashboardFpsText");
+        dashboardFps.Visibility = Visibility.Visible;
+        dashboardFps.Text = "144 FPS DWM";
+        foreach (string language in new[] { "English", "Русский", "Українська", "Deutsch", "Español" })
+        {
+            settings.Language = language;
+            Call("BuildDashboardNavigation");
+            foreach (string key in dashboardKeys)
+            {
+                SelectDashboardTab(key);
+                double width = Field<double>("_targetW") - dashboardHeader.Margin.Left - dashboardHeader.Margin.Right;
+                dashboardHeader.Measure(new Size(width, 32));
+                dashboardHeader.Arrange(new Rect(0, 0, width, 32));
+                Check(dashboardNavigation.DesiredSize.Width <= dashboardHeader.ColumnDefinitions[0].ActualWidth + .5,
+                    language + ": navigation and FPS fit in " + key);
+            }
+        }
+        settings.Language = "English";
+        SelectDashboardTab("home");
+        Call("ApplyLocalization");
+        Call("UpdateTelemetrySummaries");
+        var settingsContent = Element<StackPanel>("SettingsFeatureContent");
+        var movedPages = new[]
+        {
+            (Button: "BtnSettingsLayout", Page: "layout", Title: "Размер и форма"),
+            (Button: "BtnSettingsThemes", Page: "themes", Title: "Ваша палитра"),
+            (Button: "BtnSettingsDiagnostics", Page: "diagnostics", Title: "Проверка системы"),
+            (Button: "BtnSettingsUpdates", Page: "updates", Title: "Обновления через GitHub")
+        };
+        TextBlock CardTitle(Border card) => (TextBlock)((StackPanel)card.Child).Children[0];
+        foreach (var page in movedPages)
+        {
+            var button = Element<Button>(page.Button);
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(Field<string>("_settingsFeaturePage") == page.Page && Field<Button>("_activeSettingsNav") == button
+                && Element<Grid>("SettingsView").Visibility == Visibility.Visible && Element<Grid>("DashboardHeader").Visibility == Visibility.Collapsed
+                && CardTitle((Border)settingsContent.Children[0]).Text == Translate(page.Title), page.Page + " opens inside Settings");
+        }
+        var updateCards = settingsContent.Children.OfType<Border>().ToArray();
+        Check(updateCards.Length == 2 && CardTitle(updateCards[1]).Text == Translate("Что нового")
+            && !((StackPanel)updateCards[0].Child).Children.OfType<WrapPanel>()
+                .SelectMany(row => row.Children.OfType<Button>()).Any(button => Equals(button.Content, Translate("Что нового"))),
+            "What's new is an inline section below the updates card, not a button");
+        Element<Button>("NavAppearanceBtn").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Call("RefreshUpdatesPage");
+        Check(Element<ScrollViewer>("SettingsFeatureScroll").Visibility == Visibility.Collapsed
+            && Element<ScrollViewer>("PageAppearance").Visibility == Visibility.Visible,
+            "Update refresh does not interrupt another settings page");
         Set("_nextUpdateCheck", DateTime.MaxValue);
         var themes = Field<List<MainWindow.ThemePreset>>("_themes");
         var output = args.Length > 0 ? args[0] : "artifacts/ui-checks";
@@ -116,7 +214,7 @@ internal static class Program
         {
             Call("ApplyTheme", theme);
             var expected = (SolidColorBrush)window.FindResource("ThemeTextBrush");
-            foreach (string name in new[] { "CompactClockText", "LblSettingsTitle", "LblWeatherDashTitle", "SideToastText", "LblNotificationDuration" })
+            foreach (string name in new[] { "CompactClockText", "LblSettingsTitle", "ExpandedClockText", "SideToastText", "LblNotificationDuration" })
                 Check(((SolidColorBrush)Element<TextBlock>(name).Foreground).Color == expected.Color, $"{theme.Key}: {name} theme text");
             var character = (Border)Element<System.Windows.Controls.Primitives.UniformGrid>("CharactersUniformGrid").Children[0];
             var label = (TextBlock)((StackPanel)character.Child).Children[1];
@@ -171,8 +269,10 @@ internal static class Program
         }
         void Snapshot(string name, string view, string? page = null)
         {
-            foreach (string id in new[] { "CompactView", "HoverView", "ExpandedView", "WeatherDashboardView", "SettingsView", "ClipboardDashboardView", "FeaturesView" })
+            foreach (string id in new[] { "CompactView", "HoverView", "ExpandedView", "WeatherDashboardView", "SettingsView", "ClipboardDashboardView", "DashboardSectionView" })
                 if (window.FindName(id) is FrameworkElement el) el.Visibility = Visibility.Collapsed;
+            Element<Grid>("DashboardHeader").Visibility = view is "ExpandedView" or "WeatherDashboardView" or "ClipboardDashboardView" or "DashboardSectionView"
+                ? Visibility.Visible : Visibility.Collapsed;
             var content = Element<FrameworkElement>(view);
             content.BeginAnimation(UIElement.OpacityProperty, null); content.Opacity = 1; content.Visibility = Visibility.Visible;
             if (page != null)
@@ -309,16 +409,25 @@ internal static class Program
         foreach (string language in new[] { "English", "Русский", "Українська", "Deutsch", "Español", "English" })
         {
             settings.Language = language; Call("ApplyLocalization");
-            string Translate(string text) => (string)Call("L", text)!;
             Check(((MenuItem)island.ContextMenu.Items[0]).Header.Equals(Translate("Спрятать островок")), language + ": popup language refreshed");
             Check(Equals(pinItem.Header, Translate("Закрепить на месте")) && Equals(dockItem.Header, Translate("У верхнего края (macOS)")), language + ": pin and dock menu labels translated");
             Check(Element<TextBlock>("LblExternalProgress").Text == Translate("Прогресс других программ справа"), language + ": progress toggle language");
-            Check((string)Element<StackPanel>("FeatureNavigation").Children.OfType<Button>().First().Content == Translate("⌂  Главная"), language + ": generated navigation language");
+            Check(Equals(DashboardTab("home").ToolTip, Translate("Главная")) && Equals(DashboardTab("system").ToolTip, Translate("Система")),
+                language + ": dashboard navigation is localized");
             Call("BuildCharactersGrid");
             Check((string)Call("GetLocalizedCharacterName", "Puppy")! == Translate("Щенок"), language + ": added character names translated");
-            foreach (string page in new[] { "BuildLayoutPage", "BuildUserThemesPage", "BuildTimersPage", "BuildMusicPage", "BuildNewsPage", "BuildWelcomePage", "BuildUpdatesPage" })
+            Check(Element<TextBlock>("SettingsLayoutText").Text == Translate("▦  Раскладка")
+                && Element<TextBlock>("SettingsThemesText").Text == Translate("◈  Своя тема")
+                && Element<TextBlock>("SettingsUpdatesText").Text == Translate("↓  Обновления")
+                && Element<TextBlock>("SettingsDiagnosticsText").Text == Translate("✓  Диагностика"), language + ": Settings navigation is localized");
+            foreach (var (page, host) in new (string, StackPanel)[]
             {
-                Element<StackPanel>("FeatureContent").Children.Clear(); Call(page);
+                ("BuildLayoutPage", settingsContent), ("BuildUserThemesPage", settingsContent), ("BuildUpdatesPage", settingsContent),
+                ("BuildTimersPage", Element<StackPanel>("DashboardSectionContent")), ("BuildMusicPage", Element<StackPanel>("DashboardSectionContent")),
+                ("BuildWelcomePage", Element<StackPanel>("DashboardSectionContent"))
+            })
+            {
+                host.Children.Clear(); Call(page);
                 IEnumerable<string> Labels(DependencyObject node)
                 {
                     if (node is TextBlock text) yield return text.Text;
@@ -327,7 +436,7 @@ internal static class Program
                         foreach (string value in Labels(child)) yield return value;
                 }
                 if (language is "English" or "Deutsch" or "Español")
-                    Check(!Labels(Element<StackPanel>("FeatureContent")).Any(label => System.Text.RegularExpressions.Regex.IsMatch(label, "[А-Яа-яЁё]")), language + ": " + page + " contains no untranslated Russian");
+                    Check(!Labels(host).Any(label => System.Text.RegularExpressions.Regex.IsMatch(label, "[А-Яа-яЁё]")), language + ": " + page + " contains no untranslated Russian");
             }
         }
 
@@ -371,7 +480,11 @@ internal static class Program
         history = Field<List<MainWindow.ClipboardHistoryItem>>("_clipboardHistory");
         var restoredImage = (BitmapSource)Call("LoadClipboardImage", history[0], 0)!;
         Check(restoredImage.PixelWidth == 2 && restoredImage.PixelHeight == 2, "Screenshot survives a history reload at original resolution");
-        Check(Element<StackPanel>("ClipboardHistoryListStack").Children.Count == 2 && Element<TextBlock>("HomeClipboardPreview").Text == "Screenshot", "Mixed history shows image preview and localized home summary");
+        var historyRows = Element<StackPanel>("ClipboardHistoryListStack");
+        Check(historyRows.Children.Count == 0 && Element<TextBlock>("HomeClipboardPreview").Text == "Screenshot",
+            "Home summarizes clipboard history without building any preview rows");
+        SelectDashboardTab("clipboard");
+        Check(historyRows.Children.Count == 2, "Opening clipboard history builds mixed text and image rows");
         Check(Call("ClipboardImagePath", screenshot with { ImageFile = "../../escape.png" }) == null, "History cannot read images outside its directory");
         settings.SelectedTheme = "Midnight"; settings.LiquidGlass = true;
         Call("ApplyTheme", themes.Single(t => t.Key == "Midnight"));
@@ -382,6 +495,22 @@ internal static class Program
             gradient.Color = stop == "GradStop2" ? Color.FromArgb(156, 27, 30, 46) : Color.FromArgb(178, 17, 19, 28);
         }
         Snapshot("clipboard-text-and-screenshots", "ClipboardDashboardView");
+        SelectDashboardTab("home");
+        Check(historyRows.Children.Count == 0, "Leaving clipboard history releases its preview rows");
+        string photoPath = System.IO.Path.Combine(output, "background-decode-probe.png");
+        var photo = BitmapSource.Create(1024, 2048, 96, 96, PixelFormats.Bgr24, null, new byte[1024 * 2048 * 3], 1024 * 3);
+        System.IO.File.WriteAllBytes(photoPath, (byte[])encode.Invoke(null, [photo])!);
+        try
+        {
+            var loadPhoto = typeof(MainWindow).GetMethod("LoadIslandPhoto", BindingFlags.Static | BindingFlags.NonPublic)!;
+            var decoded = (BitmapSource)loadPhoto.Invoke(null, [photoPath])!;
+            Check(decoded.IsFrozen && decoded.PixelWidth == 768 && decoded.PixelHeight == 1536,
+                "Background photo is decoded at a bounded size without changing its aspect ratio");
+            var decode = typeof(MainWindow).GetMethod("DecodeLocalImage", BindingFlags.Static | BindingFlags.NonPublic)!;
+            var thumbnail = (BitmapSource)decode.Invoke(null, [photoPath, 480])!;
+            Check(thumbnail.PixelWidth == 240 && thumbnail.PixelHeight == 480, "Tall clipboard previews are bounded on both axes");
+        }
+        finally { System.IO.File.Delete(photoPath); }
         history[0] = screenshot with { CopiedAt = DateTime.Now.AddHours(-25) }; Call("PruneExpiredClipboardItems", true);
         Check(history.Count == 1 && !System.IO.File.Exists(System.IO.Path.Combine(images, imageFile)), "Expired screenshot removes both entry and image file");
 

@@ -39,7 +39,7 @@ public partial class MainWindow : Window
     private const double GameHudWidth = 480;
     private const double GameHudHeight = 64;
     private const double GameHudRadius = 24;
-    private enum IslandState { Compact, Hover, Expanded, Weather, Clipboard, Settings, Features }
+    private enum IslandState { Compact, Hover, Expanded, Weather, Clipboard, Settings, Section }
     private IslandState _currentState = IslandState.Compact;
 
     private enum ToastCategory { CapsLock, NumLock, Layout, Clipboard, DoNotDisturb, Messenger, AppNotification, Info }
@@ -127,7 +127,6 @@ public partial class MainWindow : Window
     private Forms.NotifyIcon? _trayIcon;
     private ulong _prevIdleTime, _prevKernelTime, _prevUserTime;
     private int _lastCpuUsage = 12;
-    private int _lastRamUsage;
     private int _lastGpuUsage = 18;
 
     private AppSettings _settings = new();
@@ -257,8 +256,6 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr hWnd);
     [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
     [DllImport("kernel32.dll", SetLastError = true)] private static extern bool GetSystemTimes(out FILETIME lpIdleTime, out FILETIME lpKernelTime, out FILETIME lpUserTime);
-    [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GlobalMemoryStatusEx([In, Out] MEMORYSTATUSEX lpBuffer);
 
     [StructLayout(LayoutKind.Sequential)] private struct RECT { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)]
@@ -267,14 +264,6 @@ public partial class MainWindow : Window
         public uint dwLowDateTime;
         public uint dwHighDateTime;
         public ulong ToUInt64() => ((ulong)dwHighDateTime << 32) | dwLowDateTime;
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
-    private class MEMORYSTATUSEX
-    {
-        public uint dwLength = (uint)Marshal.SizeOf(typeof(MEMORYSTATUSEX));
-        public uint dwMemoryLoad;
-        public ulong ullTotalPhys, ullAvailPhys, ullTotalPageFile, ullAvailPageFile, ullTotalVirtual, ullAvailVirtual, ullAvailExtendedVirtual;
     }
 
     #endregion
@@ -478,14 +467,11 @@ public partial class MainWindow : Window
         string fps = desktop ? $"{rate} FPS DWM" : rate == "—" ? "FPS —" : $"{rate} FPS";
         var visibility = _isGameModeActive ? Visibility.Visible : Visibility.Collapsed;
         string? tooltip = _isGameModeActive ? GameFpsStatus() : null;
-        UpdateIndicator(GamePageFpsText);
-        UpdateIndicator(WeatherFpsText);
-        UpdateIndicator(ClipboardFpsText);
+        UpdateIndicator(DashboardFpsText);
         UpdateIndicator(SettingsFpsText);
-        string fpsPrefix = _isGameModeActive ? fps + " · " : "";
+        string fpsPrefix = _isGameModeActive ? fps : "";
         string temperature = _gameFps?.CpuTemperatureC is >= 0 ? $" ({_gameFps.CpuTemperatureC}°C)" : "";
-        HoverSysText.Text = $"{fpsPrefix}CPU {_lastCpuUsage}%{temperature} · GPU {(_lastGpuUsage >= 0 ? _lastGpuUsage + "%" : "—")}";
-        HomeTelemetryText.Text = $"{fpsPrefix}CPU {_lastCpuUsage}%{temperature} · RAM {_lastRamUsage}%";
+        HoverSysText.Text = _isGameModeActive ? fpsPrefix + temperature : "";
 
         void UpdateIndicator(TextBlock indicator)
         {
@@ -597,7 +583,7 @@ public partial class MainWindow : Window
             DiscordCallChannelText.Text  = L(_discordChannelLabel);
             DiscordCallTimerText.Text    = $"{_discordCallSeconds / 60:D2}:{_discordCallSeconds % 60:D2}";
             DiscordVoicePulseDot.Opacity = (_discordCallSeconds % 2 == 0) ? 1.0 : 0.45;
-            DiscordCallBorder.Visibility = _currentState is IslandState.Settings or IslandState.Features ? Visibility.Collapsed : Visibility.Visible;
+            DiscordCallBorder.Visibility = _currentState is IslandState.Settings or IslandState.Section ? Visibility.Collapsed : Visibility.Visible;
         }
         else
         {
@@ -1154,7 +1140,7 @@ public partial class MainWindow : Window
         _trayIcon.DoubleClick += (_, _) =>
             Dispatcher.Invoke(() =>
             {
-                IslandBorder.Visibility = Visibility.Visible;
+                ShowIsland();
                 MorphToState(_currentState == IslandState.Compact ? IslandState.Expanded : IslandState.Compact);
             });
     }
@@ -1166,12 +1152,12 @@ public partial class MainWindow : Window
         menu.Items.Add(Tr("Expand / Collapse", "Развернуть / Свернуть", "Розгорнути / Згорнути", "Öffnen / Schließen", "Expandir / Contraer"), null, (_, _) =>
             Dispatcher.Invoke(() =>
             {
-                IslandBorder.Visibility = Visibility.Visible;
+                ShowIsland();
                 MorphToState(_currentState == IslandState.Compact ? IslandState.Expanded : IslandState.Compact);
             }));
 
         menu.Items.Add(Tr("Weather Dashboard", "Окно погоды", "Вікно погоди", "Wetter-Ansicht", "Panel del clima"), null, (_, _) =>
-            Dispatcher.Invoke(() => { IslandBorder.Visibility = Visibility.Visible; MorphToState(IslandState.Weather); }));
+            Dispatcher.Invoke(() => { ShowIsland(); MorphToState(IslandState.Weather); }));
 
         string dndLabel = _isDndActive
             ? Tr("🌙 Do Not Disturb: ON", "🌙 Не беспокоить: Вкл", "🌙 Не турбувати: Увімк", "🌙 Nicht stören: EIN", "🌙 No molestar: ON")
@@ -1180,7 +1166,7 @@ public partial class MainWindow : Window
             Dispatcher.Invoke(() => SetDoNotDisturbState(!_isDndActive, true)));
 
         menu.Items.Add(Tr("Settings", "Настройки", "Налаштування", "Einstellungen", "Ajustes"), null, (_, _) =>
-            Dispatcher.Invoke(() => { IslandBorder.Visibility = Visibility.Visible; MorphToState(IslandState.Settings); }));
+            Dispatcher.Invoke(() => { ShowIsland(); MorphToState(IslandState.Settings); }));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(Tr("Exit", "Выйти", "Вийти", "Beenden", "Salir"), null, (_, _) =>
             Dispatcher.Invoke(ShutdownApplication));
@@ -1265,6 +1251,7 @@ public partial class MainWindow : Window
     private void MorphToState(IslandState state)
     {
         if (_currentState == state) return;
+        if (_currentState == IslandState.Clipboard) ClipboardHistoryListStack.Children.Clear();
         _currentState = state;
         StartIslandFrames();
 
@@ -1274,7 +1261,10 @@ public partial class MainWindow : Window
         WeatherDashboardView.Visibility   = Visibility.Collapsed;
         ClipboardDashboardView.Visibility = Visibility.Collapsed;
         SettingsView.Visibility           = Visibility.Collapsed;
-        FeaturesView.Visibility           = Visibility.Collapsed;
+        DashboardSectionView.Visibility   = Visibility.Collapsed;
+        bool showNavigation = state is IslandState.Expanded or IslandState.Weather or IslandState.Clipboard or IslandState.Section;
+        DashboardHeader.Visibility = showNavigation ? Visibility.Visible : Visibility.Collapsed;
+        if (showNavigation) BuildDashboardNavigation();
 
         switch (state)
         {
@@ -1292,7 +1282,7 @@ public partial class MainWindow : Window
                 break;
 
             case IslandState.Expanded:
-                _targetW = 590; _targetH = 262; _targetR = 28;
+                _targetW = 620; _targetH = 262; _targetR = 28;
                 ExpandedView.Visibility = Visibility.Visible;
                 FadeInElement(ExpandedView);
                 break;
@@ -1317,10 +1307,10 @@ public partial class MainWindow : Window
                 FadeInElement(ClipboardDashboardView);
                 break;
 
-            case IslandState.Features:
-                _targetW = 740; _targetH = 540; _targetR = 30;
-                FeaturesView.Visibility = Visibility.Visible;
-                FadeInElement(FeaturesView);
+            case IslandState.Section:
+                _targetW = 620; _targetH = 485; _targetR = 28;
+                DashboardSectionView.Visibility = Visibility.Visible;
+                FadeInElement(DashboardSectionView);
                 break;
         }
 
@@ -1537,7 +1527,6 @@ public partial class MainWindow : Window
             GameHudCharacterHost.Content = CreateCharacterVector(characterKey, 20);
         HoverCharacterHost.Content       = CreateCharacterVector(characterKey, 28);
         ExpandedCharacterHost.Content    = CreateCharacterVector(characterKey, 26);
-        WeatherDashCharacterHost.Content = CreateCharacterVector(characterKey, 26);
         SettingsCharacterHost.Content    = CreateCharacterVector(characterKey, 26);
     }
 
@@ -1651,8 +1640,6 @@ public partial class MainWindow : Window
 
     private void ApplyLocalization()
     {
-        LblHomeHeader.Text       = Tr("Home", "Главная", "Головна", "Start", "Inicio");
-        BtnOpenSettingsText.Text = Tr("Settings", "Настройки", "Налаштування", "Optionen", "Ajustes");
         HoverSettingsText.Text   = Tr("Settings", "Настройки", "Налаштування", "Optionen", "Ajustes");
         LblSettingsTitle.Text    = Tr("Settings", "Настройки", "Налаштування", "Einstellungen", "Ajustes");
         BtnBackToHomeText.Text   = Tr("Home", "Главная", "Головна", "Start", "Inicio");
@@ -1680,7 +1667,6 @@ public partial class MainWindow : Window
         TxtQuickRecord.Text    = Tr("Record", "Запись экрана", "Запис екрана", "Aufnahme", "Grabar");
         TxtQuickCommand.Text   = Tr("Command", "Команда", "Команда", "Befehl", "Comando");
 
-        LblWeatherDashTitle.Text = Tr("Weather", "Погода", "Погода", "Wetter", "Clima");
         LblDashCityWord.Text     = Tr("City", "Город", "Місто", "Stadt", "Ciudad");
         Tile2WindCap.Text        = Tr("WIND", "ВЕТЕР", "ВІТЕР", "WIND", "VIENTO");
         Tile3HumCap.Text         = Tr("HUMIDITY", "ВЛАЖНОСТЬ", "ВОЛОГІСТЬ", "FEUCHTIGKEIT", "HUMEDAD");
@@ -1848,6 +1834,8 @@ public partial class MainWindow : Window
         PageBehavior.Visibility   = Visibility.Collapsed;
         PageActions.Visibility    = Visibility.Collapsed;
         PageAi.Visibility         = Visibility.Collapsed;
+        SettingsFeatureScroll.Visibility = Visibility.Collapsed;
+        if (targetPage != SettingsFeatureScroll) _settingsFeaturePage = null;
 
         targetPage.Visibility = Visibility.Visible;
         FadeInElement(targetPage);
@@ -1859,6 +1847,7 @@ public partial class MainWindow : Window
         NavBehaviorBtn.Background   = Brushes.Transparent;
         NavActionsBtn.Background    = Brushes.Transparent;
         NavAiBtn.Background         = Brushes.Transparent;
+        if (_activeSettingsNav != null) _activeSettingsNav.Background = Brushes.Transparent;
 
         _activeSettingsNav = activeNavBtn;
         activeNavBtn.SetResourceReference(Control.BackgroundProperty, "ThemeSelectionBrush");
@@ -2086,13 +2075,29 @@ public partial class MainWindow : Window
 
     private void CtxHideUp_Click(object sender, RoutedEventArgs e)
     {
+        e.Handled = true;
         MorphToState(IslandState.Compact);
         IslandBorder.Visibility = Visibility.Collapsed;
+        HiddenIslandHandle.Visibility = Visibility.Visible;
+        StopIslandFrames();
+    }
+
+    private void ShowIsland()
+    {
+        HiddenIslandHandle.Visibility = Visibility.Collapsed;
+        IslandBorder.Visibility = Visibility.Visible;
+        StartIslandFrames();
+    }
+
+    private void HiddenIslandHandle_Click(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        ShowIsland();
     }
 
     private async void CtxCheckUpdates_Click(object sender, RoutedEventArgs e)
     {
-        OpenFeaturePage("updates");
+        OpenSettingsFeaturePage("updates");
         e.Handled = true;
         await CheckForUpdatesAsync(_settings.UpdateRepository, automatic: false);
     }
@@ -2262,7 +2267,7 @@ public partial class MainWindow : Window
             int id = wParam.ToInt32();
             if (id == HOTKEY_CUSTOM_TOGGLE)
             {
-                IslandBorder.Visibility = Visibility.Visible;
+                ShowIsland();
                 MorphToState(_currentState == IslandState.Compact ? IslandState.Expanded : IslandState.Compact);
                 handled = true;
             }
@@ -2278,14 +2283,12 @@ public partial class MainWindow : Window
         string now = DateTime.Now.ToString("HH:mm");
         UpdateIdleContent();
         ExpandedClockText.Text    = now;
-        WeatherDashClockText.Text = now;
         SettingsClockText.Text    = now;
 
         _currentMeasuredFps = _renderedFramesCount;
         _renderedFramesCount = 0;
 
         _lastCpuUsage = GetCpuUsage();
-        _lastRamUsage = GetRamUsage();
 
         UpdateTelemetrySummaries();
 
@@ -2376,12 +2379,6 @@ public partial class MainWindow : Window
         _prevKernelTime = kernel.ToUInt64();
         _prevUserTime = user.ToUInt64();
         return totalDiff == 0 ? 0 : Math.Clamp((int)(100.0 * (totalDiff - idleDiff) / totalDiff), 0, 100);
-    }
-
-    private static int GetRamUsage()
-    {
-        var mem = new MEMORYSTATUSEX();
-        return GlobalMemoryStatusEx(mem) ? (int)mem.dwMemoryLoad : 0;
     }
 
     private void HomeMusicWidget_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -2623,8 +2620,9 @@ public partial class MainWindow : Window
         var dlg = new Microsoft.Win32.OpenFileDialog { Filter = "Images|*.png;*.jpg;*.jpeg;*.webp;*.bmp" };
         if (dlg.ShowDialog() == true)
         {
+            if (LoadIslandPhoto(dlg.FileName) is not { } photo) return;
             _settings.CustomPhotoPath = dlg.FileName;
-            CustomBgBrush.ImageSource = new BitmapImage(new Uri(dlg.FileName));
+            CustomBgBrush.ImageSource = photo;
             SaveSettings();
         }
     }
@@ -2806,10 +2804,7 @@ public partial class MainWindow : Window
         BuildThemesGrid();
         BuildCharactersGrid();
 
-        if (!string.IsNullOrEmpty(_settings.CustomPhotoPath) && File.Exists(_settings.CustomPhotoPath))
-            CustomBgBrush.ImageSource = new BitmapImage(new Uri(_settings.CustomPhotoPath));
-        else
-            CustomBgBrush.ImageSource = null;
+        CustomBgBrush.ImageSource = LoadIslandPhoto(_settings.CustomPhotoPath);
 
         ApplyExcludeFromCapture(_settings.ExcludeFromCapture);
         UpdateDiscordCallState();
@@ -2817,7 +2812,7 @@ public partial class MainWindow : Window
         ApplyScaleForCurrentState();
 
         ApplyFeatureAppearance();
-        BuildFeatureNavigation();
+        BuildDashboardNavigation();
 
         _isLoadingSettings = false;
     }

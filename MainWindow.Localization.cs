@@ -76,6 +76,7 @@ public partial class MainWindow
         SelectedLangLabel.Text = LanguageChoiceLabel(_settings.Language);
         BuildLanguageDropdown();
         foreach (var label in _localizedLabels) label.Key.Element.SetValue(label.Key.Property, L(label.Value));
+        System.Windows.Automation.AutomationProperties.SetName(HiddenIslandHandle, L("Показать островок"));
         LblExternalProgress.Text = L("Прогресс других программ справа");
         LblExternalProgressSub.Text = L("Отдельная капсула, не закрывающая часы и погоду");
         LblClipboardWatch.Text = L("Текст и скриншоты в буфере обмена");
@@ -84,8 +85,11 @@ public partial class MainWindow
         System.Windows.Automation.AutomationProperties.SetName(VolumeHudSlider, L("Громкость"));
         if (LevelHudBorder.Visibility == Visibility.Visible && VolumeHudSlider.Visibility == Visibility.Visible)
             ShowVolumeSnapshot(_displayedVolume);
-        RenderClipboardHistoryUi();
-        BuildFeatureNavigation();
-        if (_currentState == IslandState.Features) OpenFeaturePage(_featurePage);
+        if (_currentState == IslandState.Section) OpenFeaturePage(_featurePage);
+        else
+        {
+            BuildDashboardNavigation();
+            if (_currentState == IslandState.Settings && _settingsFeaturePage is { } page) BuildSettingsFeaturePage(page);
+        }
     }
 }

@@ -1,7 +1,10 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using DynamicIslandWin.Services;
 using Color = System.Windows.Media.Color;
 using ColorConverter = System.Windows.Media.ColorConverter;
 using Point = System.Windows.Point;
@@ -18,6 +21,43 @@ namespace DynamicIslandWin;
 public partial class MainWindow
 {
     private Button? _activeSettingsNav;
+
+    private static BitmapSource? LoadIslandPhoto(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+        try
+        {
+            return DecodeLocalImage(path, maxSide: 1536);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Load island background", ex);
+            return null;
+        }
+    }
+
+    private static BitmapSource DecodeLocalImage(string path, int maxSide)
+    {
+        int width = 0, height = 0;
+        if (maxSide > 0)
+        {
+            using var metadataStream = File.OpenRead(path);
+            var frame = BitmapDecoder.Create(metadataStream, BitmapCreateOptions.DelayCreation, BitmapCacheOption.None).Frames[0];
+            width = frame.PixelWidth;
+            height = frame.PixelHeight;
+        }
+
+        using var stream = File.OpenRead(path);
+        var image = new BitmapImage();
+        image.BeginInit();
+        image.StreamSource = stream;
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        if (width >= height && width > maxSide) image.DecodePixelWidth = maxSide;
+        else if (height > maxSide) image.DecodePixelHeight = maxSide;
+        image.EndInit();
+        image.Freeze();
+        return image;
+    }
 
     private double BackgroundOpacity => 1 - (double.IsFinite(_settings.BackgroundTransparency)
         ? Math.Clamp(_settings.BackgroundTransparency, 0, 90) : 0) / 100;

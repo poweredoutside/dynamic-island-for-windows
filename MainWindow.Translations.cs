@@ -242,9 +242,16 @@ LRCLIB · строк¦LRCLIB · lines¦LRCLIB · рядків¦LRCLIB · Zeilen�
 Музыка, встречи и дела — в одном месте¦Music, meetings and tasks in one place¦Музика, зустрічі й справи в одному місці¦Musik, Termine und Aufgaben an einem Ort¦Música, reuniones y tareas en un lugar
 Центр¦Hub¦Центр¦Zentrale¦Centro
 Настройки¦Settings¦Налаштування¦Einstellungen¦Ajustes
+Главная¦Home¦Головна¦Start¦Inicio
+Буфер обмена¦Clipboard¦Буфер обміну¦Zwischenablage¦Portapapeles
+Система¦System¦Система¦System¦Sistema
+Таймеры¦Timers¦Таймери¦Timer¦Temporizadores
+Чат¦Chat¦Чат¦Chat¦Chat
+Свернуть¦Collapse¦Згорнути¦Einklappen¦Contraer
 Своя тема · импорт / экспорт¦Custom theme · import / export¦Власна тема · імпорт / експорт¦Eigenes Thema · Import / Export¦Tema propio · importar / exportar
 Тяните правый / нижний край · ПКМ — закончить¦Drag right / bottom edge · right-click to finish¦Тягніть правий / нижній край · ПКМ — завершити¦Rechten / unteren Rand ziehen · Rechtsklick zum Beenden¦Arrastra borde derecho / inferior · clic derecho para terminar
 Спрятать островок¦Hide island¦Приховати острівець¦Insel ausblenden¦Ocultar isla
+Показать островок¦Show island¦Показати острівець¦Insel anzeigen¦Mostrar isla
 Выровнять по центру¦Align to center¦Вирівняти по центру¦Zentrieren¦Centrar
 Проверить обновления¦Check for updates¦Перевірити оновлення¦Nach Updates suchen¦Buscar actualizaciones
 Игровой режим¦Game mode¦Ігровий режим¦Spielmodus¦Modo juego

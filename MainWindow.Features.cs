@@ -55,7 +55,7 @@ public partial class MainWindow
         public bool AutoCheckUpdates { get; set; } = true;
         public double GeminiGain { get; set; } = .8;
         public List<UserTheme> CustomThemes { get; set; } = [];
-        public List<string> TabOrder { get; set; } = ["home", "system", "calendar", "timers", "music", "chat"];
+        public List<string> TabOrder { get; set; } = [];
         public List<string> HiddenTabs { get; set; } = [];
         public List<string> ActionOrder { get; set; } = ["Region", "Full", "Translate", "Record", "Command", "Dnd"];
         public List<ScheduledTimer> Timers { get; set; } = [];
@@ -102,12 +102,11 @@ public partial class MainWindow
 
     private void InitializeFeatures()
     {
-        _settings.TabOrder ??= ["home", "system", "calendar", "timers", "music", "chat"];
+        _settings.TabOrder ??= [];
         _settings.HiddenTabs ??= []; _settings.ActionOrder ??= []; _settings.Timers ??= []; _settings.DeliveredReminders ??= [];
         ApplyFeatureAppearance();
         ApplyTheme(_themes.FirstOrDefault(t => t.Key == _settings.SelectedTheme) ?? _themes[0]);
         ConfigureLensGlass();
-        BuildFeatureNavigation();
         IslandBorder.LostMouseCapture += (_, _) => { _isClickCandidate = false; if (_bodyDragging) { _bodyDragging = false; RememberIslandPlacement(); SaveSettings(); } };
         _settings.VolumeIslandHud ??= _settings.LevelHud;
         _volumeIsland = new VolumeIslandService(_settings.VolumeIslandHud == true);
@@ -126,7 +125,7 @@ public partial class MainWindow
         else if (_settings.LastSeenVersion != "1.1.9")
         {
             _settings.OnboardingComplete = true;
-            FeatureNotice("OC - Dynamic Island 1.1.9 · нажмите, чтобы увидеть новинки", () => OpenFeaturePage("news"));
+            FeatureNotice("OC - Dynamic Island 1.1.9 · нажмите, чтобы увидеть новинки", () => OpenSettingsFeaturePage("updates"));
             _settings.LastSeenVersion = "1.1.9"; SaveSettings();
         }
     }
@@ -186,7 +185,7 @@ public partial class MainWindow
             _desktopFps.Poll();
             UpdateGameHudValues();
         }
-        if (_currentState == IslandState.Features && _featurePage == "system") RefreshGameMetricsControls();
+        if (_currentState == IslandState.Section && _featurePage == "system") RefreshGameMetricsControls();
         if (_settings.AutoCheckUpdates && !_updateBusy && DateTime.UtcNow >= _nextUpdateCheck)
             _ = CheckForUpdatesAsync(_settings.UpdateRepository, automatic: true);
         if (NeedsIslandFrames()) StartIslandFrames();
@@ -269,7 +268,7 @@ public partial class MainWindow
     private async Task ScanFeaturesAsync()
     {
         bool readCalendar = DateTime.UtcNow >= _nextCalendarRead;
-        bool readGpu = _isGameModeActive || _currentState == IslandState.Expanded || (_currentState == IslandState.Features && _featurePage == "system");
+        bool readGpu = _isGameModeActive || _currentState == IslandState.Expanded || (_currentState == IslandState.Section && _featurePage == "system");
         if (readCalendar) _nextCalendarRead = DateTime.UtcNow.AddMinutes(1);
         try
         {

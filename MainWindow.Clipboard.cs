@@ -146,14 +146,13 @@ public partial class MainWindow
         var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var stream = new MemoryStream(); encoder.Save(stream); return stream.ToArray();
     }
-    private BitmapSource? LoadClipboardImage(ClipboardHistoryItem item, int decodeWidth = 0)
+    private BitmapSource? LoadClipboardImage(ClipboardHistoryItem item, int maxSide = 0)
     {
         try
         {
             string? path = ClipboardImagePath(item);
             if (path == null || !File.Exists(path)) return null;
-            var image = new BitmapImage(); image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad;
-            image.DecodePixelWidth = decodeWidth; image.UriSource = new Uri(path); image.EndInit(); image.Freeze(); return image;
+            return DecodeLocalImage(path, maxSide);
         }
         catch { return null; }
     }
@@ -180,6 +179,7 @@ public partial class MainWindow
         string title = Tr("Clipboard", "Буфер обмена", "Буфер обміну", "Zwischenablage", "Portapapeles");
         LblClipboardHeader.Text = _clipboardHistory.Count > 0 ? $"{title} ({_clipboardHistory.Count})" : title;
         HomeClipboardPreview.Text = _clipboardHistory.Count > 0 ? ClipboardPreview(_clipboardHistory[0]) : ClipboardEmptyHint;
+        if (_currentState != IslandState.Clipboard) return;
         ClipboardHistoryListStack.Children.Clear();
         ClipboardEmptyStateText.Visibility = _clipboardHistory.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         foreach (var item in _clipboardHistory)

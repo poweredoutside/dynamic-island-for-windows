@@ -230,15 +230,22 @@ internal static class Program
         Check(settings.SelectedTheme == "User: " + theme.Name, "Custom theme restored before UI initialization");
         var root = (FrameworkElement)window.Content;
         string directory = System.IO.Path.GetFullPath(args.FirstOrDefault() ?? "artifacts/feature-checks-1.1.5"); System.IO.Directory.CreateDirectory(directory);
-        void Render(string name)
+        void Render(string name, bool settingsPage)
         {
             var island = Element<Border>("IslandBorder"); island.Width = 740; island.Height = 540; island.RenderTransform = Transform.Identity;
-            Element<FrameworkElement>("FeaturesView").BeginAnimation(UIElement.OpacityProperty, null); Element<FrameworkElement>("FeaturesView").Opacity = 1;
+            var view = Element<FrameworkElement>(settingsPage ? "SettingsView" : "DashboardSectionView");
+            view.BeginAnimation(UIElement.OpacityProperty, null); view.Opacity = 1;
+            if (settingsPage)
+            {
+                var section = Element<FrameworkElement>("SettingsFeatureScroll");
+                section.BeginAnimation(UIElement.OpacityProperty, null); section.Opacity = 1;
+            }
             root.Measure(new Size(1360, 700)); root.Arrange(new Rect(0, 0, 1360, 700)); root.UpdateLayout();
             var visual = new DrawingVisual(); using (var drawing = visual.RenderOpen()) drawing.DrawRectangle(new VisualBrush(island), null, new Rect(0, 0, 740, 540));
             var bitmap = new RenderTargetBitmap(740, 540, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
             var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = System.IO.File.Create(System.IO.Path.Combine(directory, name + ".png")); encoder.Save(file);
-            Check(Element<StackPanel>("FeatureContent").ActualWidth is > 400 and <= 542, name + " content fits the viewport");
+            double contentWidth = Element<StackPanel>(settingsPage ? "SettingsFeatureContent" : "DashboardSectionContent").ActualWidth;
+            Check(contentWidth > 400 && contentWidth <= (settingsPage ? 542 : 700), name + " content fits the viewport");
         }
         foreach (string palette in new[] { "Midnight", "Snow" })
         {
@@ -246,8 +253,12 @@ internal static class Program
             settings.SelectedTheme = palette; Call("ApplyTheme", themes.Single(t => t.Key == palette));
             var frame = new DispatcherFrame(); var settle = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
             settle.Tick += (_, _) => { settle.Stop(); frame.Continue = false; }; settle.Start(); Dispatcher.PushFrame(frame);
-            foreach (string page in new[] { "layout", "themes", "calendar", "timers", "music", "chat", "diagnostics", "updates", "news", "welcome" })
-            { Call("OpenFeaturePage", page); Render(palette + "-" + page); }
+            foreach (string page in new[] { "layout", "themes", "calendar", "timers", "music", "chat", "diagnostics", "updates", "welcome" })
+            {
+                bool settingsPage = page is "layout" or "themes" or "diagnostics" or "updates";
+                Call(settingsPage ? "OpenSettingsFeaturePage" : "OpenFeaturePage", page);
+                Render(palette + "-" + page, settingsPage);
+            }
         }
         settings.CompactWidth = 300; settings.CompactHeight = 70; settings.CornerRounding = 0;
         Call("ApplyFeatureAppearance"); Call("UpdateIdleContent");

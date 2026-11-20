@@ -1,19 +1,12 @@
-using System.Globalization;
-using System.IO;
-using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
-using System.Windows.Media.Imaging;
-using DynamicIslandWin.Services;
 using Color = System.Windows.Media.Color;
 using Brushes = System.Windows.Media.Brushes;
 using Point = System.Windows.Point;
 using Path = System.Windows.Shapes.Path;
 using Ellipse = System.Windows.Shapes.Ellipse;
 using Brush = System.Windows.Media.Brush;
-using FontFamily = System.Windows.Media.FontFamily;
 
 namespace DynamicIslandWin;
 
@@ -24,8 +17,6 @@ public partial class MainWindow
     private bool _attractionInitialized;
     private double _attractionX, _attractionY, _attractionVx, _attractionVy;
     private double _attractionTargetX, _attractionTargetY;
-    private Color _albumAccent = Color.FromRgb(110, 231, 213);
-    private bool _lyricsFetching;
 
     private void RegisterLegacyMascot(Canvas canvas, string key)
     {
@@ -163,83 +154,4 @@ public partial class MainWindow
     private System.Drawing.Point _lastCursor;
     private DateTime _lastCursorMovement = DateTime.UtcNow;
 
-    private void UpdateLyricsFrame()
-    {
-        string track = _currentMediaTitle + "\n" + _currentMediaArtist;
-        if (_isMediaPlaying && _lyricsTrack != track && !_lyricsFetching)
-        { _lyrics = []; _lyricIndex = -1; _lyricsTrack = track; if (_settings.OnlineLyrics) _ = FetchLyricsAsync(track); }
-        bool show = _settings.Karaoke && _isMediaPlaying && _lyrics.Count > 0 && _currentState == IslandState.Compact && !_isGameModeActive;
-        KaraokePanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        if (!show)
-        {
-            if (_currentState == IslandState.Compact && !_isGameModeActive)
-            { _targetW = _settings.CompactWidth; _targetH = _settings.CompactHeight; _targetR = Math.Max(4, _settings.CompactHeight * .5 * _settings.CornerRounding); }
-            return;
-        }
-        try
-        {
-            var session = _mediaManager?.GetCurrentSession(); if (session == null) return;
-            var timeline = session.GetTimelineProperties();
-            double position = timeline.Position.TotalSeconds + (DateTimeOffset.Now - timeline.LastUpdatedTime).TotalSeconds;
-            int index = LyricsReader.At(_lyrics, position);
-            if (index < 0) { KaraokePanel.Visibility = Visibility.Collapsed; return; }
-            if (index != _lyricIndex)
-            {
-                _lyricIndex = index;
-                KaraokeOldLine.Text = KaraokeLine.Text;
-                KaraokeLine.Text = _lyrics[index].Text;
-                var formatted = new FormattedText(KaraokeLine.Text, CultureInfo.CurrentCulture, System.Windows.FlowDirection.LeftToRight, new Typeface(IslandBorder.GetValue(System.Windows.Documents.TextElement.FontFamilyProperty) as FontFamily ?? new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.SemiBold, FontStretches.Normal), 15, Brushes.White, VisualTreeHelper.GetDpi(this).PixelsPerDip);
-                _targetW = Math.Clamp(formatted.WidthIncludingTrailingWhitespace + 40, _settings.CompactWidth, Math.Min(1100, SystemParameters.WorkArea.Width / .9 - 40));
-                _targetH = Math.Max(42, _settings.CompactHeight);
-                AnimateLyricLine(KaraokeLine, 12, 0, 0, 1); AnimateLyricLine(KaraokeOldLine, 0, -12, 1, 0);
-            }
-            double end = index + 1 < _lyrics.Count ? _lyrics[index + 1].Seconds : _lyrics[index].Seconds + 5;
-            double progress = Math.Clamp((position - _lyrics[index].Seconds) / Math.Max(.1, end - _lyrics[index].Seconds), 0, 1);
-            var brush = new LinearGradientBrush { StartPoint = new Point(0, .5), EndPoint = new Point(1, .5) };
-            var textColor = ((SolidColorBrush)FindResource("ThemeTextBrush")).Color;
-            var muted = ((SolidColorBrush)FindResource("ThemeMutedBrush")).Color;
-            brush.GradientStops.Add(new(textColor, 0)); brush.GradientStops.Add(new(textColor, Math.Max(0, progress - .04)));
-            brush.GradientStops.Add(new(_albumAccent, progress)); brush.GradientStops.Add(new(muted, Math.Min(1, progress + .025))); brush.GradientStops.Add(new(muted, 1));
-            KaraokeLine.Foreground = brush;
-        }
-        catch (Exception ex) { AppLog.Error("Karaoke timeline", ex); KaraokePanel.Visibility = Visibility.Collapsed; }
-    }
-    private static void AnimateLyricLine(TextBlock line, double from, double to, double opacityFrom, double opacityTo)
-    {
-        line.RenderTransform = new TranslateTransform();
-        ((TranslateTransform)line.RenderTransform).BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(from, to, TimeSpan.FromMilliseconds(280)) { EasingFunction = new BackEase { Amplitude = .25, EasingMode = EasingMode.EaseOut } });
-        line.BeginAnimation(OpacityProperty, new DoubleAnimation(opacityFrom, opacityTo, TimeSpan.FromMilliseconds(240)));
-    }
-    private async Task FetchLyricsAsync(string track)
-    {
-        _lyricsFetching = true;
-        try
-        {
-            var session = _mediaManager?.GetCurrentSession(); if (session == null) return;
-            var props = await session.TryGetMediaPropertiesAsync();
-            var timeline = session.GetTimelineProperties();
-            string url = "https://lrclib.net/api/get?track_name=" + Uri.EscapeDataString(props.Title) + "&artist_name=" + Uri.EscapeDataString(props.Artist)
-                + "&album_name=" + Uri.EscapeDataString(props.AlbumTitle ?? "") + "&duration=" + Math.Round((timeline.EndTime - timeline.StartTime).TotalSeconds).ToString(CultureInfo.InvariantCulture);
-            using var response = await _http.GetAsync(url);
-            if (!response.IsSuccessStatusCode) { _lyricsStatus = "Синхронизированный текст не найден. Можно импортировать LRC."; return; }
-            if (response.Content.Headers.ContentLength > 1_000_000) return;
-            string body = await response.Content.ReadAsStringAsync(); if (body.Length > 1_000_000) return;
-            using var data = JsonDocument.Parse(body);
-            if (_lyricsTrack != track) return;
-            if (data.RootElement.TryGetProperty("syncedLyrics", out var lyrics) && lyrics.ValueKind == JsonValueKind.String)
-            { _lyrics = LyricsReader.Parse(lyrics.GetString()!); _lyricIndex = -1; _lyricsStatus = $"LRCLIB · строк: {_lyrics.Count}"; }
-            if (props.Thumbnail != null)
-            {
-                using var stream = await props.Thumbnail.OpenReadAsync();
-                using var managed = stream.AsStreamForRead();
-                var image = new BitmapImage(); image.BeginInit(); image.CacheOption = BitmapCacheOption.OnLoad; image.DecodePixelWidth = 24; image.StreamSource = managed; image.EndInit();
-                var converted = new FormatConvertedBitmap(image, PixelFormats.Bgra32, null, 0);
-                int stride = converted.PixelWidth * 4; var pixels = new byte[stride * converted.PixelHeight]; converted.CopyPixels(pixels, stride, 0);
-                long r = 0, g = 0, b = 0; for (int i = 0; i < pixels.Length; i += 4) { b += pixels[i]; g += pixels[i + 1]; r += pixels[i + 2]; }
-                int count = pixels.Length / 4; if (count > 0) _albumAccent = Color.FromRgb((byte)Math.Clamp(r / count + 45, 0, 255), (byte)Math.Clamp(g / count + 45, 0, 255), (byte)Math.Clamp(b / count + 45, 0, 255));
-            }
-        }
-        catch (Exception ex) { AppLog.Error("Fetch lyrics", ex); _lyricsStatus = "Не удалось получить текст. Проверьте интернет или импортируйте LRC."; }
-        finally { _lyricsFetching = false; }
-    }
 }

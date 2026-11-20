@@ -66,40 +66,6 @@ public static class CalendarReader
     }
 }
 
-public sealed record LyricLine(double Seconds, string Text);
-public static class LyricsReader
-{
-    private static readonly Regex Timestamp = new(@"\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]", RegexOptions.CultureInvariant);
-    public static IReadOnlyList<LyricLine> Parse(string lrc)
-    {
-        if (lrc.Length > 500_000) throw new FormatException("Текст слишком большой.");
-        double offset = 0;
-        var offsetMatch = Regex.Match(lrc, @"\[offset:([+-]?\d+)\]", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
-        if (offsetMatch.Success) offset = double.Parse(offsetMatch.Groups[1].Value, CultureInfo.InvariantCulture) / 1000;
-        var result = new List<LyricLine>();
-        foreach (string line in lrc.Split('\n'))
-        {
-            var matches = Timestamp.Matches(line);
-            if (matches.Count == 0) continue;
-            string text = Timestamp.Replace(line, "").Trim();
-            foreach (Match m in matches)
-            {
-                int seconds = int.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
-                if (seconds >= 60) continue;
-                double fraction = m.Groups[3].Success ? double.Parse("0." + m.Groups[3].Value, CultureInfo.InvariantCulture) : 0;
-                result.Add(new LyricLine(Math.Max(0, int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture) * 60 + seconds + fraction + offset), text));
-            }
-        }
-        return result.OrderBy(l => l.Seconds).ToArray();
-    }
-    public static int At(IReadOnlyList<LyricLine> lines, double seconds)
-    {
-        int low = 0, high = lines.Count - 1, found = -1;
-        while (low <= high) { int mid = (low + high) / 2; if (lines[mid].Seconds <= seconds) { found = mid; low = mid + 1; } else high = mid - 1; }
-        return found;
-    }
-}
-
 public static class WindowSignals
 {
     private static readonly Regex Percentage = new(@"(?<!\d)(100|[1-9]?\d)(?:[.,]\d+)?\s*%", RegexOptions.CultureInvariant);

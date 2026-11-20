@@ -19,6 +19,19 @@ internal static class Program
     {
         int checks = 0;
         void Check(bool result, string reason) { if (!result) throw new InvalidOperationException(reason); checks++; }
+        var timedLyrics = LyricsService.Parse("[offset:-500]\r\n[00:01.00][00:03.500]First\r\n[00:05.20]Second\r\n[00:08.00]\r\n[00:99.10]Invalid");
+        Check(timedLyrics.Length == 4 && LyricsService.LineAt(timedLyrics, .49) == "" && LyricsService.LineAt(timedLyrics, .5) == "First",
+            "LRC supports offsets, repeated timestamps and CRLF");
+        Check(LyricsService.LineAt(timedLyrics, 4.7) == "Second" && LyricsService.LineAt(timedLyrics, 7.5) == ""
+            && LyricsService.LineAt(timedLyrics, 3) == "First", "LRC handles seeks and instrumental breaks");
+        var lookup = LyricsService.LookupUri(new("A & B", "Artist", "private-player-id"), "", 0);
+        Check(lookup.Host == "lrclib.net" && lookup.Query.Contains("track_name=A%20%26%20B") && !lookup.Query.Contains("private-player-id")
+            && !lookup.Query.Contains("duration"), "Lyrics lookup only sends encoded media metadata and skips unavailable duration");
+        using (var client = new System.Net.Http.HttpClient(new LyricsResponseHandler()))
+        {
+            var found = LyricsService.FindAsync(client, new("Track", "Artist", ""), "", 180, CancellationToken.None).GetAwaiter().GetResult();
+            Check(found.Length == 1 && found[0].Text == "Synced line", "LRCLIB lookup reads the synchronized response");
+        }
         if (args.Contains("--volume-events")) return CheckVolumeEvents();
         if (args.Contains("--probe-desktop-fps"))
         {
@@ -139,9 +152,6 @@ internal static class Program
         Check(CalendarReader.FindCall("https://name@zoom.us/j/123") == null, "Call URL userinfo rejected");
         Check(CalendarReader.FindCall("https://us02web.zoom.us/j/123") != null, "Legitimate Zoom regional host accepted");
         Check(CalendarReader.Read(calendar, DateTimeOffset.Parse("2026-12-30T00:00:00Z")).Count == 0, "Expired meetings omitted");
-        var lyrics = LyricsReader.Parse("[offset:-500]\n[00:01.00][00:03.500]Первая строка\n[00:05.20]Вторая\n[00:99.10]bad");
-        Check(lyrics.Count == 3 && Math.Abs(lyrics[0].Seconds - .5) < .001, "LRC handles multiple timestamps and offset");
-        Check(LyricsReader.At(lyrics, .4) == -1 && LyricsReader.At(lyrics, .5) == 0 && LyricsReader.At(lyrics, 4) == 1, "Lyrics seek boundaries");
         Check(WindowSignals.Progress("Copying (42%)") == 42 && WindowSignals.Progress("archive — 100 %") == 100, "Window job progress");
         Check(WindowSignals.Progress("101%") == null && WindowSignals.Progress("no progress") == null, "Invalid job percentage rejected");
         Check(WindowSignals.UnreadCount("(12) Telegram") == 12 && WindowSignals.UnreadCount("exDesktop [3]") == 3 && WindowSignals.UnreadCount("Telegram 2026") == 0, "Unread counter avoids ordinary numbers");
@@ -348,5 +358,18 @@ internal static class Program
         string path = GitHubUpdateService.DownloadAsync(release, new Progress<double>(), timeout.Token).GetAwaiter().GetResult();
         Console.WriteLine($"PASS: public latest release {release.Version}, installer {release.InstallerName}, real download, SHA-256 and publisher signature verified; {new System.IO.FileInfo(path).Length} bytes.");
         return 0;
+    }
+}
+
+internal sealed class LyricsResponseHandler : System.Net.Http.HttpMessageHandler
+{
+    protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        if (!request.Headers.UserAgent.ToString().StartsWith("OC-DynamicIsland/"))
+            throw new InvalidOperationException("LRCLIB client must be identified");
+        return Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
+        {
+            Content = new System.Net.Http.StringContent(JsonSerializer.Serialize(new { syncedLyrics = "[00:01.50]Synced line" }))
+        });
     }
 }

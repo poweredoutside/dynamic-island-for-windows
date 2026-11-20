@@ -42,7 +42,7 @@ public partial class MainWindow
     {
         if (!AdditionalTranslations.TryGetValue(source, out var words))
         {
-            foreach (string prefix in new[] { "Версия приложения · ", "Доступна версия ", "Загрузка · ", "Загружено строк: ", "LRCLIB · строк: " })
+            foreach (string prefix in new[] { "Версия приложения · ", "Доступна версия ", "Загрузка · " })
                 if (source.StartsWith(prefix, StringComparison.Ordinal))
                 {
                     string key = prefix.TrimEnd(' ', ':', '·');

@@ -78,10 +78,6 @@ public partial class MainWindow
     private bool _updatingVolumeSlider, _manualVolumeOpen;
     private int? _lastBrightness;
     private IReadOnlyList<CalendarMeeting> _meetings = [];
-    private IReadOnlyList<LyricLine> _lyrics = [];
-    private string _lyricsTrack = "", _lyricsStatus = "Выберите LRC или включите поиск текста в сети.";
-    private string _currentMediaArtist = "";
-    private int _lyricIndex = -1;
     private Action? _featureNoticeAction;
     private DateTime _featureNoticeUntil;
     private readonly Dictionary<IntPtr, int> _unreadCounts = [];
@@ -147,6 +143,7 @@ public partial class MainWindow
         if (_volumeIsland != null) { _volumeIsland.Changed -= VolumeChanged; _volumeIsland.Dispose(); }
         StopGameMetrics();
         _updateCancellation?.Cancel();
+        CancelLyricsSearch();
         if (_voice != null) _ = _voice.DisposeAsync();
     }
 
@@ -163,8 +160,7 @@ public partial class MainWindow
         foreach (string key in _settings.ActionOrder.AsEnumerable().Reverse())
             if (FindName("BtnQuick" + key) is UIElement element && HomeQuickActionsBar.Children.Contains(element))
             { HomeQuickActionsBar.Children.Remove(element); HomeQuickActionsBar.Children.Insert(0, element); }
-        if (_currentState == IslandState.Compact && !_isGameModeActive)
-        { _targetW = _settings.CompactWidth; _targetH = _settings.CompactHeight; _targetR = Math.Max(4, _targetH * .5 * _settings.CornerRounding); }
+        UpdateCompactContent();
         StartIslandFrames();
     }
 
@@ -178,7 +174,7 @@ public partial class MainWindow
         else if (DateTime.UtcNow > _featureNoticeUntil)
         { LevelHudBorder.Visibility = Visibility.Collapsed; _manualVolumeOpen = false; }
         DrainFeatureNotices();
-        UpdateIdleContent(); UpdateLyricsFrame(); UpdateCursorAppearance();
+        UpdateIdleContent(); UpdateCompactLyrics(); UpdateCursorAppearance();
         if (_isGameModeActive)
         {
             UpdateFpsTarget();
@@ -218,13 +214,29 @@ public partial class MainWindow
         string format = _settings.Clock12Hour ? (_settings.ClockSeconds ? "h:mm:ss tt" : "h:mm tt") : (_settings.ClockSeconds ? "HH:mm:ss" : "HH:mm");
         CompactClockText.Text = _settings.IdleCenter switch
         { "date" => DateTime.Now.ToString("dd MMM"), "both" => DateTime.Now.ToString(format + " · dd MMM"), _ => DateTime.Now.ToString(format) };
-        CompactWeatherPanel.Visibility = _settings.IdleRight == "weather" ? Visibility.Visible : Visibility.Collapsed;
-        CompactBatteryText.Visibility = _settings.IdleRight == "battery" ? Visibility.Visible : Visibility.Collapsed;
         var power = System.Windows.Forms.SystemInformation.PowerStatus;
         CompactBatteryText.Text = power.BatteryLifePercent is >= 0 and <= 1 ? $"{power.BatteryLifePercent:P0}" : "AC";
+    }
+
+    private void UpdateCompactContent()
+    {
+        bool showTrack = _isMediaPlaying && !_isGameModeActive && !_manualResize && !string.IsNullOrWhiteSpace(_currentMediaTitle);
+        CompactTrackText.Text = showTrack ? _currentMediaTitle.Replace('\r', ' ').Replace('\n', ' ') : "";
+        CompactTrackText.Visibility = showTrack ? Visibility.Visible : Visibility.Collapsed;
+        string lyric = showTrack && _settings.Karaoke ? CurrentLyricLine() : "";
+        CompactLyricsText.Text = lyric;
+        CompactLyricsText.Visibility = lyric.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        CompactClockText.Visibility = showTrack ? Visibility.Collapsed : Visibility.Visible;
+        CompactWeatherPanel.Visibility = !showTrack && _settings.IdleRight == "weather" ? Visibility.Visible : Visibility.Collapsed;
+        CompactBatteryText.Visibility = !showTrack && _settings.IdleRight == "battery" ? Visibility.Visible : Visibility.Collapsed;
         CompactCharacterHost.Visibility = _settings.SelectedCharacter == "None" ? Visibility.Collapsed : Visibility.Visible;
-        if (_currentState == IslandState.Compact && !_isGameModeActive && !_settings.Karaoke)
-        { _targetW = _settings.CompactWidth; _targetH = _settings.CompactHeight; _targetR = Math.Max(4, _targetH * .5 * _settings.CornerRounding); }
+        if (_currentState == IslandState.Compact && !_isGameModeActive)
+        {
+            _targetW = showTrack ? Math.Max(360, _settings.CompactWidth) : _settings.CompactWidth;
+            _targetH = lyric.Length > 0 ? Math.Max(50, _settings.CompactHeight) : _settings.CompactHeight;
+            _targetR = Math.Max(4, _targetH * .5 * _settings.CornerRounding);
+            if (NeedsIslandFrames()) StartIslandFrames();
+        }
     }
 
     private void UpdateCursorAppearance()
@@ -440,6 +452,7 @@ public partial class MainWindow
         if (_isGameModeActive) { TglGameModeHud.IsChecked = false; ApplyGameModeState(false, false); }
         _manualResize = !_manualResize;
         MorphToState(IslandState.Compact);
+        UpdateCompactContent();
         ResizeWidthThumb.Visibility = ResizeHeightThumb.Visibility = _manualResize ? Visibility.Visible : Visibility.Collapsed;
         ResizeHint.Visibility = _manualResize ? Visibility.Visible : Visibility.Collapsed;
     }

@@ -38,6 +38,72 @@ internal static class Program
         Check(System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>(System.Text.Json.JsonSerializer.Serialize(settings))!.LensGlass,
             "Experimental glass choice survives settings serialization");
         settings.LensGlass = false; settings.ExcludeFromCapture = true; Call("ConfigureLensGlass");
+        var track = Element<TextBlock>("CompactTrackText");
+        var logo = Element<ContentControl>("CompactCharacterHost");
+        settings.SelectedCharacter = "Fox";
+        Call("UpdateCharacterVectors", "Fox");
+        var selectedLogo = logo.Content;
+        settings.IdleRight = "weather";
+        string longTrack = "Kick A Door, я роняю двери без стука (Gucci) — " + new string('X', 100);
+        Call("ApplyMediaState", true, longTrack, "Artist", "player");
+        Check(track.Text == longTrack && track.TextTrimming == TextTrimming.CharacterEllipsis
+            && track.Visibility == Visibility.Visible && logo.Visibility == Visibility.Visible && ReferenceEquals(logo.Content, selectedLogo)
+            && Element<TextBlock>("CompactClockText").Visibility == Visibility.Collapsed
+            && Element<StackPanel>("CompactWeatherPanel").Visibility == Visibility.Collapsed && Field<double>("_targetW") >= 360,
+            "Playing a track preserves the selected character and gives the title its own space without overlapping the clock or weather");
+        Call("UpdateIdleContent");
+        Check(Element<TextBlock>("CompactClockText").Visibility == Visibility.Collapsed
+            && Element<StackPanel>("CompactWeatherPanel").Visibility == Visibility.Collapsed,
+            "Clock and weather refresh does not reveal them over a playing track");
+        Call("ApplyMediaState", true, "Next track", "Artist", "player");
+        Check(track.Text == "Next track", "Compact title updates on a track change");
+        var lyrics = Element<TextBlock>("CompactLyricsText");
+        var lyricsService = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.LyricsService")!;
+        var currentTrack = Activator.CreateInstance(lyricsService.GetNestedType("Track", BindingFlags.NonPublic)!, "Next track", "Artist", "player")!;
+        Call("UpdateLyricsTrack", currentTrack, 2d, "", 180d);
+        Set("_importedLyricsTrack", currentTrack);
+        Set("_importedLyrics", lyricsService.GetMethod("Parse", BindingFlags.Static | BindingFlags.NonPublic)!
+            .Invoke(null, ["[00:00]First line\n[00:01.50]Current line\n[00:10]Later"]));
+        Call("UpdateCompactContent");
+        Check(lyrics.Visibility == Visibility.Collapsed && !settings.OnlineLyrics, "Lyric display and online search are both opt-in");
+        settings.Karaoke = true;
+        Call("UpdateCompactContent");
+        Check(lyrics.Visibility == Visibility.Visible && lyrics.Text == "Current line" && track.Text == "Next track"
+            && ReferenceEquals(logo.Content, selectedLogo) && Field<double>("_targetH") >= 50,
+            "A local LRC can show the synchronized line below the title beside the chosen character, without online search");
+        Call("UpdateLyricsTrack", currentTrack, 0d, "", 180d);
+        Call("UpdateCompactLyrics");
+        Check(lyrics.Text == "First line", "Skipping backward restores the earlier lyric");
+        var otherTrack = Activator.CreateInstance(lyricsService.GetNestedType("Track", BindingFlags.NonPublic)!, "Other track", "Artist", "player")!;
+        Call("UpdateLyricsTrack", otherTrack, 2d, "", 180d);
+        Call("ApplyMediaState", true, "Other track", "Artist", "player");
+        Check(lyrics.Visibility == Visibility.Collapsed && lyrics.Text == "" && track.Text == "Other track",
+            "A different track never displays the previous track's imported lyrics");
+        Call("UpdateLyricsTrack", currentTrack, 2d, "", 180d);
+        Call("ApplyMediaState", true, "Next track", "Artist", "player");
+        Check(lyrics.Text == "Current line", "Returning to the imported track restores its lyrics");
+        Set("_isGameModeActive", true);
+        Call("UpdateCompactContent");
+        Check(track.Visibility == Visibility.Collapsed && lyrics.Visibility == Visibility.Collapsed, "Game HUD takes priority over the compact track and lyrics");
+        Set("_isGameModeActive", false);
+        Call("ApplyMediaState", false, "", "", "");
+        Check(lyrics.Visibility == Visibility.Collapsed && lyrics.Text == "", "Pausing hides and clears the visible lyric");
+        settings.Karaoke = false;
+        Check(track.Visibility == Visibility.Collapsed && track.Text == ""
+            && Element<TextBlock>("CompactClockText").Visibility == Visibility.Visible
+            && Element<StackPanel>("CompactWeatherPanel").Visibility == Visibility.Visible && Field<double>("_targetW") == settings.CompactWidth,
+            "Pause restores the normal compact size, clock and weather");
+        settings.SelectedCharacter = "None";
+        settings.IdleRight = "battery";
+        Call("ApplyMediaState", true, "Track", "", "player");
+        Check(logo.Visibility == Visibility.Collapsed && Element<TextBlock>("CompactBatteryText").Visibility == Visibility.Collapsed,
+            "Music respects the no-character preference and hides the alternate battery display");
+        Call("ApplyMediaState", false, "", "", "");
+        Check(Element<TextBlock>("CompactBatteryText").Visibility == Visibility.Visible, "Pause restores the configured battery display");
+        settings.SelectedCharacter = "Eyes";
+        settings.IdleRight = "weather";
+        Call("UpdateCharacterVectors", "Eyes");
+        Call("UpdateCompactContent");
         var fpsType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.FpsService")!;
         var metrics = Activator.CreateInstance(fpsType, true)!;
         fpsType.GetField("Fps", flags)!.SetValue(metrics, (double?)144);

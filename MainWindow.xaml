@@ -289,20 +289,24 @@
                                    Foreground="{DynamicResource ThemeTextBrush}" FontSize="13.5" FontWeight="Bold"
                                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
 
+                        <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center">
+                            <TextBlock x:Name="CompactTrackText" Visibility="Collapsed"
+                                       Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                            <TextBlock x:Name="CompactLyricsText" Visibility="Collapsed" Margin="0,2,0,0"
+                                       Foreground="{DynamicResource ThemeSecondaryBrush}" FontSize="13"
+                                       TextTrimming="CharacterEllipsis" ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                        </StackPanel>
+
                         <StackPanel x:Name="CompactWeatherPanel" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                             <Path Data="M6,19A5,5 0 0,1 1,14A5,5 0 0,1 6,9C7,6.65 9.3,5 12,5C15.43,5 18.24,7.66 18.5,11.03L19,11A4,4 0 0,1 23,15A4,4 0 0,1 19,19H6Z"
                                   Fill="#8AB4F8" Width="13" Height="13" Stretch="Uniform" Margin="0,0,5,0" VerticalAlignment="Center"/>
                             <TextBlock x:Name="CompactTempText" Text="--°" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="Bold" VerticalAlignment="Center"/>
                         </StackPanel>
+                        <TextBlock x:Name="CompactBatteryText" Grid.Column="2" Visibility="Collapsed" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource ThemeTextBrush}" FontSize="12"/>
                     </Grid>
 
-                    <TextBlock x:Name="CompactBatteryText" HorizontalAlignment="Right" Visibility="Collapsed" VerticalAlignment="Center" Foreground="{DynamicResource ThemeTextBrush}" FontSize="12"/>
-                    <Grid x:Name="KaraokePanel" Visibility="Collapsed" IsHitTestVisible="False" Background="{DynamicResource ThemeCapsuleBrush}">
-                        <Viewbox Stretch="Uniform" StretchDirection="DownOnly" Margin="6,0"><Grid>
-                        <TextBlock x:Name="KaraokeOldLine" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource ThemeMutedBrush}"/>
-                        <TextBlock x:Name="KaraokeLine" HorizontalAlignment="Center" VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold"/>
-                        </Grid></Viewbox>
-                    </Grid>
                     <!-- Compact game center: stable metric cards, independent of user scale. -->
                     <StackPanel x:Name="CompactGameHudPanel" Visibility="Collapsed" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
                         <Border Background="{DynamicResource ThemeSelectionBrush}" BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" CornerRadius="12" Width="34" Height="46" Margin="0,0,8,0" ToolTip="Игровой центр">

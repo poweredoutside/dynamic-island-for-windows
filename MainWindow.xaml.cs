@@ -529,6 +529,7 @@ public partial class MainWindow : Window
 
             CompactStandardPanel.Visibility = Visibility.Collapsed;
             CompactGameHudPanel.Visibility  = Visibility.Visible;
+            UpdateCompactContent();
             UpdateGameHudValues();
 
             if (collapseToHud || _currentState == IslandState.Hover)
@@ -552,12 +553,7 @@ public partial class MainWindow : Window
             CompactGameHudPanel.Visibility  = Visibility.Collapsed;
             CompactStandardPanel.Visibility = Visibility.Visible;
 
-            if (_currentState == IslandState.Compact)
-            {
-                _targetW = 210;
-                _targetH = 38;
-                _targetR = 19;
-            }
+            UpdateCompactContent();
         }
 
         ApplyScaleForCurrentState();
@@ -1273,6 +1269,7 @@ public partial class MainWindow : Window
                 _targetH = _isGameModeActive ? GameHudHeight : _settings.CompactHeight;
                 _targetR = _isGameModeActive ? GameHudRadius : Math.Max(4, _targetH * .5 * _settings.CornerRounding);
                 CompactView.Visibility = Visibility.Visible;
+                UpdateCompactContent();
                 break;
 
             case IslandState.Hover:
@@ -2315,6 +2312,9 @@ public partial class MainWindow : Window
         string trackTitle = "";
         string trackArtist = "";
         string sourceAppId = "";
+        string album = "";
+        double duration = 0;
+        double? position = null;
 
         if (_mediaManager != null)
         {
@@ -2332,10 +2332,21 @@ public partial class MainWindow : Window
                         {
                             activePlaying = true;
                             trackTitle = props.Title.Trim();
-                            trackArtist = string.IsNullOrWhiteSpace(props.Artist)
-                                ? Tr("Playing now", "Сейчас играет", "Зараз грає", "Läuft gerade", "Reproduciendo")
-                                : props.Artist.Trim();
+                            trackArtist = props.Artist?.Trim() ?? "";
+                            album = props.AlbumTitle ?? "";
                             sourceAppId = session.SourceAppUserModelId ?? "";
+                            if (_settings.Karaoke || _settings.OnlineLyrics)
+                            {
+                                var timeline = session.GetTimelineProperties();
+                                duration = (timeline.EndTime - timeline.StartTime).TotalSeconds;
+                                if (timeline.LastUpdatedTime != default)
+                                {
+                                    double elapsed = Math.Max(0, (DateTimeOffset.UtcNow - timeline.LastUpdatedTime).TotalSeconds);
+                                    double reported = Math.Max(0, (timeline.Position - timeline.StartTime).TotalSeconds);
+                                    position = duration > 0 ? Math.Min(duration, reported + elapsed)
+                                        : elapsed <= 600 ? reported + elapsed : reported;
+                                }
+                            }
                         }
                     }
                 }
@@ -2343,10 +2354,19 @@ public partial class MainWindow : Window
             catch { }
         }
 
+        if (_windowClosed) return;
+        if (activePlaying) UpdateLyricsTrack(new LyricsService.Track(trackTitle, trackArtist, sourceAppId), position, album, duration);
+        ApplyMediaState(activePlaying, trackTitle, trackArtist, sourceAppId);
+    }
+
+    private void ApplyMediaState(bool activePlaying, string trackTitle, string trackArtist, string sourceAppId)
+    {
         _isMediaPlaying = activePlaying;
-        _currentMediaArtist = activePlaying ? trackArtist : "";
         _currentMediaTitle = activePlaying ? trackTitle : "";
         _currentMediaAppId = activePlaying ? sourceAppId : "";
+        if (!activePlaying) _lyricsPosition = null;
+        RefreshLyricsStatus();
+        UpdateCompactContent();
 
         PlayPauseVectorIcon.Data = _isMediaPlaying
             ? Geometry.Parse("M14,19H18V5H14M6,19H10V5H6V19Z")
@@ -2356,6 +2376,8 @@ public partial class MainWindow : Window
 
         if (_isMediaPlaying)
         {
+            if (string.IsNullOrWhiteSpace(trackArtist))
+                trackArtist = Tr("Playing now", "Сейчас играет", "Зараз грає", "Läuft gerade", "Reproduciendo");
             HoverTrackTitle.Text  = trackTitle;
             HoverTrackArtist.Text = trackArtist;
             MediaTitleText.Text   = trackTitle;
@@ -2820,6 +2842,7 @@ public partial class MainWindow : Window
     private async void ResetSettings_Click(object sender, RoutedEventArgs e)
     {
         _settings = new AppSettings();
+        SetOnlineLyrics(false);
         if (File.Exists(_settingsPath)) File.Delete(_settingsPath);
         _hasWeatherData = false;
         ApplyCurrentSettingsToUi();

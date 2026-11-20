@@ -431,19 +431,28 @@ public partial class MainWindow
     }
     private void BuildMusicPage()
     {
-        var card = FeatureCard("Караоке", "Строка следует позиции системного медиаплеера. Для локального LRC запустите соответствующую песню перед импортом.");
-        card.Children.Add(FeatureText(string.IsNullOrWhiteSpace(_currentMediaTitle) ? "Нет активного медиа" : _currentMediaTitle + " · " + _currentMediaArtist, 14));
-        FeatureToggle(card, "Показывать текст в островке", _settings.Karaoke, v => _settings.Karaoke = v);
-        FeatureToggle(card, "Искать текст в LRCLIB (передаётся название и исполнитель)", _settings.OnlineLyrics, v => { _settings.OnlineLyrics = v; _lyricsTrack = ""; });
-        card.Children.Add(FeatureButton("Импортировать LRC", async () =>
+        var card = FeatureCard("Музыка");
+        foreach (var source in new[] { MediaTitleText, MediaArtistText })
         {
-            var dialog = new Microsoft.Win32.OpenFileDialog { Filter = L("Синхронизированный текст|*.lrc"), CheckFileExists = true };
-            if (dialog.ShowDialog(this) != true) return;
-            try { _lyrics = LyricsReader.Parse(await File.ReadAllTextAsync(dialog.FileName)); _lyricsTrack = _currentMediaTitle + "\n" + _currentMediaArtist; _lyricIndex = -1; _lyricsStatus = $"Загружено строк: {_lyrics.Count}"; _settings.Karaoke = true; SaveSettings(); OpenFeaturePage("music"); }
-            catch (Exception ex) { AppLog.Error("Read lyrics", ex); }
-        }));
-        card.Children.Add(FeatureText(_lyricsStatus, 11, "ThemeMutedBrush"));
-        var buttons = new WrapPanel(); buttons.Children.Add(FeatureButton("⏮", () => PrevTrack_Click(this, new RoutedEventArgs()))); buttons.Children.Add(FeatureButton("⏯", () => PlayPause_Click(this, new RoutedEventArgs()))); buttons.Children.Add(FeatureButton("⏭", () => NextTrack_Click(this, new RoutedEventArgs()))); card.Children.Add(buttons);
+            var label = FeatureText("", source.FontSize);
+            label.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(TextBlock.Text)) { Source = source });
+            card.Children.Add(label);
+        }
+        var buttons = new WrapPanel();
+        buttons.Children.Add(FeatureButton("⏮", () => PrevTrack_Click(this, new RoutedEventArgs(Button.ClickEvent))));
+        buttons.Children.Add(FeatureButton("⏯", () => PlayPause_Click(this, new RoutedEventArgs(Button.ClickEvent))));
+        buttons.Children.Add(FeatureButton("⏭", () => NextTrack_Click(this, new RoutedEventArgs(Button.ClickEvent))));
+        card.Children.Add(buttons);
+
+        var lyrics = FeatureCard("Текст песни");
+        FeatureToggle(lyrics, "Показывать текст при включении музыки", _settings.Karaoke, enabled => _settings.Karaoke = enabled);
+        FeatureToggle(lyrics, "Искать текст", _settings.OnlineLyrics, SetOnlineLyrics);
+        lyrics.Children.Add(FeatureText("При включённом поиске LRCLIB получает название, исполнителя, альбом и длительность трека, если они доступны.", 11, "ThemeMutedBrush"));
+        lyrics.Children.Add(FeatureButton("Импортировать LRC", async () => await ImportLyricsAsync()));
+        lyrics.Children.Add(FeatureText("Импортированный файл применяется к текущему треку до закрытия приложения и имеет приоритет над поиском.", 11, "ThemeMutedBrush"));
+        _lyricsStatusText = FeatureText("", 12, "ThemeMutedBrush");
+        lyrics.Children.Add(_lyricsStatusText);
+        RefreshLyricsStatus();
     }
     private void BuildChatPage()
     {

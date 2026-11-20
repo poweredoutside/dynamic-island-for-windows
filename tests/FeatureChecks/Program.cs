@@ -19,6 +19,83 @@ internal static class Program
     {
         int checks = 0;
         void Check(bool result, string reason) { if (!result) throw new InvalidOperationException(reason); checks++; }
+        if (args.Contains("--discord-call"))
+        {
+            var monitor = new DiscordCallMonitor(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
+            var active = monitor.Read();
+            Console.WriteLine($"Discord desktop call detected: {active.HasValue}.");
+            return 0;
+        }
+        if (args.Contains("--discord-audio"))
+        {
+            return Task.Run(() =>
+            {
+                using var audio = new NAudio.CoreAudioApi.MMDeviceEnumerator();
+                var outputs = audio.EnumerateAudioEndPoints(NAudio.CoreAudioApi.DataFlow.Render, NAudio.CoreAudioApi.DeviceState.Active);
+                var inputs = audio.EnumerateAudioEndPoints(NAudio.CoreAudioApi.DataFlow.Capture, NAudio.CoreAudioApi.DeviceState.Active);
+                using var routing = new AppAudioRouting();
+                _ = routing.GetOutput((uint)Environment.ProcessId);
+                var discord = DiscordCallAudio.ReadOutputs("Discord");
+                var mic = DiscordCallAudio.ReadMicrophone("Discord");
+                Console.WriteLine($"Windows audio: {outputs.Count} outputs, {inputs.Count} inputs. Discord routing={discord.CanRoute}, render session={discord.Devices.Any(d => d.InUse)}, identifiable microphone={mic.HasValue}.");
+                if (args.Contains("--test-output"))
+                {
+                    uint pid = (uint)Environment.ProcessId;
+                    string? previous = routing.GetOutput(pid);
+                    using var output = outputs[0];
+                    try
+                    {
+                        routing.SetOutput(pid, output.ID);
+                        Check(string.Equals(output.ID, routing.GetOutput(pid), StringComparison.OrdinalIgnoreCase),
+                            "Windows returns the output set for the test process");
+                    }
+                    finally { routing.SetOutput(pid, previous); }
+                    Check(routing.GetOutput(pid) == previous, "The test process output preference is restored");
+                }
+                return 0;
+            }).GetAwaiter().GetResult();
+        }
+        string voicePath = System.IO.Path.GetTempFileName();
+        try
+        {
+            var started = new DateTimeOffset(new DateTime(2026, 11, 20, 14, 0, 0, DateTimeKind.Local));
+            var log = new DiscordCallMonitor.VoiceLog(started);
+            string Event(int seconds, string id, string kind, string message) =>
+                $"[{started.AddSeconds(seconds):yyyy-MM-dd HH:mm:ss.fff}] [info]  [RTCConnection({id}, {kind})] {message}";
+            void Append(string line) => System.IO.File.AppendAllText(voicePath, line + "\r\n");
+
+            Append(Event(-60, "previous", "default", "RTC connection state: RTC_CONNECTING => RTC_CONNECTED"));
+            Append(Event(1, "share", "stream", "RTC connection state: RTC_CONNECTING => RTC_CONNECTED"));
+            log.Refresh(voicePath);
+            Check(!log.CallStarted.HasValue, "Old client events and screen shares alone do not mark a Discord call");
+
+            System.IO.File.AppendAllText(voicePath, Event(2, "voice", "default", "RTC connection state: RTC_CONNECTING => RTC_CONNECTED"));
+            log.Refresh(voicePath);
+            Check(!log.CallStarted.HasValue, "Discord log reading waits for a complete line");
+            Append("");
+            log.Refresh(voicePath);
+            Check(log.CallStarted == started.AddSeconds(2), "A Discord call can be detected without a window title or audio capture");
+
+            Append(Event(3, "voice", "default", "RTC connection state: RTC_CONNECTED => RTC_CONNECTED"));
+            Append(Event(4, "share", "stream", "Destroy RTCConnection"));
+            log.Refresh(voicePath);
+            Check(log.CallStarted == started.AddSeconds(2), "Duplicate events and closing a share preserve the call timer");
+
+            Append(Event(5, "next", "default", "RTC connection state: RTC_CONNECTING => RTC_CONNECTED"));
+            Append(Event(6, "voice", "default", "Destroy RTCConnection"));
+            log.Refresh(voicePath);
+            Check(log.CallStarted == started.AddSeconds(5), "A delayed disconnect cannot close a different voice connection");
+            Append(Event(7, "next", "default", "RTC connection state: RTC_CONNECTED => RTC_DISCONNECTED"));
+            log.Refresh(voicePath);
+            Check(!log.CallStarted.HasValue, "Disconnect clears the detected call");
+
+            Append(Event(8, "new", "default", "RTC connection state: RTC_CONNECTING => RTC_CONNECTED"));
+            log.Refresh(voicePath);
+            System.IO.File.WriteAllText(voicePath, "");
+            log.Refresh(voicePath);
+            Check(!log.CallStarted.HasValue, "Truncating the Discord log clears obsolete calls");
+        }
+        finally { System.IO.File.Delete(voicePath); }
         if (args.Contains("--control-center"))
         {
             var connectivity = Task.Run(WindowsConnectivity.ReadAsync).GetAwaiter().GetResult();

@@ -75,9 +75,10 @@ public partial class MainWindow : Window
     private bool _pauseAutoGameHud;
     private WindowsDndService.State? _dndStateBeforeGameMode;
     private bool _gameModeOwnsDnd;
-    private bool _isDiscordCallActive;
-    private int _discordCallSeconds;
-    private string _discordChannelLabel = "Discord · Голос";
+    private readonly DiscordCallMonitor _discordMonitor = new(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
+    private DiscordCallMonitor.Call? _discordCall;
+    private long _nextDiscordPoll;
+    private bool _discordProbeBusy;
 
     // Перехват уведомлений мессенджеров и всех приложений
     private UserNotificationListener? _notifListener;
@@ -561,54 +562,38 @@ public partial class MainWindow : Window
 
     private void UpdateDiscordCallState()
     {
-        bool discordSettingOn = TglDiscordCallRight.IsChecked ?? true;
-        bool detectedDiscordCall = _discordDetected;
-        string detectedChannel = _discordDetectedLabel;
-
-        if (discordSettingOn && detectedDiscordCall)
+        if (_discordCall is not { } call || TglDiscordCallRight.IsChecked == false
+            || IslandBorder.Visibility != Visibility.Visible || _currentState is IslandState.Settings or IslandState.Section)
         {
-            if (!_isDiscordCallActive)
-            {
-                _isDiscordCallActive = true;
-                _discordCallSeconds = 0;
-            }
-            _discordCallSeconds++;
-            if (!string.IsNullOrEmpty(detectedChannel))
-                _discordChannelLabel = detectedChannel;
-
-            DiscordCallChannelText.Text  = L(_discordChannelLabel);
-            DiscordCallTimerText.Text    = $"{_discordCallSeconds / 60:D2}:{_discordCallSeconds % 60:D2}";
-            DiscordVoicePulseDot.Opacity = (_discordCallSeconds % 2 == 0) ? 1.0 : 0.45;
-            DiscordCallBorder.Visibility = _currentState is IslandState.Settings or IslandState.Section ? Visibility.Collapsed : Visibility.Visible;
-        }
-        else
-        {
-            _isDiscordCallActive = false;
             DiscordCallBorder.Visibility = Visibility.Collapsed;
+            if (_discordOutputMenu is { IsOpen: true } menu) menu.IsOpen = false;
+            return;
         }
+
+        long seconds = Math.Max(0, (long)(DateTimeOffset.UtcNow - call.Started).TotalSeconds);
+        DiscordCallTimerText.Text = $"{seconds / 60}:{seconds % 60:D2}";
+        DiscordCallBorder.Visibility = Visibility.Visible;
     }
 
-    private static bool DetectActiveDiscordCall(out string channelInfo)
+    private async Task RefreshDiscordCallAsync()
     {
-        channelInfo = "Discord · Голос";
+        if (_discordProbeBusy || Environment.TickCount64 < _nextDiscordPoll
+            || (TglDiscordCallRight.IsChecked == false && !SystemPageVisible)) return;
+        _discordProbeBusy = true;
+        _nextDiscordPoll = Environment.TickCount64 + 2000;
         try
         {
-            foreach (var p in Process.GetProcessesByName("Discord"))
+            var call = await Task.Run(_discordMonitor.Read);
+            if (!_windowClosed)
             {
-                string title = p.MainWindowTitle;
-                if (!string.IsNullOrWhiteSpace(title) &&
-                    (title.Contains("Voice", StringComparison.OrdinalIgnoreCase) ||
-                     title.Contains("Голос", StringComparison.OrdinalIgnoreCase) ||
-                     title.Contains("Звонок", StringComparison.OrdinalIgnoreCase) ||
-                     title.Contains("Call", StringComparison.OrdinalIgnoreCase)))
-                {
-                    channelInfo = title.Split('-')[0].Trim();
-                    return true;
-                }
+                if (_discordCall != call) _discordMicrophone = null;
+                _discordCall = call;
+                UpdateDiscordCallState();
+                await RefreshDiscordMicrophoneAsync(call);
             }
         }
-        catch { }
-        return false;
+        catch (System.ComponentModel.Win32Exception ex) { AppLog.Error("Read Discord call state", ex); }
+        finally { _discordProbeBusy = false; }
     }
 
     private bool IsForegroundGameOrFullscreen()
@@ -631,24 +616,28 @@ public partial class MainWindow : Window
         catch { return false; }
     }
 
-    private void DiscordCallBorder_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    private void DiscordCallTimer_Click(object sender, RoutedEventArgs e)
     {
-        try
+        if (_discordCall is not { } call) return;
+        e.Handled = true;
+        IntPtr handle = IntPtr.Zero;
+        foreach (var process in Process.GetProcessesByName(call.ProcessName))
         {
-            foreach (var p in Process.GetProcessesByName("Discord"))
+            using (process)
             {
-                if (p.MainWindowHandle != IntPtr.Zero)
-                {
-                    SetForegroundWindow(p.MainWindowHandle);
-                    break;
-                }
+                try { if (handle == IntPtr.Zero) handle = process.MainWindowHandle; }
+                catch (InvalidOperationException) { }
+                catch (System.ComponentModel.Win32Exception) { }
             }
         }
-        catch { }
+        if (handle != IntPtr.Zero) ActivateWindow(handle);
+        else VoiceLauncher.Open("discord");
     }
 
     private void TglDiscordCallRight_Click(object sender, RoutedEventArgs e)
     {
+        _nextDiscordPoll = 0;
+        _ = RefreshDiscordCallAsync();
         UpdateDiscordCallState();
         SaveSettings();
     }
@@ -1310,6 +1299,7 @@ public partial class MainWindow : Window
                 break;
         }
 
+        UpdateDiscordCallState();
         ApplyScaleForCurrentState();
     }
 
@@ -1722,6 +1712,7 @@ public partial class MainWindow : Window
         LblLayout.Text             = Tr("Show keyboard layout switch", "Показывать смену раскладки", "Показувати зміну розкладки", "Tastaturlayout anzeigen", "Mostrar cambio de idioma");
         LblDiscordRight.Text       = Tr("Discord Call — separate island on the right", "Звонок Discord — отдельным островком справа", "Дзвінок Discord — окремим острівцем праворуч", "Discord-Anruf — separate Insel rechts", "Llamada de Discord — isla separada a la derecha");
         LblDiscordRightSub.Text    = Tr("Stays visible on the right even during Game Mode", "Отображается отдельным островком справа даже во время игрового режима", "Відображається праворуч навіть у ігровому режимі", "Bleibt auch im Spielmodus rechts sichtbar", "Visible a la derecha incluso en Modo Juego");
+        LocalizeDiscordCallControls();
         LblGameModeHud.Text        = Tr("Game Mode (Show FPS, CPU, °C, GPU)", "Игровой режим (Показ FPS, CPU, °C, GPU)", "Ігровий режим (Показ FPS, CPU, °C, GPU)", "Spielmodus (FPS, CPU, °C, GPU anzeigen)", "Modo Juego (Mostrar FPS, CPU, °C, GPU)");
         LblGameModeHudSub.Text     = Tr("Enables Do Not Disturb and mutes notifications (Discord call pill on the right stays active)", "Во время игрового режима включается «Не беспокоить» и уведомления не приходят (кроме звонка Discord справа)", "Під час ігрового режиму вмикається «Не турбувати» (крім дзвінка Discord)", "Aktiviert Nicht stören im Spiel (außer Discord rechts)", "Activa No molestar en juegos (excepto Discord)");
         LblMessengerNotifs.Text    = Tr("Telegram, exDesktop, Discord, Viber…", "Сообщения Telegram, exDesktop, Discord, Viber…", "Повідомлення Telegram, exDesktop, Discord, Viber…", "Nachrichten von Telegram, Discord, Viber... auf der Insel", "Mensajes de Telegram, Discord, Viber... en la isla");
@@ -2079,6 +2070,7 @@ public partial class MainWindow : Window
         MorphToState(IslandState.Compact);
         IslandBorder.Visibility = Visibility.Collapsed;
         HiddenIslandHandle.Visibility = Visibility.Visible;
+        UpdateDiscordCallState();
         StopIslandFrames();
     }
 
@@ -2086,6 +2078,7 @@ public partial class MainWindow : Window
     {
         HiddenIslandHandle.Visibility = Visibility.Collapsed;
         IslandBorder.Visibility = Visibility.Visible;
+        UpdateDiscordCallState();
         StartIslandFrames();
     }
 
@@ -2345,6 +2338,7 @@ public partial class MainWindow : Window
         UpdateTelemetrySummaries();
 
         UpdateDiscordCallState();
+        _ = RefreshDiscordCallAsync();
 
         PruneExpiredClipboardItems();
 

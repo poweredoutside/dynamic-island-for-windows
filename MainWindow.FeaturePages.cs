@@ -603,10 +603,9 @@ public partial class MainWindow
         var card = FeatureCard("Что нового", parent: SettingsFeatureContent);
         foreach (string line in new[]
         {
-            "Таймер с круговым индикатором, помодоро и секундомер.",
-            "Календарь на неделю, напоминания и подписки ICS.",
-            "Пункт управления Windows и показатели CPU, GPU и памяти.",
-            "Заметки, виджеты рабочего стола и уведомления ИИ-агентов."
+            "Голосовой звонок определяется даже при свёрнутом Discord.",
+            "Таймер показывает время с момента подключения. Нажмите на него, чтобы открыть Discord.",
+            "Кнопка наушников выбирает выход Discord, а кнопка микрофона переключает устройство записи в Windows."
         })
             card.Children.Add(FeatureText("• " + L(line), 13));
         card.Children.Add(FeatureButton("Канал проекта", () => OpenWeb(new Uri("https://t.me/outsidecompany"))));

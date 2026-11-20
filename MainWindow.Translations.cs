@@ -375,6 +375,22 @@ Windows не подтвердила подпись издателя устано
 Настройки Windows¦Windows Settings¦Налаштування Windows¦Windows-Einstellungen¦Configuración de Windows
 Не удалось перевести компьютер в спящий режим.¦Could not put the computer to sleep.¦Не вдалося перевести комп’ютер у режим сну.¦Der Computer konnte nicht in den Ruhezustand versetzt werden.¦No se pudo suspender el equipo.
 Открыть Discord¦Open Discord¦Відкрити Discord¦Discord öffnen¦Abrir Discord
+Голосовой звонок определяется даже при свёрнутом Discord.¦Voice calls are detected even when Discord is minimized.¦Голосовий дзвінок визначається навіть зі згорнутим Discord.¦Sprachanrufe werden auch bei minimiertem Discord erkannt.¦Las llamadas de voz se detectan incluso con Discord minimizado.
+Таймер показывает время с момента подключения. Нажмите на него, чтобы открыть Discord.¦The timer shows the elapsed time since connection. Click it to open Discord.¦Таймер показує час від підключення. Натисніть на нього, щоб відкрити Discord.¦Der Timer zeigt die Zeit seit dem Verbindungsaufbau. Klicke darauf, um Discord zu öffnen.¦El temporizador muestra el tiempo desde la conexión. Púlsalo para abrir Discord.
+Кнопка наушников выбирает выход Discord, а кнопка микрофона переключает устройство записи в Windows.¦The headphones button selects the Discord output, and the microphone button mutes or unmutes the recording device in Windows.¦Кнопка навушників вибирає вихід Discord, а кнопка мікрофона вмикає або вимикає пристрій запису у Windows.¦Die Kopfhörertaste wählt die Discord-Ausgabe, die Mikrofontaste schaltet das Aufnahmegerät in Windows stumm oder wieder ein.¦El botón de auriculares elige la salida de Discord y el del micrófono silencia o activa el dispositivo de grabación en Windows.
+Выход звука Discord¦Discord audio output¦Аудіовихід Discord¦Discord-Audioausgabe¦Salida de audio de Discord
+Микрофон недоступен¦Microphone unavailable¦Мікрофон недоступний¦Mikrofon nicht verfügbar¦Micrófono no disponible
+Включить микрофон¦Unmute microphone¦Увімкнути мікрофон¦Mikrofon einschalten¦Activar micrófono
+Выключить микрофон¦Mute microphone¦Вимкнути мікрофон¦Mikrofon stummschalten¦Silenciar micrófono
+Действует на все приложения, использующие этот микрофон.¦Applies to all apps using this microphone.¦Діє на всі програми, що використовують цей мікрофон.¦Gilt für alle Apps, die dieses Mikrofon verwenden.¦Se aplica a todas las aplicaciones que usan este micrófono.
+Не удалось переключить микрофон.¦Could not toggle the microphone.¦Не вдалося перемкнути мікрофон.¦Das Mikrofon konnte nicht umgeschaltet werden.¦No se pudo cambiar el estado del micrófono.
+Поиск аудиоустройств…¦Finding audio devices…¦Пошук аудіопристроїв…¦Audiogeräte werden gesucht…¦Buscando dispositivos de audio…
+Выход Windows по умолчанию¦Windows default output¦Стандартний вихід Windows¦Windows-Standardausgabe¦Salida predeterminada de Windows
+Сейчас используется¦In use¦Зараз використовується¦Wird verwendet¦En uso
+Выход Discord недоступен¦Discord output unavailable¦Аудіовихід Discord недоступний¦Discord-Ausgabe nicht verfügbar¦Salida de Discord no disponible
+Микшер громкости Windows¦Windows volume mixer¦Мікшер гучності Windows¦Windows-Lautstärkemixer¦Mezclador de volumen de Windows
+Discord остался на прежнем выходе. Выберите «По умолчанию» в настройках звука Discord и переподключитесь.¦Discord stayed on the previous output. Select Default in Discord audio settings and reconnect.¦Discord залишився на попередньому виході. Виберіть «За замовчуванням» у налаштуваннях звуку Discord і підключіться знову.¦Discord nutzt weiterhin die bisherige Ausgabe. Wähle in den Discord-Audioeinstellungen „Standard“ und verbinde dich erneut.¦Discord sigue usando la salida anterior. Selecciona «Predeterminado» en los ajustes de audio de Discord y vuelve a conectarte.
+Не удалось изменить выход Discord.¦Could not change Discord's audio output.¦Не вдалося змінити аудіовихід Discord.¦Die Discord-Ausgabe konnte nicht geändert werden.¦No se pudo cambiar la salida de audio de Discord.
 Память¦Memory¦Пам’ять¦Arbeitsspeicher¦Memoria
 Перезагрузить компьютер сейчас?¦Restart this computer now?¦Перезапустити комп’ютер зараз?¦Computer jetzt neu starten?¦¿Reiniciar el equipo ahora?
 Перезагрузка¦Restart¦Перезапустити¦Neu starten¦Reiniciar

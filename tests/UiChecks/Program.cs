@@ -29,6 +29,48 @@ internal static class Program
         void Check(bool ok, string message) { if (!ok) throw new Exception(message); checks++; }
         var settings = Field<MainWindow.AppSettings>("_settings");
         settings.Language = "English";
+        var callType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.DiscordCallMonitor+Call")!;
+        var discordCapsule = Element<Border>("DiscordCallBorder");
+        var discordCall = Activator.CreateInstance(callType, "Discord", DateTimeOffset.UtcNow.AddSeconds(-65))!;
+        Set("_discordCall", discordCall);
+        Call("UpdateDiscordCallState");
+        Check(discordCapsule.Visibility == Visibility.Visible && Element<TextBlock>("DiscordCallTimerText").Text.StartsWith("1:"),
+            "Discord shows the actual time since connection in the right capsule");
+        var audioType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.DiscordCallAudio")!;
+        var microphoneType = audioType.GetNestedType("Microphone", BindingFlags.NonPublic)!;
+        var micButton = Element<Button>("DiscordMicButton");
+        Set("_discordMicrophone", Activator.CreateInstance(microphoneType, "mic", "Test microphone", true));
+        Call("UpdateDiscordMicrophoneVisual");
+        Check(micButton.IsEnabled && Element<System.Windows.Shapes.Path>("DiscordMicSlash").Visibility == Visibility.Visible
+            && ((string)micButton.ToolTip).StartsWith("Unmute microphone"), "Muted microphone shows the slash and unmute action");
+        Set("_discordMicrophone", Activator.CreateInstance(microphoneType, "mic", "Test microphone", false));
+        Call("UpdateDiscordMicrophoneVisual");
+        Check(micButton.IsEnabled && Element<System.Windows.Shapes.Path>("DiscordMicSlash").Visibility == Visibility.Collapsed
+            && ((string)micButton.ToolTip).StartsWith("Mute microphone"), "Live microphone shows the mute action");
+        Set("_discordMicrophone", null);
+        Call("UpdateDiscordMicrophoneVisual");
+        Check(!micButton.IsEnabled, "Unavailable microphone cannot change mute");
+        var deviceType = audioType.GetNestedType("Output", BindingFlags.NonPublic)!;
+        var devices = Array.CreateInstance(deviceType, 2);
+        devices.SetValue(Activator.CreateInstance(deviceType, "headset", "Test headphones", false), 0);
+        devices.SetValue(Activator.CreateInstance(deviceType, "speakers", "Test speakers", true), 1);
+        var outputs = Activator.CreateInstance(audioType.GetNestedType("Outputs", BindingFlags.NonPublic)!, devices, "headset", 1u, true);
+        var outputMenu = new ContextMenu();
+        Call("FillDiscordOutputMenu", outputMenu, discordCall, outputs);
+        Check(outputMenu.Items[1] is MenuItem { Header: "Test headphones", IsChecked: true }
+            && outputMenu.Items[2] is MenuItem { Header: "Test speakers", IsChecked: false, InputGestureText: "In use" },
+            "Discord audio menu distinguishes the selected output from the output in use");
+        Element<Border>("IslandBorder").Visibility = Visibility.Collapsed;
+        Call("UpdateDiscordCallState");
+        Check(discordCapsule.Visibility == Visibility.Collapsed, "Hiding the island also hides the Discord capsule");
+        Element<Border>("IslandBorder").Visibility = Visibility.Visible;
+        Element<CheckBox>("TglDiscordCallRight").IsChecked = false;
+        Call("UpdateDiscordCallState");
+        Check(discordCapsule.Visibility == Visibility.Collapsed, "The Discord toggle hides a live call");
+        Element<CheckBox>("TglDiscordCallRight").IsChecked = true;
+        Set("_discordCall", null);
+        Call("UpdateDiscordCallState");
+        Check(discordCapsule.Visibility == Visibility.Collapsed, "Discord capsule disappears after disconnecting");
         Call("NavAi_Click", Element<Button>("NavAiBtn"), new RoutedEventArgs(Button.ClickEvent));
         Check(Element<ScrollViewer>("PageAi").Visibility == Visibility.Visible, "AI settings page opens");
         Check(Element<TextBlock>("AiClaudeStatusText").Text.Length > 0 && Element<TextBlock>("AiCodexStatusText").Text.Length > 0
@@ -414,11 +456,16 @@ internal static class Program
             toast.RenderTransform = Transform.Identity;
             Element<TextBlock>("SideToastText").Text = "Новое уведомление";
             var discord = Element<Border>("DiscordCallBorder"); discord.Visibility = Visibility.Visible;
+            Set("_discordCall", discordCall);
+            Set("_discordMicrophone", Activator.CreateInstance(microphoneType, "mic", "Test microphone", false));
+            Call("UpdateDiscordMicrophoneVisual");
             ((FrameworkElement)window.Content).Measure(new Size(1360, 700));
             ((FrameworkElement)window.Content).Arrange(new Rect(0, 0, 1360, 700));
             ((FrameworkElement)window.Content).UpdateLayout();
             SaveVisual(toast, key + "-toast-glass", Math.Ceiling(toast.ActualWidth) + 16, 54, 8);
-            SaveVisual(discord, key + "-discord-glass", Math.Ceiling(discord.ActualWidth) + 16, 54, 8);
+            SaveVisual(discord, key + "-discord-glass", Math.Ceiling(discord.ActualWidth) + 16, Math.Ceiling(discord.ActualHeight) + 16, 8);
+            Set("_discordCall", null);
+            Set("_discordMicrophone", null);
             toast.Visibility = Visibility.Collapsed; discord.Visibility = Visibility.Collapsed;
         }
         settings.LiquidGlass = false; Call("ApplyTheme", themes.Single(t => t.Key == "Snow"));

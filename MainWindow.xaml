@@ -1269,30 +1269,38 @@
                 </StackPanel>
             </Border>
 
-            <Border x:Name="DiscordCallBorder"
-                    Height="38"
-                    CornerRadius="19"
-                    Background="{DynamicResource ThemeCapsuleBrush}"
-                    BorderThickness="1" BorderBrush="{DynamicResource GlassEdgeBrush}"
-                    UseLayoutRounding="True"
-                    SnapsToDevicePixels="True"
-                    Padding="0"
-                    Margin="0,0,8,0"
-                    Visibility="Collapsed"
-                    Cursor="Hand"
-                    MouseLeftButtonUp="DiscordCallBorder_MouseLeftButtonUp">
-
+            <Border x:Name="DiscordCallBorder" Height="48" Width="140" CornerRadius="24"
+                    Background="{DynamicResource ThemeCapsuleBrush}" BorderThickness="1" BorderBrush="{DynamicResource GlassEdgeBrush}"
+                    UseLayoutRounding="True" SnapsToDevicePixels="True" Margin="0,0,8,0" Visibility="Collapsed">
                 <Grid>
-                    <Border x:Name="DiscordGlassOverlay" CornerRadius="19" Background="{DynamicResource GlassSheenBrush}" IsHitTestVisible="False"/>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,14,0">
-                    <Border Width="24" Height="24" CornerRadius="12" Background="#5865F2" Margin="0,0,8,0" VerticalAlignment="Center">
-                        <Path Data="M19.27,5.33C17.94,4.71 16.5,4.26 15,4C14.83,4.33 14.62,4.76 14.47,5.12C12.9,4.88 11.34,4.88 9.77,5.12C9.62,4.76 9.4,4.33 9.23,4C7.72,4.26 6.28,4.71 4.96,5.33C2.25,9.41 1.51,13.38 1.88,17.3C3.68,18.63 5.42,19.44 7.14,19.97C7.57,19.38 7.95,18.75 8.27,18.08C7.65,17.85 7.05,17.56 6.49,17.22C6.64,17.11 6.79,16.99 6.93,16.87C10.37,18.46 14.11,18.46 17.5,16.87C17.65,16.99 17.79,17.11 17.94,17.22C17.38,17.56 16.78,17.85 16.15,18.08C16.48,18.75 16.86,19.38 17.29,19.97C19,19.44 20.75,18.63 22.55,17.3C22.98,12.75 21.82,8.82 19.27,5.33Z"
-                              Fill="{DynamicResource IconOnAccentBrush}" Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                    </Border>
-                    <Ellipse x:Name="DiscordVoicePulseDot" Width="8" Height="8" Fill="#23A55A" Margin="0,0,7,0" VerticalAlignment="Center"/>
-                    <TextBlock x:Name="DiscordCallChannelText" Text="Discord · Голос" Foreground="{DynamicResource ThemeTextBrush}" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" Margin="0,0,8,0" MaxWidth="130" TextTrimming="CharacterEllipsis"/>
-                    <TextBlock x:Name="DiscordCallTimerText" Text="00:00" Foreground="#23A55A" FontSize="12" FontWeight="ExtraBold" VerticalAlignment="Center"/>
-                </StackPanel>
+                    <Border x:Name="DiscordGlassOverlay" CornerRadius="24" Background="{DynamicResource GlassSheenBrush}" IsHitTestVisible="False"/>
+                    <Grid Margin="5,0" VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="34"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="38"/>
+                        </Grid.ColumnDefinitions>
+                        <Button x:Name="DiscordOutputButton" Style="{StaticResource GlassPillBtn}" Width="30" Height="30" Padding="0"
+                                Background="#5865F2" Foreground="White" Click="DiscordOutput_Click">
+                            <Path Width="15" Height="15" Stretch="Uniform" Stroke="White" StrokeThickness="1.25"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                  Data="M2,9 V8 A6,6 0 0 1 14,8 V9 M2,9 H5 V14 H3 Q2,14 2,13 Z M14,9 H11 V14 H13 Q14,14 14,13 Z"/>
+                        </Button>
+                        <Button x:Name="DiscordTimerButton" Grid.Column="1" Style="{StaticResource GlassPillBtn}" Height="30"
+                                Background="Transparent" Padding="2,0" Click="DiscordCallTimer_Click">
+                            <TextBlock x:Name="DiscordCallTimerText" Text="0:00" FontSize="13" FontWeight="Bold" VerticalAlignment="Center"/>
+                        </Button>
+                        <Button x:Name="DiscordMicButton" Grid.Column="2" Style="{StaticResource GlassPillBtn}" Width="30" Height="30"
+                                Padding="0" Background="Transparent" IsEnabled="False" Click="DiscordMic_Click">
+                            <Grid Width="16" Height="16">
+                                <Path x:Name="DiscordMicIcon" Stroke="{DynamicResource ThemeTextBrush}" StrokeThickness="1.1"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                      Data="M6,3 A2,2 0 0 1 10,3 V8 A2,2 0 0 1 6,8 Z M3.5,7.5 V8 A4.5,4.5 0 0 0 12.5,8 V7.5 M8,12.5 V15 M6,15 H10"/>
+                                <Path x:Name="DiscordMicSlash" Visibility="Collapsed" Stroke="{DynamicResource ThemeDangerBrush}"
+                                      StrokeThickness="1.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M2,2 L14,14"/>
+                            </Grid>
+                        </Button>
+                    </Grid>
                 </Grid>
             </Border>
 

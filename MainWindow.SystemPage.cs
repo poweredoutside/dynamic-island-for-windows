@@ -211,7 +211,7 @@ public partial class MainWindow
         _systemDnd!.Text = _timedDnd is { } timed
             ? string.Format(L("До {0}"), timed.Until.ToLocalTime().ToString("HH:mm"))
             : L(!_dndStateKnown ? "Состояние недоступно" : _isDndActive ? "Включено" : "Выключено");
-        _systemDiscord!.Text = _discordDetected ? _discordDetectedLabel : L("Голосовой канал не обнаружен");
+        _systemDiscord!.Text = _discordCall.HasValue ? L("Discord · Голос") : L("Голосовой канал не обнаружен");
         if (DateTime.UtcNow >= _nextPrivacyRead)
         {
             _nextPrivacyRead = DateTime.UtcNow.AddSeconds(5);

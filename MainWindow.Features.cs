@@ -83,8 +83,6 @@ public partial class MainWindow
     private DateTime _featureNoticeUntil;
     private readonly Dictionary<IntPtr, int> _unreadCounts = [];
     private readonly Dictionary<IntPtr, (string Name, int Percent)> _jobs = [];
-    private bool _discordDetected;
-    private string _discordDetectedLabel = "Discord · Голос";
     private bool _manualResize;
     private string _featurePage = "system";
     private TextBlock? _voiceStatusText, _voiceTranscript;
@@ -306,8 +304,7 @@ public partial class MainWindow
     {
         bool readGpu = DesktopSystemWidgetVisible || _isGameModeActive || SystemPageVisible;
         bool readBrightness = _settings.LevelHud && DateTime.UtcNow >= _nextBrightnessRead;
-        bool readWindows = _settings.ExternalProgress || (_settings.TitleUnreadFallback && NotificationsEnabled)
-            || (TglDiscordCallRight.IsChecked ?? true) || SystemPageVisible;
+        bool readWindows = _settings.ExternalProgress || (_settings.TitleUnreadFallback && NotificationsEnabled);
         if (readBrightness) _nextBrightnessRead = DateTime.UtcNow.AddSeconds(6);
         if (!readGpu && !readBrightness && !readWindows && _jobs.Count == 0 && _unreadCounts.Count == 0) return;
         try
@@ -323,10 +320,6 @@ public partial class MainWindow
                 LevelNotice(L("Яркость") + $" · {brightness}%", brightness);
             if (readBrightness) _lastBrightness = snapshot.Brightness;
             if (readGpu) _lastGpuUsage = snapshot.Gpu ?? -1;
-            var discord = snapshot.Windows.FirstOrDefault(w => w.Process.Equals("Discord", StringComparison.OrdinalIgnoreCase)
-                && new[] { "Voice", "Голос", "Звонок", "Call" }.Any(s => w.Title.Contains(s, StringComparison.OrdinalIgnoreCase)));
-            _discordDetected = discord != null;
-            _discordDetectedLabel = discord?.Title.Split('-')[0].Trim() ?? "Discord · Голос";
             UpdateWindowSignals(snapshot.Windows);
         }
         catch (Exception ex) { AppLog.Error("Background feature scan", ex); }

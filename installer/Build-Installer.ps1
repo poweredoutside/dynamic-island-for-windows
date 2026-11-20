@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [version]$Version = '1.1.9.0',
+    [version]$Version,
     [string]$PfxPath,
     [string]$PfxPassword = $env:DYNAMIC_ISLAND_PFX_PASSWORD
 )
@@ -8,11 +8,34 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $outputRoot = Join-Path $projectRoot 'artifacts'
+if (!$Version) {
+    $project = [xml](Get-Content -LiteralPath (Join-Path $projectRoot 'DynamicIslandWin.csproj') -Raw)
+    $productVersion = $project.SelectSingleNode('/Project/PropertyGroup/Version')
+    if (!$productVersion) { throw 'Define Version in DynamicIslandWin.csproj or pass -Version.' }
+    $Version = [version]$productVersion.InnerText
+}
+$automaticRevision = $Version.Revision -lt 0
+$knownPackages = @()
+if ($automaticRevision) {
+    $knownPackages = @(
+        if (Test-Path -LiteralPath $outputRoot) {
+            Get-ChildItem -LiteralPath $outputRoot -Directory | ForEach-Object {
+                if ($_.Name -match '^DynamicIsland-(\d+\.\d+\.\d+\.\d+)-x64$') { [version]$Matches[1] }
+            }
+        }
+        Get-AppxPackage -Name 'DynamicIslandWin' -ErrorAction Stop | ForEach-Object { [version]$_.Version }
+    )
+}
+$packageVersion = & (Join-Path $PSScriptRoot 'Get-PackageVersion.ps1') -Version $Version -KnownPackages $knownPackages
 $buildRoot = Join-Path $outputRoot ('build-' + [guid]::NewGuid().ToString('N'))
 $payload = Join-Path $buildRoot 'payload'
-$release = Join-Path $outputRoot ('DynamicIsland-' + $Version.ToString(4) + '-x64')
+$release = Join-Path $outputRoot ('DynamicIsland-' + $packageVersion.ToString(4) + '-x64')
 $toolRoot = Join-Path $projectRoot '.tools\packages'
-New-Item -ItemType Directory -Force -Path $payload, $release | Out-Null
+New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+if ($automaticRevision) { New-Item -ItemType Directory -Path $release | Out-Null }
+else { New-Item -ItemType Directory -Force -Path $release | Out-Null }
+New-Item -ItemType Directory -Force -Path $payload | Out-Null
+Write-Host "Product version $($Version.ToString(3)), package version $packageVersion."
 & (Join-Path $PSScriptRoot 'Test-InstallerPaths.ps1')
 & (Join-Path $PSScriptRoot 'Test-InstallerUpdates.ps1')
 $hardwareInstaller = & (Join-Path $PSScriptRoot 'Get-HardwareDependency.ps1')
@@ -55,7 +78,7 @@ if (!$PfxPath) {
 $certificate = [Security.Cryptography.X509Certificates.X509Certificate2]::new($PfxPath, $PfxPassword)
 [IO.File]::WriteAllBytes((Join-Path $release 'DynamicIsland.cer'), $certificate.Export([Security.Cryptography.X509Certificates.X509ContentType]::Cert))
 $manifest = [xml](Get-Content -LiteralPath (Join-Path $PSScriptRoot 'Package.appxmanifest') -Raw -Encoding UTF8)
-$manifest.Package.Identity.Version = $Version.ToString(4)
+$manifest.Package.Identity.Version = $packageVersion.ToString(4)
 $manifest.Package.Identity.Publisher = $certificate.Subject
 $manifest.Save((Join-Path $payload 'AppxManifest.xml'))
 $certificate.Dispose()

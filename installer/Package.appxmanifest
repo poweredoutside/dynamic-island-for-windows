@@ -43,5 +43,6 @@
     <rescap:Capability Name="runFullTrust" />
     <rescap:Capability Name="unvirtualizedResources" />
     <DeviceCapability Name="microphone" />
+    <DeviceCapability Name="radios" />
   </Capabilities>
 </Package>

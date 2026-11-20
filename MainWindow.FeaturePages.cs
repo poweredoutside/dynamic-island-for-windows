@@ -32,8 +32,10 @@ public partial class MainWindow
         ["chat"] = ("Чат", "M2,4 Q2,2 4,2 H12 Q14,2 14,4 V10 Q14,12 12,12 H6 L2,14 Z M5,6 H11 M5,8.5 H9"),
         ["timers"] = ("Таймеры", "M8,4 A5.5,5.5 0 1 1 8,15 A5.5,5.5 0 1 1 8,4 M6,1 H10 M8,1 V4 M8,7 V10 L10,11"),
         ["clipboard"] = ("Буфер обмена", "M5,3 H3 V14 H13 V3 H11 M5,2 H7 L8,1 L9,2 H11 V5 H5 Z M5.5,8 H10.5 M5.5,11 H10.5"),
+        ["notes"] = ("Заметки", "M3,2 H13 V14 H3 Z M5,5 H11 M5,8 H11 M5,11 H9"),
         ["calendar"] = ("Календарь", "M2,3 H14 V14 H2 Z M5,1 V5 M11,1 V5 M2,7 H14 M5,10 H6 M8,10 H9 M11,10 H12"),
-        ["system"] = ("Система", "M6,5 H10 C13,5 14,7 14.5,10 C15,13 13,14 11,12 L9.5,11 H6.5 L5,12 C3,14 1,13 1.5,10 C2,7 3,5 6,5 Z M4,8 H8 M6,6 V10 M11,8 H12")
+        ["system"] = ("Система", "M6,5 H10 C13,5 14,7 14.5,10 C15,13 13,14 11,12 L9.5,11 H6.5 L5,12 C3,14 1,13 1.5,10 C2,7 3,5 6,5 Z M4,8 H8 M6,6 V10 M11,8 H12"),
+        ["widgets"] = ("Виджеты", "M2,2 H6 V6 H2 Z M8,2 H14 V6 H8 Z M2,8 H6 V14 H2 Z M8,8 H14 V14 H8 Z")
     };
     private string? _settingsFeaturePage;
     private TextBlock FeatureText(string text, double size = 12, string color = "ThemeTextBrush")
@@ -50,7 +52,12 @@ public partial class MainWindow
     private StackPanel FeatureCard(string title, string? subtitle = null, Panel? parent = null)
     {
         var content = new StackPanel();
-        var heading = FeatureText(title, 16); heading.FontWeight = FontWeights.SemiBold; content.Children.Add(heading);
+        if (title.Length > 0)
+        {
+            var heading = FeatureText(title, 16);
+            heading.FontWeight = FontWeights.SemiBold;
+            content.Children.Add(heading);
+        }
         if (subtitle != null) content.Children.Add(FeatureText(subtitle, 11, "ThemeMutedBrush"));
         (parent ?? DashboardSectionContent).Children.Add(new Border { Style = (Style)FindResource("GlassSectionCard"), Child = content }); return content;
     }
@@ -61,12 +68,13 @@ public partial class MainWindow
         input.SetResourceReference(Control.ForegroundProperty, "ThemeTextBrush"); input.SetResourceReference(Control.BackgroundProperty, "ThemeInputBrush");
         input.SetResourceReference(TextBox.CaretBrushProperty, "ThemeTextBrush"); parent.Children.Add(input); return input;
     }
-    private void FeatureToggle(Panel parent, string text, bool value, Action<bool> changed)
+    private CheckBox FeatureToggle(Panel parent, string text, bool value, Action<bool> changed)
     {
         var toggle = new CheckBox { Content = L(text), IsChecked = value, Margin = new Thickness(0, 3, 0, 12), FontSize = 12 };
         toggle.SetResourceReference(Control.ForegroundProperty, "ThemeTextBrush");
         toggle.Click += (_, _) => { changed(toggle.IsChecked == true); ApplyFeatureAppearance(); SaveSettings(); };
         parent.Children.Add(toggle);
+        return toggle;
     }
     private void FeatureSlider(Panel parent, string text, double min, double max, double value, Action<double> changed, bool integer = false)
     {
@@ -186,7 +194,12 @@ public partial class MainWindow
         _manualResize = false; ResizeHint.Visibility = ResizeWidthThumb.Visibility = ResizeHeightThumb.Visibility = Visibility.Collapsed;
         bool changingView = _currentState != IslandState.Section;
         MorphToState(IslandState.Section);
-        if (!changingView) BuildDashboardNavigation();
+        if (!changingView)
+        {
+            _targetH = DashboardPageHeight;
+            StartIslandFrames();
+            BuildDashboardNavigation();
+        }
         DashboardSectionContent.Children.Clear(); DashboardSectionView.ScrollToTop();
         switch (page)
         {
@@ -195,9 +208,20 @@ public partial class MainWindow
             case "timers": BuildTimersPage(); break;
             case "music": BuildMusicPage(); break;
             case "chat": BuildChatPage(); break;
+            case "notes": BuildNotesPage(); break;
+            case "widgets": BuildWidgetsPage(); break;
             case "welcome": BuildWelcomePage(); break;
         }
     }
+
+    private double DashboardPageHeight => _featurePage switch
+    {
+        "timers" => 350,
+        "notes" when _notes.Count == 0 => 235,
+        "calendar" => 490,
+        "system" or "widgets" => 555,
+        _ => 485
+    };
 
     private void BuildLayoutPage()
     {
@@ -336,6 +360,7 @@ public partial class MainWindow
 
     private async Task BuildSystemPageAsync()
     {
+        var card = BuildSystemOverview();
         var game = FeatureCard("Игровой центр");
         _gameMetricsStatus = FeatureText("", 11, "ThemeMutedBrush"); game.Children.Add(_gameMetricsStatus);
         _gameTemperatureStatus = FeatureText("", 11, "ThemeMutedBrush"); game.Children.Add(_gameTemperatureStatus);
@@ -365,7 +390,6 @@ public partial class MainWindow
         }
         RefreshGameMetricsControls();
         game.Children.Add(FeatureText("FPS измеряется по событиям отправки кадров активной игры. Если игра не передаёт такие события, показание недоступно.", 11, "ThemeMutedBrush"));
-        var card = FeatureCard("Громкость приложений", "Регуляторы управляют настоящими звуковыми сессиями Windows.");
         var placeholder = FeatureText("Читаю аудиоустройства…", 12, "ThemeMutedBrush"); card.Children.Add(placeholder);
         try
         {
@@ -387,48 +411,8 @@ public partial class MainWindow
         }
         catch (Exception ex) { AppLog.Error("Read audio mixer", ex); placeholder.Text = L("Нет доступного устройства вывода. Откройте настройки звука Windows."); card.Children.Add(FeatureButton("Настройки звука", () => OpenWebSettings("ms-settings:sound"))); }
     }
-    private void BuildCalendarPage()
-    {
-        var card = FeatureCard("Ближайшие встречи", "Импортируйте календарь .ics. Повторы и часовые пояса учитываются. Ссылка на звонок появится за 10 минут и в момент начала.");
-        card.Children.Add(FeatureButton("Импортировать .ics", async () =>
-        {
-            var dialog = new Microsoft.Win32.OpenFileDialog { Filter = L("Календарь iCalendar|*.ics"), CheckFileExists = true };
-            if (dialog.ShowDialog(this) != true) return;
-            try
-            {
-                if (new FileInfo(dialog.FileName).Length > 4_000_000) throw new FormatException("Календарь больше 4 МБ.");
-                string text = await File.ReadAllTextAsync(dialog.FileName);
-                _meetings = await Task.Run(() => CalendarReader.Read(text, DateTimeOffset.Now));
-                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(CalendarPath)!); await File.WriteAllTextAsync(CalendarPath, text); OpenFeaturePage("calendar");
-            }
-            catch (Exception ex) { AppLog.Error("Import calendar", ex); card.Children.Add(FeatureText("Не удалось прочитать календарь. Проверьте файл .ics.", 11, "ThemeDangerBrush")); }
-        }));
-        card.Children.Add(FeatureButton("Удалить календарь", () => { if (File.Exists(CalendarPath)) File.Delete(CalendarPath); _meetings = []; OpenFeaturePage("calendar"); }));
-        if (_meetings.Count == 0) card.Children.Add(FeatureText("На ближайшие 30 дней встреч нет.", 12, "ThemeMutedBrush"));
-        foreach (var meeting in _meetings.Take(60))
-        {
-            var row = FeatureCard(meeting.Title, meeting.Start.ToLocalTime().ToString("ddd, dd MMM · HH:mm") + " — " + meeting.End.ToLocalTime().ToString("HH:mm"));
-            if (meeting.Join != null) row.Children.Add(FeatureButton(L("Присоединиться") + " · " + meeting.Join.Host, () => OpenWeb(meeting.Join)));
-        }
-    }
-    private void BuildTimersPage()
-    {
-        var card = FeatureCard("Таймеры и напоминания", "Продолжают отсчитывать время после перезапуска приложения.");
-        var label = FeatureInput(card, "Название", "Пора сделать перерыв");
-        var minutes = FeatureInput(card, "Через сколько минут", "25");
-        var error = FeatureText("", 11, "ThemeDangerBrush");
-        card.Children.Add(FeatureButton("Запустить таймер", () =>
-        {
-            if (!double.TryParse(minutes.Text.Replace(',', '.'), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double value) || !double.IsFinite(value) || value < .05 || value > 525600)
-            { error.Text = L("Введите от 0,05 до 525600 минут."); return; }
-            _settings.Timers.Add(new(Guid.NewGuid(), string.IsNullOrWhiteSpace(label.Text) ? L("Таймер") : label.Text[..Math.Min(label.Text.Length, 120)], DateTimeOffset.Now.AddMinutes(value))); SaveSettings(); OpenFeaturePage("timers");
-        })); card.Children.Add(error);
-        foreach (var timer in _settings.Timers.OrderBy(t => t.Due).ToArray())
-        {
-            var row = FeatureCard(timer.Label, L("Сработает") + " " + timer.Due.ToLocalTime().ToString("dd MMM HH:mm:ss"));
-            row.Children.Add(FeatureButton("Отменить", () => { _settings.Timers.Remove(timer); SaveSettings(); OpenFeaturePage("timers"); }));
-        }
-    }
+    private void BuildTimersPage() => BuildTimerPageControls();
+
     private void BuildMusicPage()
     {
         var card = FeatureCard("Музыка");
@@ -491,14 +475,14 @@ public partial class MainWindow
         ("Стекло", _settings.LiquidGlass ? "Включено. Видимость при захвате настраивается отдельно." : "Выключено в настройках внешнего вида.", null),
         ("Автозапуск", _settings.RunOnStartup ? "Запрошен в настройках; Windows может ограничить запуск." : "Выключен.", "ms-settings:startupapps"),
         ("Обновления", string.IsNullOrWhiteSpace(_settings.UpdateRepository) ? "Укажите репозиторий GitHub в разделе обновлений." : "Источник задан. Доступность новой версии проверяется в разделе обновлений.", null),
-        ("Календарь", File.Exists(CalendarPath) ? string.Format(L("Подключён .ics, событий на 30 дней: {0}. Обновление — повторный импорт."), _meetings.Count) : "Импортируйте файл .ics на странице календаря.", null),
+        ("Календарь", File.Exists(CalendarPath) ? string.Format(L("Подключён .ics, событий на 30 дней: {0}."), _meetings.Count) : "Импортируйте файл .ics на странице календаря.", null),
         ("Яркость", _lastBrightness.HasValue ? "Экран поддерживает системную регулировку." : "Экран не публикует яркость через Windows WMI.", null),
         ("Gemini", string.IsNullOrWhiteSpace(GeminiKeyStore.Read()) ? "Нужен ваш API-ключ." : _voice?.Connected == true ? "Голосовой сеанс активен." : "Ключ найден; соединение проверяется при запуске голоса.", "ms-settings:privacy-microphone")
     ];
     private void BuildDiagnosticsPage()
     {
         var header = FeatureCard("Проверка системы", "Отчёт содержит технические статусы, без сообщений, имён собеседников и API-ключей.", parent: SettingsFeatureContent);
-        header.Children.Add(FeatureButton("Копировать отчёт", () => Clipboard.SetText("OC - Dynamic Island 1.1.9\nWindows " + Environment.OSVersion.Version + "\n" + string.Join("\n", DiagnosticRows().Select(r => L(r.Name) + ": " + L(r.Status))))));
+        header.Children.Add(FeatureButton("Копировать отчёт", () => Clipboard.SetText($"OC - Dynamic Island {ProductVersion}\nWindows " + Environment.OSVersion.Version + "\n" + string.Join("\n", DiagnosticRows().Select(r => L(r.Name) + ": " + L(r.Status))))));
         header.Children.Add(FeatureButton("Повторить проверку", () => OpenSettingsFeaturePage("diagnostics")));
         foreach (var row in DiagnosticRows())
         {
@@ -617,7 +601,13 @@ public partial class MainWindow
     private void BuildWhatsNewSection()
     {
         var card = FeatureCard("Что нового", parent: SettingsFeatureContent);
-        foreach (string line in new[] { "Громкость регулируется прямо в капсуле справа: ползунок, колесо мыши и кнопка звука.", "Прозрачность фона настраивается в разделе «Оформление».", "В Telegram и exDesktop нужно включить системные уведомления Windows.", "История буфера обмена хранит текст и скриншоты за последние 24 часа." })
+        foreach (string line in new[]
+        {
+            "Таймер с круговым индикатором, помодоро и секундомер.",
+            "Календарь на неделю, напоминания и подписки ICS.",
+            "Пункт управления Windows и показатели CPU, GPU и памяти.",
+            "Заметки, виджеты рабочего стола и уведомления ИИ-агентов."
+        })
             card.Children.Add(FeatureText("• " + L(line), 13));
         card.Children.Add(FeatureButton("Канал проекта", () => OpenWeb(new Uri("https://t.me/outsidecompany"))));
     }
@@ -633,7 +623,7 @@ public partial class MainWindow
         card.Children.Add(FeatureButton(_welcomeStep < 2 ? "Далее" : "Начать", () =>
         {
             if (_welcomeStep < 2) { _welcomeStep++; OpenFeaturePage("welcome"); }
-            else { _settings.OnboardingComplete = true; _settings.LastSeenVersion = "1.1.9"; SaveSettings(); MorphToState(IslandState.Compact); }
+            else { _settings.OnboardingComplete = true; _settings.LastSeenVersion = ProductVersion; SaveSettings(); MorphToState(IslandState.Compact); }
         }));
     }
 }

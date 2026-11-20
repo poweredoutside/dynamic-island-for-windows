@@ -424,7 +424,11 @@ public partial class MainWindow
     private async void SetDoNotDisturbState(bool active, bool notifyUser, bool fromGameMode = false)
     {
         if (_dndChanging) { UpdateDndVisuals(); return; }
-        if (!fromGameMode) _gameModeOwnsDnd = false;
+        if (!fromGameMode)
+        {
+            _gameModeOwnsDnd = false;
+            _timedDnd = null;
+        }
         _dndChanging = true;
         try
         {
@@ -486,6 +490,8 @@ public partial class MainWindow
         bool wasUnknown = !_dndStateKnown;
         if (_gameModeOwnsDnd && !_dndChanging && (!state.IsActive || state.SelectedProfile != WindowsDndService.Priority))
             _gameModeOwnsDnd = false; // User/system took over: don't undo their choice on exit.
+        if (_timedDnd is { } timed && state.SelectedProfile != WindowsDndService.Priority && timed.Until > DateTimeOffset.Now)
+            _timedDnd = null;
         _dndStateKnown = true;
         _isDndActive = state.IsActive;
         if (changed || wasUnknown) UpdateDndVisuals();

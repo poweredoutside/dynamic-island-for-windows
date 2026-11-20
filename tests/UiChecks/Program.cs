@@ -29,6 +29,13 @@ internal static class Program
         void Check(bool ok, string message) { if (!ok) throw new Exception(message); checks++; }
         var settings = Field<MainWindow.AppSettings>("_settings");
         settings.Language = "English";
+        Call("NavAi_Click", Element<Button>("NavAiBtn"), new RoutedEventArgs(Button.ClickEvent));
+        Check(Element<ScrollViewer>("PageAi").Visibility == Visibility.Visible, "AI settings page opens");
+        Check(Element<TextBlock>("AiClaudeStatusText").Text.Length > 0 && Element<TextBlock>("AiCodexStatusText").Text.Length > 0
+            && Element<PasswordBox>("AiGeminiKeyBox") != null, "AI settings show Gemini, Claude Code and Codex cards");
+        Check(Element<Button>("BtnAiClaude").Content is string && Element<Button>("BtnAiCodex").Content is string,
+            "AI agent cards expose independent connect buttons");
+        Check(Element<PasswordBox>("AiGeminiKeyBox").Password.Length == 0, "Stored Gemini key is not populated into the UI");
         Check(!settings.LensGlass, "Experimental lens is opt-in for existing installations");
         settings.LensGlass = true;
         Call("ConfigureLensGlass");
@@ -173,7 +180,7 @@ internal static class Program
             "Context menu opens updates in Settings and runs the manual check immediately");
         settings.UpdateRepository = savedRepo;
         var dashboardNavigation = Element<StackPanel>("DashboardNavigation");
-        string[] dashboardKeys = ["home", "music", "weather", "chat", "timers", "clipboard", "calendar", "system"];
+        string[] dashboardKeys = ["home", "music", "weather", "chat", "timers", "clipboard", "notes", "calendar", "system", "widgets"];
         settings.TabOrder.AddRange(["layout", "themes", "updates", "diagnostics", "news"]);
         Call("BuildDashboardNavigation");
         Check(dashboardNavigation.Children.OfType<Button>().Select(button => (string)button.Tag).SequenceEqual(dashboardKeys),
@@ -333,7 +340,7 @@ internal static class Program
             var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
             using var file = System.IO.File.Create(System.IO.Path.Combine(output, name + ".png")); png.Save(file);
         }
-        void Snapshot(string name, string view, string? page = null)
+        void Snapshot(string name, string view, string? page = null, int height = 515)
         {
             foreach (string id in new[] { "CompactView", "HoverView", "ExpandedView", "WeatherDashboardView", "SettingsView", "ClipboardDashboardView", "DashboardSectionView" })
                 if (window.FindName(id) is FrameworkElement el) el.Visibility = Visibility.Collapsed;
@@ -343,11 +350,11 @@ internal static class Program
             content.BeginAnimation(UIElement.OpacityProperty, null); content.Opacity = 1; content.Visibility = Visibility.Visible;
             if (page != null)
             {
-                string nav = page == "PageAppearance" ? "NavAppearanceBtn" : "NavBehaviorBtn";
+                string nav = page switch { "PageAppearance" => "NavAppearanceBtn", "PageAi" => "NavAiBtn", _ => "NavBehaviorBtn" };
                 Call("SwitchSettingsPage", Element<UIElement>(page), Element<Button>(nav));
                 var p = Element<FrameworkElement>(page); p.BeginAnimation(UIElement.OpacityProperty, null); p.Opacity = 1;
             }
-            island.Width = 740; island.Height = 515;
+            island.Width = 740; island.Height = height;
             island.RenderTransform = Transform.Identity;
             Call("UpdateGlassShadow");
             ((FrameworkElement)window.Content).Measure(new Size(1360, 700));
@@ -356,10 +363,10 @@ internal static class Program
             var visual = new DrawingVisual();
             using (var draw = visual.RenderOpen())
             {
-                draw.DrawRectangle(new SolidColorBrush(Color.FromRgb(117, 139, 164)), null, new Rect(0, 0, 740, 515));
-                draw.DrawRectangle(new VisualBrush(island), null, new Rect(0, 0, 740, 515));
+                draw.DrawRectangle(new SolidColorBrush(Color.FromRgb(117, 139, 164)), null, new Rect(0, 0, 740, height));
+                draw.DrawRectangle(new VisualBrush(island), null, new Rect(0, 0, 740, height));
             }
-            var bitmap = new RenderTargetBitmap(740, 515, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
+            var bitmap = new RenderTargetBitmap(740, height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
             var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
             using var file = System.IO.File.Create(System.IO.Path.Combine(output, name + ".png")); png.Save(file);
         }
@@ -490,6 +497,8 @@ internal static class Program
             {
                 ("BuildLayoutPage", settingsContent), ("BuildUserThemesPage", settingsContent), ("BuildUpdatesPage", settingsContent),
                 ("BuildTimersPage", Element<StackPanel>("DashboardSectionContent")), ("BuildMusicPage", Element<StackPanel>("DashboardSectionContent")),
+                ("BuildCalendarPage", Element<StackPanel>("DashboardSectionContent")), ("BuildNotesPage", Element<StackPanel>("DashboardSectionContent")),
+                ("BuildWidgetsPage", Element<StackPanel>("DashboardSectionContent")),
                 ("BuildWelcomePage", Element<StackPanel>("DashboardSectionContent"))
             })
             {
@@ -563,6 +572,76 @@ internal static class Program
         Snapshot("clipboard-text-and-screenshots", "ClipboardDashboardView");
         SelectDashboardTab("home");
         Check(historyRows.Children.Count == 0, "Leaving clipboard history releases its preview rows");
+        var dashboardContent = Element<StackPanel>("DashboardSectionContent");
+        foreach (var (page, height, count) in new[] { ("timers", 350, 2), ("calendar", 490, 3), ("notes", 235, 4), ("system", 555, 6), ("widgets", 555, 3) })
+        {
+            SelectDashboardTab(page);
+            Check(dashboardContent.Children.Count >= count, page + ": renders its top-level controls");
+            Snapshot("1.1.23-" + page, "DashboardSectionView", height: height);
+        }
+        Call("NavAi_Click", Element<Button>("NavAiBtn"), new RoutedEventArgs(Button.ClickEvent));
+        Snapshot("1.1.23-ai-agents", "SettingsView", "PageAi");
+        SelectDashboardTab("home");
+        var placement = new MainWindow.WidgetPlacement { Kind = "clock", X = SystemParameters.WorkArea.Left + 30, Y = SystemParameters.WorkArea.Top + 40 };
+        settings.DesktopWidgets.Add(placement);
+        var widgetWindows = Field<System.Collections.IDictionary>("_widgetWindows");
+        var widgetFixture = Call("CreateWidgetWindow", placement, 0)!;
+        var widgetWindow = (Window)widgetFixture.GetType().GetProperty("Window")!.GetValue(widgetFixture)!;
+        var widgetBody = (TextBlock)widgetFixture.GetType().GetProperty("Body")!.GetValue(widgetFixture)!;
+        widgetWindow.Opacity = 0;
+        widgetWindows.Add(placement.Kind, widgetFixture);
+        Call("SyncDesktopWidgets");
+        Check(widgetWindow.IsVisible && !widgetWindow.ShowInTaskbar && !widgetWindow.ShowActivated
+            && Math.Abs(widgetWindow.Left - placement.X!.Value) < 1 && !string.IsNullOrWhiteSpace(widgetBody.Text),
+            "A desktop widget restores its position, opens without taking focus, and receives live content");
+        settings.WidgetsHidden = true;
+        Call("SyncDesktopWidgets");
+        Check(!widgetWindow.IsVisible && !Field<DispatcherTimer>("_desktopWidgetsTimer").IsEnabled, "Hidden widgets stop polling");
+        settings.WidgetsTopmost = true;
+        settings.WidgetsHidden = false;
+        Call("SyncDesktopWidgets");
+        Check(widgetWindow.IsVisible && widgetWindow.Topmost, "Widget visibility and topmost settings apply immediately");
+        settings.DesktopWidgets.Clear();
+        Call("SyncDesktopWidgets");
+        Check(widgetWindows.Count == 0 && !Field<DispatcherTimer>("_desktopWidgetsTimer").IsEnabled, "Removing the final widget closes it and stops polling");
+        settings.WidgetsTopmost = false;
+        foreach (string kind in new[] { "music", "calculator", "month" })
+        {
+            var preview = Call("CreateWidgetWindow", new MainWindow.WidgetPlacement { Kind = kind }, 0)!;
+            var previewWindow = (Window)preview.GetType().GetProperty("Window")!.GetValue(preview)!;
+            var previewCard = (Border)previewWindow.Content;
+            var menu = previewCard.ContextMenu;
+            Check(Equals(menu.Style, window.FindResource("IslandContextMenu")) &&
+                menu.Items.OfType<MenuItem>().All(item => item.Tag is string glyph && glyph.Length > 0), $"{kind}: widget menu uses the island template and icons");
+            Check(ReferenceEquals(menu.Resources["ThemeDangerBrush"], ((MenuItem)menu.Items[^1]).Foreground), $"{kind}: remove action uses the danger palette");
+            if (kind == "calculator")
+            {
+                var keys = ((DockPanel)previewCard.Child).Children.OfType<System.Windows.Controls.Primitives.UniformGrid>().Single();
+                foreach (string key in new[] { "7", "+", "5", "=" })
+                    keys.Children.OfType<Button>().Single(button => Equals(button.Content, key)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var display = (TextBlock)preview.GetType().GetProperty("Body")!.GetValue(preview)!;
+                Check(display.Text == "12", "Calculator widget buttons update its display");
+                settings.DesktopWidgets.Add(new MainWindow.WidgetPlacement { Kind = kind });
+                widgetWindows.Add(kind, preview);
+                previewWindow.Opacity = 0;
+                Call("SyncDesktopWidgets");
+                Check(!Field<DispatcherTimer>("_desktopWidgetsTimer").IsEnabled, "An interactive calculator needs no background updates");
+                SaveVisual(previewCard, "widget-calculator", previewWindow.Width, previewWindow.Height);
+                settings.DesktopWidgets.Clear();
+                Call("SyncDesktopWidgets");
+            }
+            else
+            {
+                if (kind == "music")
+                {
+                    menu.ApplyTemplate();
+                    menu.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                    menu.Arrange(new Rect(menu.DesiredSize));
+                    SaveVisual(menu, "widget-music-menu", Math.Ceiling(menu.DesiredSize.Width), Math.Ceiling(menu.DesiredSize.Height));
+                }
+                previewWindow.Close();
+            }
+        }
         string photoPath = System.IO.Path.Combine(output, "background-decode-probe.png");
         var photo = BitmapSource.Create(1024, 2048, 96, 96, PixelFormats.Bgr24, null, new byte[1024 * 2048 * 3], 1024 * 3);
         System.IO.File.WriteAllBytes(photoPath, (byte[])encode.Invoke(null, [photo])!);

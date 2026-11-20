@@ -1185,18 +1185,43 @@
                             </ScrollViewer>
 
                             <!-- СТРАНИЦА 7: ИИ-АГЕНТЫ -->
-                            <ScrollViewer x:Name="PageAi" Visibility="Collapsed" VerticalScrollBarVisibility="Hidden">
-                                <Border Style="{StaticResource GlassSectionCard}">
-                                    <StackPanel>
-                                        <TextBlock x:Name="LblAiHeader" Text="ИИ-агенты (Gemini / Claude / Codex / Antigravity)" Foreground="{DynamicResource ThemeTextBrush}" FontSize="14" FontWeight="Bold" Margin="0,0,0,8"/>
-                                        <Border Background="{DynamicResource ThemeInputBrush}" CornerRadius="13" Padding="14,9" Margin="0,4,0,12">
-                                            <TextBox x:Name="AiEndpointBox" Background="Transparent" Foreground="{DynamicResource ThemeTextBrush}" CaretBrush="{DynamicResource ThemeTextBrush}"
-                                                     BorderThickness="0" FontSize="13" Text="gemini" TextChanged="CustomCmdTextBox_TextChanged"/>
-                                        </Border>
-                                        <Button x:Name="BtnLaunchAi" Style="{StaticResource GlassPillBtn}" Background="#6366F1" Foreground="{DynamicResource ThemeTextBrush}"
-                                                Content="Запустить ИИ-агента" HorizontalAlignment="Left" Padding="16,8" Click="LaunchAiAgent_Click"/>
-                                    </StackPanel>
-                                </Border>
+                            <ScrollViewer x:Name="PageAi" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel>
+                                    <Border Style="{StaticResource GlassSectionCard}">
+                                        <StackPanel>
+                                            <TextBlock x:Name="LblAiHeader" Text="ИИ-агенты" Foreground="{DynamicResource ThemeTextBrush}" FontSize="15" FontWeight="Bold" Margin="0,0,0,12"/>
+                                            <TextBlock x:Name="AiGeminiTitle" Text="Голосовой ассистент · Gemini Live" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                            <TextBlock x:Name="AiGeminiKeyLabel" Text="API-ключ Gemini" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11" Margin="0,0,0,4"/>
+                                            <PasswordBox x:Name="AiGeminiKeyBox" Style="{StaticResource RoundedFeaturePasswordBox}" Background="{DynamicResource ThemeInputBrush}" Foreground="{DynamicResource ThemeTextBrush}"
+                                                         BorderThickness="0" Padding="10" FontSize="13" Margin="0,0,0,8" AutomationProperties.LabeledBy="{Binding ElementName=AiGeminiKeyLabel}"/>
+                                            <TextBlock x:Name="AiGeminiStatusText" Text="Ключ не задан. Можно использовать GEMINI_API_KEY." Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                                            <WrapPanel>
+                                                <Button x:Name="BtnAiGeminiSave" Style="{StaticResource GlassPillBtn}" Content="Сохранить ключ" Click="AiGeminiSave_Click"/>
+                                                <Button x:Name="BtnAiGeminiDelete" Style="{StaticResource GlassPillBtn}" Content="Удалить ключ" Click="AiGeminiDelete_Click"/>
+                                            </WrapPanel>
+                                            <TextBlock x:Name="AiGeminiGainLabel" Text="Громкость ИИ-ассистента" Foreground="{DynamicResource ThemeTextBrush}" FontSize="12" FontWeight="SemiBold" Margin="0,12,0,4"/>
+                                            <Slider x:Name="AiGeminiGainSlider" Minimum="0" Maximum="1" TickFrequency=".05" ValueChanged="AiGeminiGain_ValueChanged"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Style="{StaticResource GlassSectionCard}">
+                                        <Grid>
+                                            <StackPanel Margin="0,0,120,0">
+                                                <TextBlock Text="Claude Code" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                                <TextBlock x:Name="AiClaudeStatusText" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                            </StackPanel>
+                                            <Button x:Name="BtnAiClaude" Style="{StaticResource GlassPillBtn}" Content="Подключить" HorizontalAlignment="Right" VerticalAlignment="Top" Click="AiClaude_Click"/>
+                                        </Grid>
+                                    </Border>
+                                    <Border Style="{StaticResource GlassSectionCard}">
+                                        <Grid>
+                                            <StackPanel Margin="0,0,120,0">
+                                                <TextBlock Text="Codex (OpenAI)" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" FontWeight="SemiBold"/>
+                                                <TextBlock x:Name="AiCodexStatusText" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                            </StackPanel>
+                                            <Button x:Name="BtnAiCodex" Style="{StaticResource GlassPillBtn}" Content="Подключить" HorizontalAlignment="Right" VerticalAlignment="Top" Click="AiCodex_Click"/>
+                                        </Grid>
+                                    </Border>
+                                </StackPanel>
                             </ScrollViewer>
                             <ScrollViewer x:Name="SettingsFeatureScroll" Visibility="Collapsed" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                                 <StackPanel x:Name="SettingsFeatureContent" Margin="0,0,8,8"/>

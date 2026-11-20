@@ -2,6 +2,13 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 Add-Type -AssemblyName System.IO.Compression
+$getVersion = Join-Path $PSScriptRoot 'Get-PackageVersion.ps1'
+$first = & $getVersion -Version '1.1.22' -KnownPackages @('1.1.21.8', '1.1.23.3')
+$next = & $getVersion -Version '1.1.22' -KnownPackages @('1.1.22.0', '1.1.22.3', '1.1.23.10')
+$explicit = & $getVersion -Version '1.1.22.0' -KnownPackages @('1.1.22.3')
+if ($first -ne [version]'1.1.22.0' -or $next -ne [version]'1.1.22.4' -or $explicit -ne [version]'1.1.22.0') {
+    throw 'Unexpected MSIX revision selection.'
+}
 $fixture = Join-Path (Split-Path -Parent $PSScriptRoot) ('artifacts\installer-update-checks-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $fixture | Out-Null
 try {
@@ -24,6 +31,7 @@ try {
         @{ Version = '1.0.0.0'; Architecture = 'X64'; Expected = 'Update' },
         @{ Version = '1.0.1.0'; Architecture = 'X64'; Expected = 'AlreadyInstalled' },
         @{ Version = '1.0.1.0'; Architecture = 'Neutral'; Expected = 'RequireNewerVersion' },
+        @{ Version = '1.0.1.1'; Architecture = 'X64'; Expected = 'RequireNewerVersion' },
         @{ Version = '1.0.2.0'; Architecture = 'X64'; Expected = 'RequireNewerVersion' }
     )
     foreach ($case in $cases) {

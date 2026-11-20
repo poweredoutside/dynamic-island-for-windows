@@ -293,7 +293,7 @@ OC - Dynamic Island 1.1.9 · нажмите, чтобы увидеть нови�
 Голосовой сеанс завершён сервером.¦Voice session ended by server.¦Голосовий сеанс завершено сервером.¦Sprachsitzung vom Server beendet.¦El servidor terminó la sesión de voz.
 Gemini отклонил запрос. Проверьте ключ, модель и доступ Live API.¦Gemini rejected the request. Check key, model and Live API access.¦Gemini відхилив запит. Перевірте ключ, модель і доступ Live API.¦Gemini hat Anfrage abgelehnt. Schlüssel, Modell und Live-API-Zugriff prüfen.¦Gemini rechazó la solicitud. Revisa clave, modelo y acceso a Live API.
 Ошибка голосового соединения. Проверьте сеть и модель.¦Voice connection error. Check network and model.¦Помилка голосового з’єднання. Перевірте мережу й модель.¦Sprachverbindungsfehler. Netzwerk und Modell prüfen.¦Error de conexión de voz. Revisa red y modelo.
-Подключён .ics, событий на 30 дней: {0}. Обновление — повторный импорт.¦.ics connected, events in 30 days: {0}. Import again to refresh.¦Підключено .ics, подій на 30 днів: {0}. Оновіть повторним імпортом.¦.ics verbunden, Termine in 30 Tagen: {0}. Erneut importieren zum Aktualisieren.¦.ics conectado, eventos en 30 días: {0}. Importa de nuevo para actualizar.
+Подключён .ics, событий на 30 дней: {0}.¦ICS connected, events in 30 days: {0}.¦Підключено ICS, подій на 30 днів: {0}.¦ICS verbunden, Termine in 30 Tagen: {0}.¦ICS conectado, eventos en 30 días: {0}.
 Прогресс программ вынесен в отдельную капсулу справа и отключается в настройках.¦App progress appears in a separate right capsule with a settings toggle.¦Прогрес програм в окремій капсулі праворуч із перемикачем у налаштуваннях.¦App-Fortschritt in separater rechter Kapsel mit Einstellungsschalter.¦Progreso en una cápsula derecha con interruptor en ajustes.
 История буфера обмена хранит текст и скриншоты за последние 24 часа.¦Clipboard history stores text and screenshots for 24 hours.¦Історія буфера обміну зберігає текст і знімки екрана за 24 години.¦Zwischenablage speichert Text und Screenshots für 24 Stunden.¦El historial guarda texto y capturas durante 24 horas.
 Исправлены прозрачность стекла, переводы разделов и слежение персонажей за курсором.¦Fixed glass transparency, section translations and characters following the cursor.¦Виправлено прозорість скла, переклади розділів і стеження персонажів за курсором.¦Glastransparenz, Übersetzungen und Cursor-Verfolgung der Charaktere korrigiert.¦Corregidas transparencia, traducciones y seguimiento del cursor de los personajes.
@@ -317,5 +317,145 @@ Windows не подтвердила подпись издателя устано
 Неизвестный код темы.¦Unknown theme code.¦Невідомий код теми.¦Unbekannter Themencode.¦Código de tema desconocido.
 Недопустимые цвета темы.¦Invalid theme colors.¦Неприпустимі кольори теми.¦Ungültige Themenfarben.¦Colores de tema inválidos.
 Повреждённый код темы.¦Corrupt theme code.¦Пошкоджений код теми.¦Beschädigter Themencode.¦Código de tema dañado.
+Заметки¦Notes¦Нотатки¦Notizen¦Notas
+Виджеты¦Widgets¦Віджети¦Widgets¦Widgets
+{0} мин¦{0} min¦{0} хв¦{0} Min.¦{0} min
+1 ч¦1 hr¦1 год¦1 Std.¦1 h
+30 мин¦30 min¦30 хв¦30 Min.¦30 min
+2 ч¦2 hr¦2 год¦2 Std.¦2 h
+До {0}¦Until {0}¦До {0}¦Bis {0}¦Hasta las {0}
+Чтобы задать длительность, выключите текущий режим.¦Turn off the current mode to set a duration.¦Вимкніть поточний режим, щоб задати тривалість.¦Zum Festlegen einer Dauer den aktuellen Modus ausschalten.¦Desactiva el modo actual para elegir una duración.
+Введите от 0,05 до 1440 минут.¦Enter 0.05 to 1440 minutes.¦Введіть від 0,05 до 1440 хвилин.¦0,05 bis 1440 Minuten eingeben.¦Introduce entre 0,05 y 1440 minutos.
+Время отдохнуть¦Time for a break¦Час відпочити¦Zeit für eine Pause¦Hora de descansar
+За работу¦Back to work¦До роботи¦Zurück an die Arbeit¦De vuelta al trabajo
+Минуты¦Minutes¦Хвилини¦Minuten¦Minutos
+Пауза¦Pause¦Пауза¦Pause¦Pausa
+Перерыв¦Break¦Перерва¦Pause¦Descanso
+Помодоро¦Pomodoro¦Помодоро¦Pomodoro¦Pomodoro
+Продолжить¦Resume¦Продовжити¦Fortsetzen¦Reanudar
+Работа · {0}/4¦Focus · {0}/4¦Робота · {0}/4¦Fokus · {0}/4¦Concentración · {0}/4
+Сброс¦Reset¦Скинути¦Zurücksetzen¦Reiniciar
+Секундомер¦Stopwatch¦Секундомір¦Stoppuhr¦Cronómetro
+Старт¦Start¦Старт¦Start¦Iniciar
+Таймер завершён¦Timer finished¦Таймер завершено¦Timer abgelaufen¦Temporizador terminado
+Ближайшее¦Coming up¦Найближче¦Als Nächstes¦Próximos eventos
+Вставьте ссылку HTTPS на календарь в формате ICS или импортируйте файл.¦Paste an HTTPS link to an ICS calendar or import a file.¦Вставте HTTPS-посилання на календар ICS або імпортуйте файл.¦HTTPS-Link zu einem ICS-Kalender einfügen oder Datei importieren.¦Pega un enlace HTTPS a un calendario ICS o importa un archivo.
+Введите ссылку HTTPS на календарь.¦Enter an HTTPS calendar link.¦Введіть HTTPS-посилання на календар.¦Einen HTTPS-Kalenderlink eingeben.¦Introduce un enlace HTTPS al calendario.
+Проверьте время напоминания.¦Check the reminder time.¦Перевірте час нагадування.¦Zeit der Erinnerung prüfen.¦Comprueba la hora del recordatorio.
+18:30, завтра 9:00, через 20 мин, 15.11 14:00¦18:30, tomorrow 9:00, in 20 min, 15.11 14:00¦18:30, завтра 9:00, 20 хв, 15.11 14:00¦18:30, morgen 9:00, 20 min, 15.11 14:00¦18:30, mañana 9:00, 20 min, 15.11 14:00
+Добавить¦Add¦Додати¦Hinzufügen¦Añadir
+Календарь обновлён¦Calendar updated¦Календар оновлено¦Kalender aktualisiert¦Calendario actualizado
+Календарь обновляется…¦Refreshing calendar…¦Календар оновлюється…¦Kalender wird aktualisiert…¦Actualizando calendario…
+На неделю ничего не запланировано¦Nothing scheduled for the next week¦На тиждень нічого не заплановано¦Für die nächste Woche ist nichts geplant¦Nada previsto para la próxima semana
+Напоминание¦Reminder¦Нагадування¦Erinnerung¦Recordatorio
+Напомнить¦Remind me¦Нагадати¦Erinnern¦Recordarme
+Не удалось обновить календарь. Проверьте ссылку или файл ICS.¦Could not update the calendar. Check the link or ICS file.¦Не вдалося оновити календар. Перевірте посилання або файл ICS.¦Kalender konnte nicht aktualisiert werden. Link oder ICS-Datei prüfen.¦No se pudo actualizar el calendario. Comprueba el enlace o archivo ICS.
+Обновить¦Refresh¦Оновити¦Aktualisieren¦Actualizar
+Подключите календарь заново.¦Reconnect the calendar.¦Підключіть календар знову.¦Kalender erneut verbinden.¦Vuelve a conectar el calendario.
+Подключить¦Connect¦Підключити¦Verbinden¦Conectar
+Подписка подключена¦Subscription connected¦Підписку підключено¦Abonnement verbunden¦Suscripción conectada
+Ссылка на календарь¦Calendar link¦Посилання на календар¦Kalenderlink¦Enlace al calendario
+Файл ICS импортирован¦ICS file imported¦Файл ICS імпортовано¦ICS-Datei importiert¦Archivo ICS importado
+{0:0.0} / {1:0.0} ГБ¦{0:0.0} / {1:0.0} GB¦{0:0.0} / {1:0.0} ГБ¦{0:0.0} / {1:0.0} GB¦{0:0.0} / {1:0.0} GB
+Активность не обнаружена¦No activity detected¦Активність не виявлено¦Keine Aktivität erkannt¦Sin actividad detectada
+Батарея {0}%¦Battery {0}%¦Батарея {0}%¦Akku {0}%¦Batería {0}%
+Батарея {0}% · заряжается¦Battery {0}% · charging¦Батарея {0}% · заряджається¦Akku {0}% · lädt¦Batería {0}% · cargando
+Батарея недоступна¦Battery unavailable¦Батарея недоступна¦Akku nicht verfügbar¦Batería no disponible
+Блокировка¦Lock¦Заблокувати¦Sperren¦Bloquear
+Видеокарта¦Graphics¦Відеокарта¦Grafik¦Gráficos
+Включено¦On¦Увімкнено¦An¦Activado
+Выключение¦Shut down¦Вимкнути¦Herunterfahren¦Apagar
+Выключено¦Off¦Вимкнено¦Aus¦Desactivado
+Выключить компьютер сейчас?¦Shut down this computer now?¦Вимкнути комп’ютер зараз?¦Computer jetzt herunterfahren?¦¿Apagar el equipo ahora?
+Голосовой канал не обнаружен¦No voice channel detected¦Голосовий канал не виявлено¦Kein Sprachkanal erkannt¦No se detectó un canal de voz
+Используется¦In use¦Використовується¦In Verwendung¦En uso
+Камера¦Camera¦Камера¦Kamera¦Cámara
+Микрофон¦Microphone¦Мікрофон¦Mikrofon¦Micrófono
+Микрофон и камера¦Microphone and camera¦Мікрофон і камера¦Mikrofon und Kamera¦Micrófono y cámara
+Настройки Windows¦Windows Settings¦Налаштування Windows¦Windows-Einstellungen¦Configuración de Windows
+Не удалось перевести компьютер в спящий режим.¦Could not put the computer to sleep.¦Не вдалося перевести комп’ютер у режим сну.¦Der Computer konnte nicht in den Ruhezustand versetzt werden.¦No se pudo suspender el equipo.
+Открыть Discord¦Open Discord¦Відкрити Discord¦Discord öffnen¦Abrir Discord
+Память¦Memory¦Пам’ять¦Arbeitsspeicher¦Memoria
+Перезагрузить компьютер сейчас?¦Restart this computer now?¦Перезапустити комп’ютер зараз?¦Computer jetzt neu starten?¦¿Reiniciar el equipo ahora?
+Перезагрузка¦Restart¦Перезапустити¦Neu starten¦Reiniciar
+Переключить¦Toggle¦Перемкнути¦Umschalten¦Alternar
+Процессор¦CPU¦Процесор¦Prozessor¦Procesador
+Пункт управления¦Control Center¦Пункт керування¦Kontrollzentrum¦Centro de control
+Режим полёта¦Airplane mode¦Режим польоту¦Flugmodus¦Modo avión
+Сон¦Sleep¦Сон¦Energie sparen¦Suspender
+Состояние недоступно¦Status unavailable¦Стан недоступний¦Status nicht verfügbar¦Estado no disponible
+Чистый стол¦Clean desktop¦Чистий робочий стіл¦Aufgeräumter Desktop¦Escritorio limpio
+Достигнут предел: 100 заметок.¦Limit reached: 100 notes.¦Досягнуто межі: 100 нотаток.¦Limit von 100 Notizen erreicht.¦Límite de 100 notas alcanzado.
+Заметка¦Note¦Нотатка¦Notiz¦Nota
+Копировать¦Copy¦Копіювати¦Kopieren¦Copiar
+Не удалось сохранить заметку.¦Could not save the note.¦Не вдалося зберегти нотатку.¦Notiz konnte nicht gespeichert werden.¦No se pudo guardar la nota.
+Пока пусто — напишите заметку выше¦No notes yet. Write one above.¦Нотаток ще немає. Напишіть вище.¦Noch keine Notizen. Oben eine schreiben.¦Aún no hay notas. Escribe una arriba.
+Редактировать¦Edit¦Редагувати¦Bearbeiten¦Editar
+Сохранить заметку¦Save note¦Зберегти нотатку¦Notiz speichern¦Guardar nota
+{0} завершил ответ¦{0} finished responding¦{0} завершив відповідь¦{0} hat die Antwort abgeschlossen¦{0} terminó de responder
+Голосовой ассистент · Gemini Live¦Voice assistant · Gemini Live¦Голосовий асистент · Gemini Live¦Sprachassistent · Gemini Live¦Asistente de voz · Gemini Live
+Громкость ИИ-ассистента¦AI assistant volume¦Гучність ШІ-асистента¦Lautstärke des KI-Assistenten¦Volumen del asistente de IA
+Ключ не задан. Можно использовать GEMINI_API_KEY.¦No key set. You can use GEMINI_API_KEY.¦Ключ не задано. Можна використати GEMINI_API_KEY.¦Kein Schlüssel gesetzt. GEMINI_API_KEY kann verwendet werden.¦No hay clave. Puedes usar GEMINI_API_KEY.
+Ключ Gemini доступен.¦Gemini key available.¦Ключ Gemini доступний.¦Gemini-Schlüssel verfügbar.¦Clave de Gemini disponible.
+Не удалось изменить ключ Gemini.¦Could not change the Gemini key.¦Не вдалося змінити ключ Gemini.¦Gemini-Schlüssel konnte nicht geändert werden.¦No se pudo cambiar la clave de Gemini.
+Не удалось изменить настройки агента.¦Could not change the agent settings.¦Не вдалося змінити налаштування агента.¦Agenteneinstellungen konnten nicht geändert werden.¦No se pudo cambiar la configuración del agente.
+Не удалось прочитать настройки агента.¦Could not read the agent settings.¦Не вдалося прочитати налаштування агента.¦Agenteneinstellungen konnten nicht gelesen werden.¦No se pudo leer la configuración del agente.
+Островок покажет уведомление, когда агент завершит ответ.¦The island shows a notification when the agent finishes responding.¦Острівець покаже сповіщення, коли агент завершить відповідь.¦Die Insel meldet, wenn der Agent seine Antwort abgeschlossen hat.¦La isla avisa cuando el agente termina de responder.
+Отключить¦Disconnect¦Відключити¦Trennen¦Desconectar
+Хук уведомлений записан. Проверьте его в /hooks.¦Notification hook saved. Check it with /hooks.¦Хук сповіщень збережено. Перевірте його через /hooks.¦Benachrichtigungs-Hook gespeichert. Mit /hooks prüfen.¦Hook de avisos guardado. Revísalo con /hooks.
+Хук уведомлений записан. Codex может запросить доверие через /hooks.¦Notification hook saved. Codex may ask you to trust it in /hooks.¦Хук сповіщень збережено. Codex може попросити довіру через /hooks.¦Benachrichtigungs-Hook gespeichert. Codex fordert möglicherweise Vertrauen in /hooks an.¦Hook de avisos guardado. Codex puede pedirte que confíes en él desde /hooks.
+API-ключ Gemini¦Gemini API key¦Ключ API Gemini¦Gemini-API-Schlüssel¦Clave de API de Gemini
+{0:0.0} ГБ свободно¦{0:0.0} GB free¦{0:0.0} ГБ вільно¦{0:0.0} GB frei¦{0:0.0} GB libres
+Воспроизвести / пауза¦Play / pause¦Відтворити / пауза¦Wiedergabe / Pause¦Reproducir / pausar
+Готовые наборы¦Presets¦Готові набори¦Voreinstellungen¦Conjuntos
+Диск¦Disk¦Диск¦Laufwerk¦Disco
+Добавить виджет¦Add widget¦Додати віджет¦Widget hinzufügen¦Añadir widget
+Добавлено: {0}¦Added: {0}¦Додано: {0}¦Hinzugefügt: {0}¦Añadidos: {0}
+Календарь, напоминания, заметки, таймер и фокус¦Calendar, reminders, notes, timer and focus¦Календар, нагадування, нотатки, таймер і фокус¦Kalender, Erinnerungen, Notizen, Timer und Fokus¦Calendario, recordatorios, notas, temporizador y concentración
+Лес¦Forest¦Ліс¦Wald¦Bosque
+Матовое стекло¦Frosted glass¦Матове скло¦Milchglas¦Vidrio esmerilado
+Мой день¦My day¦Мій день¦Mein Tag¦Mi día
+На рабочем столе¦On the desktop¦На робочому столі¦Auf dem Desktop¦En el escritorio
+Напоминания¦Reminders¦Нагадування¦Erinnerungen¦Recordatorios
+Нет активного трека¦No active track¦Немає активного треку¦Kein aktiver Titel¦Sin pista activa
+Нет заметок¦No notes¦Немає нотаток¦Keine Notizen¦Sin notas
+Нет напоминаний¦No reminders¦Немає нагадувань¦Keine Erinnerungen¦Sin recordatorios
+Океан¦Ocean¦Океан¦Ozean¦Océano
+Открыть раздел¦Open section¦Відкрити розділ¦Bereich öffnen¦Abrir sección
+Поверх всех окон¦Always on top¦Поверх усіх вікон¦Immer im Vordergrund¦Siempre visible
+Погода недоступна¦Weather unavailable¦Погода недоступна¦Wetter nicht verfügbar¦Tiempo no disponible
+Предыдущий трек¦Previous track¦Попередній трек¦Vorheriger Titel¦Pista anterior
+Работа¦Work¦Робота¦Arbeit¦Trabajo
+Светлая¦Light¦Світла¦Hell¦Clara
+Скрыть с рабочего стола¦Hide from the desktop¦Сховати з робочого столу¦Auf dem Desktop ausblenden¦Ocultar del escritorio
+Следующий трек¦Next track¦Наступний трек¦Nächster Titel¦Pista siguiente
+Слива¦Plum¦Слива¦Pflaume¦Ciruela
+Старт / пауза¦Start / pause¦Старт / пауза¦Start / Pause¦Iniciar / pausar
+Тема виджетов¦Widget theme¦Тема віджетів¦Widget-Design¦Tema de los widgets
+Тёмная¦Dark¦Темна¦Dunkel¦Oscura
+Удалить виджет¦Remove widget¦Видалити віджет¦Widget entfernen¦Quitar widget
+Часы¦Clock¦Годинник¦Uhr¦Reloj
+Часы, погода, календарь и музыка¦Clock, weather, calendar and music¦Годинник, погода, календар і музика¦Uhr, Wetter, Kalender und Musik¦Reloj, tiempo, calendario y música
+Элементов в истории: {0}¦History items: {0}¦Елементів в історії: {0}¦Verlaufseinträge: {0}¦Elementos del historial: {0}
+Таймер с круговым индикатором, помодоро и секундомер.¦Timer with a progress ring, Pomodoro and stopwatch.¦Таймер із круговим індикатором, помодоро й секундомір.¦Timer mit Fortschrittsring, Pomodoro und Stoppuhr.¦Temporizador con anillo de progreso, Pomodoro y cronómetro.
+Календарь на неделю, напоминания и подписки ICS.¦Weekly agenda, reminders and ICS subscriptions.¦Календар на тиждень, нагадування й підписки ICS.¦Wochenagenda, Erinnerungen und ICS-Abonnements.¦Agenda semanal, recordatorios y suscripciones ICS.
+Пункт управления Windows и показатели CPU, GPU и памяти.¦Windows controls and CPU, GPU and memory usage.¦Пункт керування Windows і показники CPU, GPU та пам’яті.¦Windows-Steuerung und Auslastung von CPU, GPU und Speicher.¦Controles de Windows y uso de CPU, GPU y memoria.
+Заметки, виджеты рабочего стола и уведомления ИИ-агентов.¦Notes, desktop widgets and AI agent notifications.¦Нотатки, віджети робочого столу й сповіщення ШІ-агентів.¦Notizen, Desktop-Widgets und Benachrichtigungen von KI-Agenten.¦Notas, widgets de escritorio y avisos de agentes de IA.
+Не подключено¦Disconnected¦Не підключено¦Nicht verbunden¦Sin conexión
+Месяц¦Month¦Місяць¦Monat¦Mes
+Мировое время¦World clock¦Світовий час¦Weltuhr¦Reloj mundial
+Калькулятор¦Calculator¦Калькулятор¦Taschenrechner¦Calculadora
+Сеть¦Network¦Мережа¦Netzwerk¦Red
+Быстрые действия¦Quick actions¦Швидкі дії¦Schnellaktionen¦Acciones rápidas
+Время работы ПК¦PC uptime¦Час роботи ПК¦PC-Betriebszeit¦Tiempo de actividad
+{0} д · {1} ч · {2} мин¦{0} d · {1} h · {2} min¦{0} д · {1} год · {2} хв¦{0} T · {1} Std. · {2} Min.¦{0} d · {1} h · {2} min
+Закат¦Sunset¦Захід сонця¦Sonnenuntergang¦Atardecer
+Индиго¦Indigo¦Індиго¦Indigo¦Índigo
+New York¦New York¦Нью-Йорк¦New York¦Nueva York
+Tokyo¦Tokyo¦Токіо¦Tokio¦Tokio
+Ошибка¦Error¦Помилка¦Fehler¦Error
+Убавить громкость¦Volume down¦Зменшити гучність¦Leiser¦Bajar volumen
+Прибавить громкость¦Volume up¦Збільшити гучність¦Lauter¦Subir volumen
+Включить / выключить звук¦Toggle mute¦Увімкнути / вимкнути звук¦Ton umschalten¦Silenciar o activar sonido
 """;
 }

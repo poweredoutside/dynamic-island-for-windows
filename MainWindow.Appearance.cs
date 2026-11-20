@@ -130,9 +130,8 @@ public partial class MainWindow
         GlassSpecularBorder.Opacity = .32 * BackgroundOpacity;
         // ContextMenu lives in a separate popup tree. Give it the same palette
         // explicitly so its custom template also updates while the menu is open.
-        foreach (string key in Resources.Keys.OfType<string>())
-            if ((key.StartsWith("Theme") || key.StartsWith("Glass")) && Resources[key] is Brush brush)
-                IslandBorder.ContextMenu.Resources[key] = brush;
+        ApplyPopupPalette(IslandBorder.ContextMenu);
+        foreach (var widget in _widgetWindows.Values) ApplyPopupPalette(widget.Card.ContextMenu);
         UpdateGameHudValues();
         LiquidGlassOverlay.Visibility = glass ? Visibility.Visible : Visibility.Collapsed;
         IslandBorder.BorderThickness = new Thickness(glass ? 1 : 0);
@@ -142,6 +141,13 @@ public partial class MainWindow
             _activeSettingsNav.SetResourceReference(Control.BackgroundProperty, "ThemeSelectionBrush");
         LiquidGlassBackdrop.Opacity = BackgroundOpacity;
         ConfigureLensGlass();
+    }
+
+    private void ApplyPopupPalette(System.Windows.Controls.ContextMenu menu)
+    {
+        foreach (string key in Resources.Keys.OfType<string>())
+            if ((key.StartsWith("Theme") || key.StartsWith("Glass")) && Resources[key] is Brush brush)
+                menu.Resources[key] = brush;
     }
 
     private static Color Blend(Color a, Color b, double amount) => Color.FromRgb(

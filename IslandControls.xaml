@@ -10,6 +10,30 @@
             </Track>
         </ControlTemplate></Setter.Value></Setter>
     </Style>
+    <Style x:Key="RoundedFeatureTextBox" TargetType="TextBox">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TextBox">
+                    <Border Background="{TemplateBinding Background}" CornerRadius="14"
+                            BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1">
+                        <ScrollViewer x:Name="PART_ContentHost" Focusable="False"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="RoundedFeaturePasswordBox" TargetType="PasswordBox">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="PasswordBox">
+                    <Border Background="{TemplateBinding Background}" CornerRadius="14"
+                            BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1">
+                        <ScrollViewer x:Name="PART_ContentHost" Focusable="False"/>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
     <Style x:Key="FeatureCombo" TargetType="ComboBox">
         <Setter Property="Foreground" Value="{DynamicResource ThemeTextBrush}"/><Setter Property="Background" Value="{DynamicResource ThemeInputBrush}"/>
         <Setter Property="ItemContainerStyle"><Setter.Value><Style TargetType="ComboBoxItem">

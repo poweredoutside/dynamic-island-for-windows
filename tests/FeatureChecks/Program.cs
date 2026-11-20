@@ -19,6 +19,60 @@ internal static class Program
     {
         int checks = 0;
         void Check(bool result, string reason) { if (!result) throw new InvalidOperationException(reason); checks++; }
+        if (args.Contains("--control-center"))
+        {
+            var connectivity = Task.Run(WindowsConnectivity.ReadAsync).GetAwaiter().GetResult();
+            Check(connectivity.Vpn.Available, "Windows can enumerate native VPN connections");
+            Console.WriteLine($"PASS: read-only Windows status. Wi-Fi={connectivity.Wifi}, Bluetooth={connectivity.Bluetooth}, airplane={connectivity.Airplane}, VPN connected={connectivity.Vpn.Name != null}.");
+            return 0;
+        }
+        var calculator = new WidgetCalculator();
+        foreach (string key in new[] { "1", "2", "×", "3", "=", "÷", "4", "=" }) calculator.Press(key);
+        Check(calculator.Display == "9", "Widget calculator evaluates chained operations");
+        foreach (string key in new[] { "÷", "0", "=" }) calculator.Press(key);
+        Check(calculator.HasError, "Widget calculator reports division by zero");
+        foreach (string key in new[] { "5", "±", "⌫" }) calculator.Press(key);
+        Check(!calculator.HasError && calculator.Display == "0", "Widget calculator recovers and removes the last signed digit");
+        var clock = new ManualTime();
+        var timer = new DashboardTimer(clock);
+        timer.SetMinutes(1);
+        timer.Toggle();
+        clock.Advance(15);
+        timer.Toggle();
+        clock.Advance(100);
+        Check(timer.Paused && timer.Display == "00:45", "Countdown keeps remaining time while paused");
+        timer.Toggle();
+        clock.Advance(45);
+        Check(timer.Tick() && !timer.Tick() && !timer.Paused && timer.Display == "00:00", "Countdown completes once");
+        timer.Toggle();
+        Check(timer.Running && timer.Display == "01:00", "Countdown restarts with its original duration");
+        timer.Select(DashboardTimer.Mode.Stopwatch);
+        timer.Toggle();
+        clock.Advance(62);
+        Check(timer.Display == "01:02" && !timer.Tick(), "Stopwatch counts up without completing");
+        timer.Reset();
+        Check(timer.Display == "00:00" && !timer.Running, "Reset stops and clears stopwatch");
+        timer.Select(DashboardTimer.Mode.Pomodoro);
+        timer.Toggle();
+        for (int round = 1; round <= 4; round++)
+        {
+            clock.Advance(25 * 60);
+            Check(timer.Tick() && timer.Break && timer.Round == round
+                && timer.Display == (round == 4 ? "15:00" : "05:00"), "Pomodoro alternates work and breaks, with a long fourth break");
+            clock.Advance((round == 4 ? 15 : 5) * 60);
+            Check(timer.Tick() && !timer.Break && timer.Round == round % 4 + 1, "Pomodoro starts the next work interval");
+        }
+        var now = new DateTimeOffset(new DateTime(2026, 11, 20, 10, 0, 0, DateTimeKind.Local));
+        Check(ReminderTime.Parse("через 20 мин", now) == now.AddMinutes(20), "Relative reminder respects the current time");
+        Check(ReminderTime.Parse("18:30", now)?.DateTime == now.Date.AddHours(18.5), "Future time resolves to today");
+        Check(ReminderTime.Parse("завтра 9:00", now)?.DateTime == now.Date.AddDays(1).AddHours(9), "Tomorrow resolves to the next date");
+        Check(ReminderTime.Parse("15.11 14:00", now)?.DateTime == new DateTime(2027, 11, 15, 14, 0, 0), "A past calendar date rolls over to its next occurrence");
+        Check(ReminderTime.Parse("31.02 14:00", now) == null && ReminderTime.Parse("25:61", now) == null, "Invalid dates and times are rejected");
+        var agentConfig = System.Text.Json.Nodes.JsonNode.Parse("""{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"existing"}]}],"Other":[]}}""")!.AsObject();
+        string before = agentConfig.ToJsonString();
+        string hook = AiAgentHooks.Command(AiAgentHooks.Agent.Codex);
+        Check(AiAgentHooks.UpdateConfig(agentConfig, hook) && agentConfig["hooks"]!["Stop"]!.AsArray().Count == 2, "Agent setup appends an independent Stop hook");
+        Check(!AiAgentHooks.UpdateConfig(agentConfig, hook) && agentConfig.ToJsonString() == before, "Disconnect preserves the user's existing hooks");
         var timedLyrics = LyricsService.Parse("[offset:-500]\r\n[00:01.00][00:03.500]First\r\n[00:05.20]Second\r\n[00:08.00]\r\n[00:99.10]Invalid");
         Check(timedLyrics.Length == 4 && LyricsService.LineAt(timedLyrics, .49) == "" && LyricsService.LineAt(timedLyrics, .5) == "First",
             "LRC supports offsets, repeated timestamps and CRLF");
@@ -359,6 +413,14 @@ internal static class Program
         Console.WriteLine($"PASS: public latest release {release.Version}, installer {release.InstallerName}, real download, SHA-256 and publisher signature verified; {new System.IO.FileInfo(path).Length} bytes.");
         return 0;
     }
+}
+
+internal sealed class ManualTime : TimeProvider
+{
+    private long _ticks;
+    public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+    public override long GetTimestamp() => _ticks;
+    internal void Advance(int seconds) => _ticks += TimeSpan.FromSeconds(seconds).Ticks;
 }
 
 internal sealed class LyricsResponseHandler : System.Net.Http.HttpMessageHandler

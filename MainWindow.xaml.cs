@@ -126,8 +126,8 @@ public partial class MainWindow : Window
 
     private Forms.NotifyIcon? _trayIcon;
     private ulong _prevIdleTime, _prevKernelTime, _prevUserTime;
-    private int _lastCpuUsage = 12;
-    private int _lastGpuUsage = 18;
+    private int _lastCpuUsage = -1;
+    private int _lastGpuUsage = -1;
 
     private AppSettings _settings = new();
     private readonly string _settingsPath = System.IO.Path.Combine(
@@ -199,7 +199,6 @@ public partial class MainWindow : Window
         public bool ExcludeFromCapture { get; set; } = true;
         public bool HideInFullscreen { get; set; } = false;
         public bool RunOnStartup { get; set; } = false;
-        public bool HideDesktopIcons { get; set; } = false;
 
         public bool ShowHomeQuickActions { get; set; } = true;
         public bool ShowHomeMusic { get; set; } = true;
@@ -401,6 +400,7 @@ public partial class MainWindow : Window
         DisposeNotificationBanners();
         if (_notifListener != null && _notificationEventSubscribed)
             _notifListener.NotificationChanged -= NotificationListener_Changed;
+        RestoreTimedDnd();
         RestoreDndAfterGameMode();
         _windowsDnd.Dispose();
         StopIslandFrames();
@@ -432,10 +432,10 @@ public partial class MainWindow : Window
         GameHudFpsText.Text     = fps;
         GameHudFpsLabel.Text    = desktop ? "FPS · DWM" : "FPS";
         GameHudFpsCard.ToolTip  = GameFpsStatus();
-        GameHudCpuText.Text     = $"{_lastCpuUsage}%";
+        GameHudCpuText.Text     = UsageDisplay(_lastCpuUsage);
         GameHudCpuTempText.Text = temperature >= 0 ? $"{temperature}°C" : "—";
         GameHudCpuTempText.ToolTip = temperature >= 0 ? null : L(GameTemperatureStatus());
-        GameHudGpuText.Text     = _lastGpuUsage >= 0 ? $"{_lastGpuUsage}%" : "—";
+        GameHudGpuText.Text     = UsageDisplay(_lastGpuUsage);
 
         Brush tempBrush;
         if (temperature >= 80)
@@ -1172,7 +1172,6 @@ public partial class MainWindow : Window
     private void ShutdownApplication()
     {
         SaveSettings();
-        ToggleDesktopIcons(true);
         _trayIcon?.Dispose();
         System.Windows.Application.Current.Shutdown();
     }
@@ -1279,13 +1278,13 @@ public partial class MainWindow : Window
                 break;
 
             case IslandState.Expanded:
-                _targetW = 620; _targetH = 262; _targetR = 28;
+                _targetW = 720; _targetH = 262; _targetR = 28;
                 ExpandedView.Visibility = Visibility.Visible;
                 FadeInElement(ExpandedView);
                 break;
 
             case IslandState.Weather:
-                _targetW = 680; _targetH = 385; _targetR = 28;
+                _targetW = 720; _targetH = 385; _targetR = 28;
                 WeatherDashboardView.Visibility = Visibility.Visible;
                 FadeInElement(WeatherDashboardView);
                 break;
@@ -1297,7 +1296,7 @@ public partial class MainWindow : Window
                 break;
 
             case IslandState.Clipboard:
-                _targetW = 620; _targetH = 350; _targetR = 28;
+                _targetW = 720; _targetH = 350; _targetR = 28;
                 PruneExpiredClipboardItems();
                 RenderClipboardHistoryUi();
                 ClipboardDashboardView.Visibility = Visibility.Visible;
@@ -1305,7 +1304,7 @@ public partial class MainWindow : Window
                 break;
 
             case IslandState.Section:
-                _targetW = 620; _targetH = 485; _targetR = 28;
+                _targetW = 720; _targetH = DashboardPageHeight; _targetR = 28;
                 DashboardSectionView.Visibility = Visibility.Visible;
                 FadeInElement(DashboardSectionView);
                 break;
@@ -1755,8 +1754,8 @@ public partial class MainWindow : Window
                                      "Ctrl+Alt+S — скріншот області · Ctrl+Alt+R — запис · Ctrl+Alt+Space — командний рядок",
                                      "Ctrl+Alt+S — Bereich · Ctrl+Alt+R — Aufnahme · Ctrl+Alt+Space — Befehl",
                                      "Ctrl+Alt+S — Captura · Ctrl+Alt+R — Grabar · Ctrl+Alt+Space — Comando");
-        LblAiHeader.Text        = Tr("AI Agents (Gemini / Claude / Codex / Antigravity)", "ИИ-агенты (Gemini / Claude / Codex / Antigravity)", "ШІ-агенти (Gemini / Claude / Codex / Antigravity)", "KI-Agenten (Gemini / Claude / Codex / Antigravity)", "Agentes IA (Gemini / Claude / Codex / Antigravity)");
-        BtnLaunchAi.Content     = Tr("Launch AI Agent", "Запустить ИИ-агента", "Запустити ШІ-агента", "KI-Agent starten", "Iniciar agente IA");
+        LblAiHeader.Text = Tr("AI agents", "ИИ-агенты", "ШІ-агенти", "KI-Agenten", "Agentes IA");
+        RefreshAiAgentsPage();
 
         ApplyAdditionalLocalization();
         UpdateDndVisuals();
@@ -1856,7 +1855,11 @@ public partial class MainWindow : Window
     private void NavWeather_Click(object sender, RoutedEventArgs e)    => SwitchSettingsPage(PageWeather, NavWeatherBtn);
     private void NavBehavior_Click(object sender, RoutedEventArgs e)   => SwitchSettingsPage(PageBehavior, NavBehaviorBtn);
     private void NavActions_Click(object sender, RoutedEventArgs e)    => SwitchSettingsPage(PageActions, NavActionsBtn);
-    private void NavAi_Click(object sender, RoutedEventArgs e)         => SwitchSettingsPage(PageAi, NavAiBtn);
+    private void NavAi_Click(object sender, RoutedEventArgs e)
+    {
+        SwitchSettingsPage(PageAi, NavAiBtn);
+        RefreshAiAgentsPage();
+    }
 
     private void BuildThemesGrid()
     {
@@ -2197,24 +2200,63 @@ public partial class MainWindow : Window
 
     private void TglHideDesktopIcons_Click(object sender, RoutedEventArgs e)
     {
-        ToggleDesktopIcons(!(TglHideDesktopIcons.IsChecked ?? false));
-        SaveSettings();
+        SetDesktopIconsHidden(TglHideDesktopIcons.IsChecked == true);
     }
 
-    private static void ToggleDesktopIcons(bool show)
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern bool PostMessageW(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
+
+    private bool _desktopIconsChanging;
+
+    private async void SetDesktopIconsHidden(bool hidden)
+    {
+        if (_desktopIconsChanging) return;
+        _desktopIconsChanging = true;
+        var view = FindDesktopView();
+        bool? current = ReadDesktopIconsHidden(view);
+        try
+        {
+            // Use Explorer's own "Show desktop icons" command so its menu and persistent setting agree.
+            if (current is bool before && before != hidden && PostMessageW(view, 0x0111, (IntPtr)0x7402, IntPtr.Zero))
+            {
+                for (int attempt = 0; attempt < 5 && !_windowClosed; attempt++)
+                {
+                    await Task.Delay(80);
+                    current = ReadDesktopIconsHidden();
+                    if (current == hidden) break;
+                }
+            }
+        }
+        finally { _desktopIconsChanging = false; }
+        if (_windowClosed) return;
+        TglHideDesktopIcons.IsChecked = current;
+        TglHideDesktopIcons.IsEnabled = current.HasValue;
+        if (SystemPageVisible) PaintControlTiles();
+    }
+
+    private static bool? ReadDesktopIconsHidden() => ReadDesktopIconsHidden(FindDesktopView());
+
+    private static bool? ReadDesktopIconsHidden(IntPtr view)
+    {
+        if (view == IntPtr.Zero) return null;
+        var icons = FindWindowEx(view, IntPtr.Zero, "SysListView32", null);
+        return icons == IntPtr.Zero ? null : (GetWindowLong(icons, -16) & 0x10000000) == 0;
+    }
+
+    private static IntPtr FindDesktopView()
     {
         IntPtr progman = FindWindow("Progman", null);
-        IntPtr defView = FindWindowEx(progman, IntPtr.Zero, "SHELLDLL_DefView", null);
+        IntPtr defView = progman == IntPtr.Zero ? IntPtr.Zero : FindWindowEx(progman, IntPtr.Zero, "SHELLDLL_DefView", null);
         if (defView == IntPtr.Zero)
         {
             IntPtr workerW = IntPtr.Zero;
             do
             {
                 workerW = FindWindowEx(IntPtr.Zero, workerW, "WorkerW", null);
-                defView = FindWindowEx(workerW, IntPtr.Zero, "SHELLDLL_DefView", null);
+                if (workerW != IntPtr.Zero) defView = FindWindowEx(workerW, IntPtr.Zero, "SHELLDLL_DefView", null);
             } while (workerW != IntPtr.Zero && defView == IntPtr.Zero);
         }
-        if (defView != IntPtr.Zero) ShowWindow(defView, show ? 5 : 0);
+        return defView;
     }
 
     private async void TglRunOnStartup_Click(object sender, RoutedEventArgs e)
@@ -2285,7 +2327,20 @@ public partial class MainWindow : Window
         _currentMeasuredFps = _renderedFramesCount;
         _renderedFramesCount = 0;
 
-        _lastCpuUsage = GetCpuUsage();
+        if (_isGameModeActive || SystemPageVisible || WidgetIsVisible("cpu") || WidgetIsVisible("system"))
+            _lastCpuUsage = GetCpuUsage();
+        else
+        {
+            _lastCpuUsage = -1;
+            _prevKernelTime = 0;
+        }
+        if (_activeSettingsNav == NavBehaviorBtn && _currentState == IslandState.Settings)
+        {
+            var hidden = ReadDesktopIconsHidden();
+            TglHideDesktopIcons.IsChecked = hidden;
+            TglHideDesktopIcons.IsEnabled = hidden.HasValue;
+        }
+        RefreshSystemOverview();
 
         UpdateTelemetrySummaries();
 
@@ -2324,18 +2379,18 @@ public partial class MainWindow : Window
                 if (session != null)
                 {
                     var playbackInfo = session.GetPlaybackInfo();
-                    if (playbackInfo != null &&
-                        playbackInfo.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing)
+                    bool playing = playbackInfo?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
+                    if (playing || WidgetIsVisible("music"))
                     {
                         var props = await session.TryGetMediaPropertiesAsync();
                         if (props != null && !string.IsNullOrWhiteSpace(props.Title))
                         {
-                            activePlaying = true;
+                            activePlaying = playing;
                             trackTitle = props.Title.Trim();
                             trackArtist = props.Artist?.Trim() ?? "";
                             album = props.AlbumTitle ?? "";
                             sourceAppId = session.SourceAppUserModelId ?? "";
-                            if (_settings.Karaoke || _settings.OnlineLyrics)
+                            if (playing && (_settings.Karaoke || _settings.OnlineLyrics))
                             {
                                 var timeline = session.GetTimelineProperties();
                                 duration = (timeline.EndTime - timeline.StartTime).TotalSeconds;
@@ -2355,6 +2410,8 @@ public partial class MainWindow : Window
         }
 
         if (_windowClosed) return;
+        _widgetTrack = trackTitle;
+        _widgetArtist = trackArtist;
         if (activePlaying) UpdateLyricsTrack(new LyricsService.Track(trackTitle, trackArtist, sourceAppId), position, album, duration);
         ApplyMediaState(activePlaying, trackTitle, trackArtist, sourceAppId);
     }
@@ -2394,13 +2451,15 @@ public partial class MainWindow : Window
 
     private int GetCpuUsage()
     {
-        if (!GetSystemTimes(out var idle, out var kernel, out var user)) return 0;
+        if (!GetSystemTimes(out var idle, out var kernel, out var user)) return -1;
+        bool hasPreviousReading = _prevKernelTime != 0;
         ulong idleDiff = idle.ToUInt64() - _prevIdleTime;
         ulong totalDiff = (kernel.ToUInt64() - _prevKernelTime) + (user.ToUInt64() - _prevUserTime);
         _prevIdleTime = idle.ToUInt64();
         _prevKernelTime = kernel.ToUInt64();
         _prevUserTime = user.ToUInt64();
-        return totalDiff == 0 ? 0 : Math.Clamp((int)(100.0 * (totalDiff - idleDiff) / totalDiff), 0, 100);
+        if (!hasPreviousReading || totalDiff == 0 || idleDiff > totalDiff) return -1;
+        return Math.Clamp((int)(100.0 * (totalDiff - idleDiff) / totalDiff), 0, 100);
     }
 
     private void HomeMusicWidget_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
@@ -2667,12 +2726,6 @@ public partial class MainWindow : Window
         SaveSettings();
     }
 
-    private void LaunchAiAgent_Click(object sender, RoutedEventArgs e)
-    {
-        string cmd = AiEndpointBox.Text.Trim();
-        Process.Start(new ProcessStartInfo("cmd.exe", $"/k {cmd}") { UseShellExecute = true });
-    }
-
     #endregion
 
     #region Сохранение и загрузка настроек (settings.json)
@@ -2705,7 +2758,6 @@ public partial class MainWindow : Window
             _settings.ExcludeFromCapture     = TglExcludeCapture.IsChecked ?? true;
             _settings.HideInFullscreen       = TglHideFullscreen.IsChecked ?? false;
             _settings.RunOnStartup           = TglRunOnStartup.IsChecked ?? false;
-            _settings.HideDesktopIcons       = TglHideDesktopIcons.IsChecked ?? false;
 
             _settings.LiquidGlass            = TglLiquidGlass.IsChecked ?? true;
             _settings.IslandScalePercent     = ScaleSlider.Value;
@@ -2725,7 +2777,6 @@ public partial class MainWindow : Window
 
             _settings.CustomCommand          = CustomCmdTextBox.Text;
             _settings.TranslateTargetLang    = TranslateLangTextBox.Text;
-            _settings.AiEndpointCommand      = AiEndpointBox.Text;
 
             string? dir = System.IO.Path.GetDirectoryName(_settingsPath);
             if (!string.IsNullOrEmpty(dir))
@@ -2796,7 +2847,9 @@ public partial class MainWindow : Window
         TglExcludeCapture.IsChecked   = _settings.ExcludeFromCapture;
         TglHideFullscreen.IsChecked   = _settings.HideInFullscreen;
         TglRunOnStartup.IsChecked     = _settings.RunOnStartup;
-        TglHideDesktopIcons.IsChecked = _settings.HideDesktopIcons;
+        var desktopIconsHidden = ReadDesktopIconsHidden();
+        TglHideDesktopIcons.IsChecked = desktopIconsHidden;
+        TglHideDesktopIcons.IsEnabled = desktopIconsHidden.HasValue;
 
         ChkHomeQuickActions.IsChecked = _settings.ShowHomeQuickActions;
         ChkHomeMusic.IsChecked        = _settings.ShowHomeMusic;
@@ -2815,7 +2868,7 @@ public partial class MainWindow : Window
         HotkeyDisplayText.Text        = _settings.HotkeyLabel;
         CustomCmdTextBox.Text         = _settings.CustomCommand;
         TranslateLangTextBox.Text     = _settings.TranslateTargetLang;
-        AiEndpointBox.Text            = _settings.AiEndpointCommand;
+        RefreshAiAgentsPage();
 
         ApplyLocalization();
 

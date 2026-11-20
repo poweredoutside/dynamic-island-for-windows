@@ -14,7 +14,7 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
     private readonly Thread _audioThread, _hookThread;
     private readonly HookProc _hookProc;
     private readonly VolumeKeyRouter _keys = new();
-    private volatile bool _enabled, _available, _disposed;
+    private volatile bool _enabled, _available, _disposed, _observeVolume;
     private uint _hookThreadId;
     private int _rebindPending;
     private int _setPending, _requestedPercent;
@@ -23,6 +23,7 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
     internal event Action<Snapshot>? Changed;
     internal bool Available => _available && _hook != IntPtr.Zero;
     internal bool Enabled { get => _enabled; set => _enabled = value; }
+    internal bool ObserveVolume { get => _observeVolume; set => _observeVolume = value; }
 
     internal bool RequestSnapshot() => !_disposed && _available && _commands.TryAdd(2);
     internal bool ToggleMute() => !_disposed && _commands.TryAdd(3);
@@ -121,11 +122,12 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
             _device.AudioEndpointVolume.OnVolumeNotification += OnVolume;
             _ = _device.AudioEndpointVolume.MasterVolumeLevelScalar;
             _available = true;
+            if (_observeVolume) Publish(new(_device.AudioEndpointVolume.MasterVolumeLevelScalar, _device.AudioEndpointVolume.Mute));
         }
         catch { Detach(); } // No endpoint is normal while unplugging a headset.
     }
     private void OnVolume(AudioVolumeNotificationData data) => Publish(new(data.MasterVolume, data.Muted));
-    private void Publish(Snapshot snapshot, bool manual = false) { if ((_enabled || manual) && !_disposed) Changed?.Invoke(snapshot); }
+    private void Publish(Snapshot snapshot, bool manual = false) { if ((_enabled || _observeVolume || manual) && !_disposed) Changed?.Invoke(snapshot); }
     private void Detach()
     {
         if (_device == null) return;

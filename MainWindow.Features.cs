@@ -77,6 +77,7 @@ public partial class MainWindow
     private bool _volumeDispatchPending;
     private bool _updatingVolumeSlider, _manualVolumeOpen;
     private int? _lastBrightness;
+    private DateTime _nextBrightnessRead, _nextReminderCheck;
     private IReadOnlyList<CalendarMeeting> _meetings = [];
     private Action? _featureNoticeAction;
     private DateTime _featureNoticeUntil;
@@ -103,10 +104,13 @@ public partial class MainWindow
         ApplyFeatureAppearance();
         ApplyTheme(_themes.FirstOrDefault(t => t.Key == _settings.SelectedTheme) ?? _themes[0]);
         ConfigureLensGlass();
+        InitializeNotesWidgets();
         IslandBorder.LostMouseCapture += (_, _) => { _isClickCandidate = false; if (_bodyDragging) { _bodyDragging = false; RememberIslandPlacement(); SaveSettings(); } };
         _settings.VolumeIslandHud ??= _settings.LevelHud;
         _volumeIsland = new VolumeIslandService(_settings.VolumeIslandHud == true);
         _volumeIsland.Changed += VolumeChanged;
+        _volumeIsland.ObserveVolume = WidgetIsVisible("volume");
+        if (_volumeIsland.ObserveVolume) _volumeIsland.RequestSnapshot();
         _hoverDelay.Tick += (_, _) => { _hoverDelay.Stop(); if (IslandBorder.IsMouseOver && !_isClickCandidate && !_bodyDragging && _currentState == IslandState.Compact && !_manualResize && !_isGameModeActive) MorphToState(IslandState.Hover); };
         _featureTimer.Tick += (_, _) => FeatureTick(); _featureTimer.Start();
         _nextUpdateCheck = DateTime.UtcNow.AddSeconds(5);
@@ -118,11 +122,11 @@ public partial class MainWindow
         }, null, 10000, 15000);
         bool existed = File.Exists(_settingsPath);
         if (!existed && !_settings.OnboardingComplete) { _welcomeStep = 0; OpenFeaturePage("welcome"); }
-        else if (_settings.LastSeenVersion != "1.1.9")
+        else if (_settings.LastSeenVersion != ProductVersion)
         {
             _settings.OnboardingComplete = true;
-            FeatureNotice("OC - Dynamic Island 1.1.9 · нажмите, чтобы увидеть новинки", () => OpenSettingsFeaturePage("updates"));
-            _settings.LastSeenVersion = "1.1.9"; SaveSettings();
+            FeatureNotice($"OC - Dynamic Island {ProductVersion} · {L("Что нового")}", () => OpenSettingsFeaturePage("updates"));
+            _settings.LastSeenVersion = ProductVersion; SaveSettings();
         }
     }
 
@@ -138,6 +142,8 @@ public partial class MainWindow
 
     private void DisposeFeatures()
     {
+        DisposeDesktopWidgets();
+        _calendarCancellation.Cancel();
         DisposeLensGlass();
         _featureTimer.Stop(); _hoverDelay.Stop(); _watchdog?.Dispose();
         if (_volumeIsland != null) { _volumeIsland.Changed -= VolumeChanged; _volumeIsland.Dispose(); }
@@ -174,7 +180,10 @@ public partial class MainWindow
         else if (DateTime.UtcNow > _featureNoticeUntil)
         { LevelHudBorder.Visibility = Visibility.Collapsed; _manualVolumeOpen = false; }
         DrainFeatureNotices();
-        UpdateIdleContent(); UpdateCompactLyrics(); UpdateCursorAppearance();
+        UpdateCompactLyrics(); UpdateCursorAppearance();
+        RefreshLiveTimer();
+        TickAiAgents();
+        if (_timedDnd is { } timed && timed.Until <= now && !_dndChanging) RestoreTimedDnd();
         if (_isGameModeActive)
         {
             UpdateFpsTarget();
@@ -185,12 +194,28 @@ public partial class MainWindow
         if (_settings.AutoCheckUpdates && !_updateBusy && DateTime.UtcNow >= _nextUpdateCheck)
             _ = CheckForUpdatesAsync(_settings.UpdateRepository, automatic: true);
         if (NeedsIslandFrames()) StartIslandFrames();
+        if (now.UtcDateTime >= _nextReminderCheck)
+        {
+            _nextReminderCheck = now.UtcDateTime.AddSeconds(1);
+            CheckScheduledReminders(now);
+        }
+        if (_featureScan is { IsCompleted: false } || DateTime.UtcNow < _nextFeatureScan) return;
+        _nextFeatureScan = DateTime.UtcNow.AddSeconds(3);
+        _featureScan = ScanFeaturesAsync();
+    }
+
+    private void CheckScheduledReminders(DateTimeOffset now)
+    {
+        bool refreshReminders = false;
         foreach (var timer in _settings.Timers.Where(t => t.Due <= now).ToArray())
         {
             _settings.Timers.Remove(timer); SaveSettings();
-            FeatureNotice("⏱ " + timer.Label + " · " + L("время вышло"), () => OpenFeaturePage("timers"));
+            FeatureNotice(timer.Label, () => OpenFeaturePage("calendar"));
             if (_settings.ReminderSound && !_isDndActive) System.Media.SystemSounds.Exclamation.Play();
+            refreshReminders = true;
         }
+        if (refreshReminders) RefreshCalendarAgenda();
+        TickCalendar();
         foreach (var meeting in _meetings.Where(m => m.Join != null))
         {
             foreach (int minutes in new[] { 10, 0 })
@@ -204,9 +229,6 @@ public partial class MainWindow
                 if (_settings.ReminderSound && !_isDndActive) System.Media.SystemSounds.Asterisk.Play();
             }
         }
-        if (_featureScan is { IsCompleted: false } || DateTime.UtcNow < _nextFeatureScan) return;
-        _nextFeatureScan = DateTime.UtcNow.AddSeconds(3);
-        _featureScan = ScanFeaturesAsync();
     }
 
     private void UpdateIdleContent()
@@ -214,8 +236,11 @@ public partial class MainWindow
         string format = _settings.Clock12Hour ? (_settings.ClockSeconds ? "h:mm:ss tt" : "h:mm tt") : (_settings.ClockSeconds ? "HH:mm:ss" : "HH:mm");
         CompactClockText.Text = _settings.IdleCenter switch
         { "date" => DateTime.Now.ToString("dd MMM"), "both" => DateTime.Now.ToString(format + " · dd MMM"), _ => DateTime.Now.ToString(format) };
-        var power = System.Windows.Forms.SystemInformation.PowerStatus;
-        CompactBatteryText.Text = power.BatteryLifePercent is >= 0 and <= 1 ? $"{power.BatteryLifePercent:P0}" : "AC";
+        if (_settings.IdleRight == "battery")
+        {
+            var battery = SystemOverview.Battery();
+            CompactBatteryText.Text = battery.HasValue ? $"{battery.Value.Percent}%" : "AC";
+        }
     }
 
     private void UpdateCompactContent()
@@ -279,27 +304,25 @@ public partial class MainWindow
     }
     private async Task ScanFeaturesAsync()
     {
-        bool readCalendar = DateTime.UtcNow >= _nextCalendarRead;
-        bool readGpu = _isGameModeActive || _currentState == IslandState.Expanded || (_currentState == IslandState.Section && _featurePage == "system");
-        if (readCalendar) _nextCalendarRead = DateTime.UtcNow.AddMinutes(1);
+        bool readGpu = DesktopSystemWidgetVisible || _isGameModeActive || SystemPageVisible;
+        bool readBrightness = _settings.LevelHud && DateTime.UtcNow >= _nextBrightnessRead;
+        bool readWindows = _settings.ExternalProgress || (_settings.TitleUnreadFallback && NotificationsEnabled)
+            || (TglDiscordCallRight.IsChecked ?? true) || SystemPageVisible;
+        if (readBrightness) _nextBrightnessRead = DateTime.UtcNow.AddSeconds(6);
+        if (!readGpu && !readBrightness && !readWindows && _jobs.Count == 0 && _unreadCounts.Count == 0) return;
         try
         {
             var snapshot = await Task.Run(() =>
             {
-                int? brightness = DesktopAudioService.Brightness();
+                int? brightness = readBrightness ? DesktopAudioService.Brightness() : null;
                 int? gpu = readGpu ? DesktopAudioService.GpuUsage() : null;
-                IReadOnlyList<CalendarMeeting>? calendar = null;
-                if (readCalendar && File.Exists(CalendarPath))
-                    try { calendar = CalendarReader.Read(File.ReadAllText(CalendarPath), DateTimeOffset.Now); }
-                    catch (Exception ex) { AppLog.Error("Read calendar", ex); }
-                return (Windows: ReadWindowSignals(), Brightness: brightness, Gpu: gpu, Calendar: calendar);
+                return (Windows: readWindows ? ReadWindowSignals() : Array.Empty<WindowSignal>(), Brightness: brightness, Gpu: gpu);
             });
             if (_windowClosed) return;
             if (_settings.LevelHud && _lastBrightness.HasValue && snapshot.Brightness is { } brightness && brightness != _lastBrightness)
                 LevelNotice(L("Яркость") + $" · {brightness}%", brightness);
-            _lastBrightness = snapshot.Brightness;
+            if (readBrightness) _lastBrightness = snapshot.Brightness;
             if (readGpu) _lastGpuUsage = snapshot.Gpu ?? -1;
-            if (snapshot.Calendar != null) _meetings = snapshot.Calendar;
             var discord = snapshot.Windows.FirstOrDefault(w => w.Process.Equals("Discord", StringComparison.OrdinalIgnoreCase)
                 && new[] { "Voice", "Голос", "Звонок", "Call" }.Any(s => w.Title.Contains(s, StringComparison.OrdinalIgnoreCase)));
             _discordDetected = discord != null;
@@ -311,6 +334,10 @@ public partial class MainWindow
 
     private void UpdateWindowSignals(IReadOnlyList<WindowSignal> windows)
     {
+        bool useUnread = _settings.TitleUnreadFallback && NotificationsEnabled;
+        bool canNotifyUnread = useUnread && (!_notifAccessGranted
+            || (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Policies\Microsoft\Windows\Explorer", "DisableNotificationCenter", 0) as int?) == 1
+            || (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\PushNotifications", "ToastEnabled", 1) as int?) == 0);
         foreach (var window in windows)
         {
             if (_settings.ExternalProgress && WindowSignals.Progress(window.Title) is { } percent)
@@ -320,16 +347,17 @@ public partial class MainWindow
                 _jobs[window.Handle] = (window.Process, percent);
             }
             else _jobs.Remove(window.Handle);
-            bool messenger = new[] { "telegram", "exdesktop", "discord" }.Any(s => window.Process.Contains(s, StringComparison.OrdinalIgnoreCase));
+            if (!useUnread) continue;
+            bool messenger = window.Process.Contains("telegram", StringComparison.OrdinalIgnoreCase)
+                || window.Process.Contains("exdesktop", StringComparison.OrdinalIgnoreCase)
+                || window.Process.Contains("discord", StringComparison.OrdinalIgnoreCase);
             if (!messenger) continue;
             int unread = WindowSignals.UnreadCount(window.Title);
-            bool centerOff = (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Policies\Microsoft\Windows\Explorer", "DisableNotificationCenter", 0) as int?) == 1;
-            centerOff |= (Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\PushNotifications", "ToastEnabled", 1) as int?) == 0;
-            if (_settings.TitleUnreadFallback && (!_notifAccessGranted || centerOff) && NotificationsEnabled
-                && _unreadCounts.TryGetValue(window.Handle, out int oldUnread) && unread > oldUnread)
+            if (canNotifyUnread && _unreadCounts.TryGetValue(window.Handle, out int oldUnread) && unread > oldUnread)
                 FeatureNotice(window.Process + " · " + L("новое сообщение"), () => ActivateWindow(window.Handle));
             _unreadCounts[window.Handle] = unread;
         }
+        if (!useUnread) _unreadCounts.Clear();
         foreach (var key in _jobs.Keys.Where(h => !windows.Any(w => w.Handle == h)).ToArray()) _jobs.Remove(key);
         foreach (var key in _unreadCounts.Keys.Where(h => !windows.Any(w => w.Handle == h)).ToArray()) _unreadCounts.Remove(key);
         var job = _settings.ExternalProgress ? _jobs.FirstOrDefault(p => p.Value.Percent < 100) : default;
@@ -373,6 +401,8 @@ public partial class MainWindow
         {
             VolumeIslandService.Snapshot latest;
             lock (_volumeGate) { latest = _pendingVolume; _volumeDispatchPending = false; }
+            _widgetVolume = latest;
+            if (WidgetIsVisible("volume")) RefreshDesktopWidgets();
             if (!_windowClosed && (_settings.VolumeIslandHud == true || _manualVolumeOpen))
                 ShowVolumeSnapshot(latest);
         }));

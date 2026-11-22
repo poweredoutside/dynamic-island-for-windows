@@ -219,6 +219,7 @@ public partial class MainWindow
         "timers" => 350,
         "notes" when _notes.Count == 0 => 235,
         "calendar" => 490,
+        "music" => 525,
         "system" or "widgets" => 555,
         _ => 485
     };
@@ -422,21 +423,42 @@ public partial class MainWindow
             label.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(TextBlock.Text)) { Source = source });
             card.Children.Add(label);
         }
-        var buttons = new WrapPanel();
-        buttons.Children.Add(FeatureButton("⏮", () => PrevTrack_Click(this, new RoutedEventArgs(Button.ClickEvent))));
-        buttons.Children.Add(FeatureButton("⏯", () => PlayPause_Click(this, new RoutedEventArgs(Button.ClickEvent))));
-        buttons.Children.Add(FeatureButton("⏭", () => NextTrack_Click(this, new RoutedEventArgs(Button.ClickEvent))));
-        card.Children.Add(buttons);
+        BuildMusicPlayerControls(card);
 
         var lyrics = FeatureCard("Текст песни");
-        FeatureToggle(lyrics, "Показывать текст при включении музыки", _settings.Karaoke, enabled => _settings.Karaoke = enabled);
-        FeatureToggle(lyrics, "Искать текст", _settings.OnlineLyrics, SetOnlineLyrics);
-        lyrics.Children.Add(FeatureText("При включённом поиске LRCLIB получает название, исполнителя, альбом и длительность трека, если они доступны.", 11, "ThemeMutedBrush"));
+        _musicLyricLine = FeatureText("", 16, "ThemeAccentBrush");
+        _musicLyricLine.FontWeight = FontWeights.SemiBold;
+        _musicLyricLine.Visibility = Visibility.Collapsed;
+        lyrics.Children.Add(_musicLyricLine);
+        _musicNextLyric = FeatureText("", 13, "ThemeMutedBrush");
+        _musicLastLyric = FeatureText("", 13, "ThemeMutedBrush");
+        _musicNextLyric.Visibility = _musicLastLyric.Visibility = Visibility.Collapsed;
+        lyrics.Children.Add(_musicNextLyric);
+        lyrics.Children.Add(_musicLastLyric);
+        var lyricToggles = new WrapPanel();
+        lyrics.Children.Add(lyricToggles);
+        var showLyrics = FeatureToggle(lyricToggles, "Показывать текст при включении музыки", _settings.Karaoke, enabled => _settings.Karaoke = enabled);
+        showLyrics.Margin = new Thickness(0, 3, 16, 10);
+        FeatureToggle(lyricToggles, "Искать текст", _settings.OnlineLyrics, SetOnlineLyrics);
+        FeatureChoice(lyrics, "Количество строк текста", [("1", "1"), ("2", "2"), ("3", "3")],
+            Math.Clamp(_settings.LyricsLineCount, 1, 3).ToString(), value =>
+            {
+                _settings.LyricsLineCount = int.Parse(value);
+                UpdateMusicLyrics();
+            });
         lyrics.Children.Add(FeatureButton("Импортировать LRC", async () => await ImportLyricsAsync()));
-        lyrics.Children.Add(FeatureText("Импортированный файл применяется к текущему треку до закрытия приложения и имеет приоритет над поиском.", 11, "ThemeMutedBrush"));
+        _lyricsRetryButton = FeatureButton("Повторить поиск", RetryLyricsSearch);
+        lyrics.Children.Add(_lyricsRetryButton);
         _lyricsStatusText = FeatureText("", 12, "ThemeMutedBrush");
         lyrics.Children.Add(_lyricsStatusText);
+        _plainLyricsText = FeatureText("", 13);
+        _plainLyricsPanel = new Expander { Header = L("Текст без синхронизации"), Content = _plainLyricsText, Visibility = Visibility.Collapsed };
+        _plainLyricsPanel.SetResourceReference(Control.ForegroundProperty, "ThemeTextBrush");
+        lyrics.Children.Add(_plainLyricsPanel);
+        lyrics.Children.Add(FeatureText("При включённом поиске LRCLIB получает название, исполнителя, альбом и длительность трека, если они доступны.", 11, "ThemeMutedBrush"));
+        lyrics.Children.Add(FeatureText("Импортированный файл применяется к текущему треку до закрытия приложения и имеет приоритет над поиском.", 11, "ThemeMutedBrush"));
         RefreshLyricsStatus();
+        UpdateMusicLyrics();
     }
     private void BuildChatPage()
     {
@@ -603,9 +625,10 @@ public partial class MainWindow
         var card = FeatureCard("Что нового", parent: SettingsFeatureContent);
         foreach (string line in new[]
         {
-            "Голосовой звонок определяется даже при свёрнутом Discord.",
-            "Таймер показывает время с момента подключения. Нажмите на него, чтобы открыть Discord.",
-            "Кнопка наушников выбирает выход Discord, а кнопка микрофона переключает устройство записи в Windows."
+            "В плеере появились перемотка по секундам и отдельная громкость приложения.",
+            "Текст песни выводится в 1–3 строки с анимацией. Поиск учитывает варианты названия и исполнителя.",
+            "В разделе «Система» видны подключённые устройства и доступные данные об их заряде.",
+            "Падение снега включается в настройках оформления."
         })
             card.Children.Add(FeatureText("• " + L(line), 13));
         card.Children.Add(FeatureButton("Канал проекта", () => OpenWeb(new Uri("https://t.me/outsidecompany"))));

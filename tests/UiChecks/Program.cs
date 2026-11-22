@@ -87,6 +87,36 @@ internal static class Program
         Check(System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>(System.Text.Json.JsonSerializer.Serialize(settings))!.LensGlass,
             "Experimental glass choice survives settings serialization");
         settings.LensGlass = false; settings.ExcludeFromCapture = true; Call("ConfigureLensGlass");
+        var snowfall = Element<SnowfallLayer>("IslandSnowfall");
+        var snowToggle = Element<CheckBox>("TglSnowfall");
+        Check(!settings.Snowfall && snowfall.Visibility == Visibility.Collapsed && !snowfall.IsHitTestVisible,
+            "Snow is opt-in and does not intercept island controls");
+        Check(System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>("{}") is { Snowfall: false }
+            && System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>("{\"Snowfall\":true}") is { Snowfall: true },
+            "Snowfall is saved and absent settings keep it off");
+        snowToggle.IsChecked = true;
+        Call("TglSnowfall_Click", snowToggle, new RoutedEventArgs());
+        Check(settings.Snowfall && snowfall.Visibility == Visibility.Visible
+            && Element<Grid>("IslandSurfaceLayer").Clip is RectangleGeometry, "Snowfall shares the island's rounded mask");
+        var drawSnow = typeof(SnowfallLayer).GetMethod("DrawFrame", flags)!;
+        var snowDrawing = (DrawingVisual)VisualTreeHelper.GetChild(snowfall, 0);
+        snowfall.Measure(new Size(240, 42));
+        snowfall.Arrange(new Rect(0, 0, 240, 42));
+        drawSnow.Invoke(snowfall, [0d]);
+        var snowBefore = snowDrawing.Drawing.Children.OfType<GeometryDrawing>().Select(d => (LineGeometry)d.Geometry).ToArray();
+        drawSnow.Invoke(snowfall, [.1d]);
+        var snowAfter = snowDrawing.Drawing.Children.OfType<GeometryDrawing>().Select(d => (LineGeometry)d.Geometry).ToArray();
+        Check(snowBefore.Length >= 18 && snowBefore.Length == snowAfter.Length
+            && snowBefore.Zip(snowAfter).Where((_, i) => i % 3 == 0).All(pair =>
+            {
+                double rise = pair.Second.StartPoint.Y - pair.First.StartPoint.Y;
+                double travel = 42 + pair.First.EndPoint.X - pair.First.StartPoint.X;
+                double drop = rise >= 0 ? rise : rise + travel;
+                return drop >= 2.39 && drop <= 5.91;
+            }), "Every snowflake moves down before wrapping back to the top");
+        snowToggle.IsChecked = false;
+        Call("TglSnowfall_Click", snowToggle, new RoutedEventArgs());
+        Check(!settings.Snowfall && snowfall.Visibility == Visibility.Collapsed, "Turning off snowfall removes its visual layer");
         var track = Element<TextBlock>("CompactTrackText");
         var logo = Element<ContentControl>("CompactCharacterHost");
         settings.SelectedCharacter = "Fox";
@@ -109,10 +139,28 @@ internal static class Program
         var lyrics = Element<TextBlock>("CompactLyricsText");
         var lyricsService = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.LyricsService")!;
         var currentTrack = Activator.CreateInstance(lyricsService.GetNestedType("Track", BindingFlags.NonPublic)!, "Next track", "Artist", "player")!;
+        var playerTimelineType = typeof(MainWindow).GetNestedType("PlayerTimeline", BindingFlags.NonPublic)!;
+        object PlayerTimeline(double position, double duration, bool canSeek = true) =>
+            Activator.CreateInstance(playerTimelineType, position, duration, canSeek)!;
+        var seek = Element<Slider>("HomePlayerSeek");
+        Call("UpdateHomePlayerTimeline", currentTrack, PlayerTimeline(65.9, 183.3));
+        Check(seek.IsEnabled && seek.SmallChange == 1 && seek.IsMoveToPointEnabled && seek.Value == 65 && seek.Maximum == 183
+            && Element<TextBlock>("HomePlayerElapsed").Text == "1:05" && Element<TextBlock>("HomePlayerDuration").Text == "3:03",
+            "Player timeline displays elapsed and total time and allows one-second seek steps");
+        Call("ApplyMediaState", false, "Next track", "Artist", "player");
+        Check(seek.IsEnabled && Element<TextBlock>("MediaTitleText").Text == "Next track"
+            && Element<TextBlock>("HomePlayerElapsed").Text == "1:05", "Paused tracks retain the title and seek position");
+        Call("UpdateHomePlayerTimeline", currentTrack, PlayerTimeline(119, 180, false));
+        Check(!seek.IsEnabled && Element<TextBlock>("HomePlayerElapsed").Text == "1:59",
+            "A read-only timeline displays time without offering seek");
+        Call("UpdateHomePlayerTimeline", null, null);
+        Check(!seek.IsEnabled && seek.Value == 0 && Element<TextBlock>("HomePlayerDuration").Text == "–:––",
+            "Closing the media session clears the timeline");
+        Call("ApplyMediaState", true, "Next track", "Artist", "player");
         Call("UpdateLyricsTrack", currentTrack, 2d, "", 180d);
         Set("_importedLyricsTrack", currentTrack);
         Set("_importedLyrics", lyricsService.GetMethod("Parse", BindingFlags.Static | BindingFlags.NonPublic)!
-            .Invoke(null, ["[00:00]First line\n[00:01.50]Current line\n[00:10]Later"]));
+            .Invoke(null, ["[00:00]First line\n[00:01.50]Current line\n[00:10]Later\n[00:20]Last"]));
         Call("UpdateCompactContent");
         Check(lyrics.Visibility == Visibility.Collapsed && !settings.OnlineLyrics, "Lyric display and online search are both opt-in");
         settings.Karaoke = true;
@@ -120,6 +168,18 @@ internal static class Program
         Check(lyrics.Visibility == Visibility.Visible && lyrics.Text == "Current line" && track.Text == "Next track"
             && ReferenceEquals(logo.Content, selectedLogo) && Field<double>("_targetH") >= 50,
             "A local LRC can show the synchronized line below the title beside the chosen character, without online search");
+        Check(Element<TextBlock>("CompactNextLyric").Visibility == Visibility.Collapsed, "The default compact layout displays one lyric line");
+        settings.LyricsLineCount = 2;
+        Call("UpdateCompactLyrics");
+        Check(Element<TextBlock>("CompactNextLyric").Text == "Later" && Element<TextBlock>("CompactLastLyric").Visibility == Visibility.Collapsed,
+            "Two lyric lines show the current line and its immediate successor");
+        settings.LyricsLineCount = 3;
+        Call("UpdateCompactLyrics");
+        Check(Element<TextBlock>("CompactLastLyric").Text == "Last" && Field<double>("_targetH") >= 80
+            && System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>(
+                System.Text.Json.JsonSerializer.Serialize(settings))?.LyricsLineCount == 3,
+            "Three lyric lines expand the island and persist the preference");
+        settings.LyricsLineCount = 1;
         Call("UpdateLyricsTrack", currentTrack, 0d, "", 180d);
         Call("UpdateCompactLyrics");
         Check(lyrics.Text == "First line", "Skipping backward restores the earlier lyric");
@@ -382,7 +442,7 @@ internal static class Program
             var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
             using var file = System.IO.File.Create(System.IO.Path.Combine(output, name + ".png")); png.Save(file);
         }
-        void Snapshot(string name, string view, string? page = null, int height = 515)
+        void Snapshot(string name, string view, string? page = null, int height = 515, int width = 740)
         {
             foreach (string id in new[] { "CompactView", "HoverView", "ExpandedView", "WeatherDashboardView", "SettingsView", "ClipboardDashboardView", "DashboardSectionView" })
                 if (window.FindName(id) is FrameworkElement el) el.Visibility = Visibility.Collapsed;
@@ -396,7 +456,7 @@ internal static class Program
                 Call("SwitchSettingsPage", Element<UIElement>(page), Element<Button>(nav));
                 var p = Element<FrameworkElement>(page); p.BeginAnimation(UIElement.OpacityProperty, null); p.Opacity = 1;
             }
-            island.Width = 740; island.Height = height;
+            island.Width = width; island.Height = height;
             island.RenderTransform = Transform.Identity;
             Call("UpdateGlassShadow");
             ((FrameworkElement)window.Content).Measure(new Size(1360, 700));
@@ -405,10 +465,10 @@ internal static class Program
             var visual = new DrawingVisual();
             using (var draw = visual.RenderOpen())
             {
-                draw.DrawRectangle(new SolidColorBrush(Color.FromRgb(117, 139, 164)), null, new Rect(0, 0, 740, height));
-                draw.DrawRectangle(new VisualBrush(island), null, new Rect(0, 0, 740, height));
+                draw.DrawRectangle(new SolidColorBrush(Color.FromRgb(117, 139, 164)), null, new Rect(0, 0, width, height));
+                draw.DrawRectangle(new VisualBrush(island), null, new Rect(0, 0, width, height));
             }
-            var bitmap = new RenderTargetBitmap(740, height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
+            var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32); bitmap.Render(visual);
             var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
             using var file = System.IO.File.Create(System.IO.Path.Combine(output, name + ".png")); png.Save(file);
         }
@@ -424,6 +484,27 @@ internal static class Program
             Snapshot(key + "-appearance", "SettingsView", "PageAppearance");
             Snapshot(key + "-behavior", "SettingsView", "PageBehavior");
             Snapshot(key + "-home", "ExpandedView");
+            Call("ApplyMediaState", true, "Next track", "Artist", "player");
+            Call("UpdateHomePlayerTimeline", currentTrack, PlayerTimeline(65, 183));
+            var playerVolumeSnapshot = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.PlayerAudioService+Snapshot")!;
+            Call("UpdateHomePlayerVolume", Activator.CreateInstance(playerVolumeSnapshot, .58f, false));
+            Snapshot(key + "-home-player", "ExpandedView", height: 278, width: 720);
+            var volume = Element<Slider>("HomePlayerVolume");
+            var seekTrack = (System.Windows.Controls.Primitives.Track)seek.Template.FindName("PART_Track", seek);
+            Check(seekTrack.ActualWidth > 100 && seekTrack.Thumb.ActualWidth > 0 && volume.ActualWidth > 70
+                && volume.IsEnabled && volume.Value == 58 && seek.Value == 65 && ((string)volume.ToolTip).StartsWith("Player volume"),
+                key + ": home player controls fit and reflect player audio state");
+            Call("UpdateHomePlayerVolume", new object?[] { null });
+            Check(!volume.IsEnabled && volume.Value == 0, "Missing player audio session disables the volume control");
+            Check(Math.Abs(seekTrack.ValueFromPoint(new Point(seekTrack.ActualWidth / 2, seekTrack.ActualHeight / 2)) - seek.Maximum / 2) < 1,
+                key + ": clicking the timeline maps to the corresponding playback time");
+            snowfall.Visibility = Visibility.Visible;
+            snowfall.Arrange(new Rect(0, 0, island.ActualWidth, island.ActualHeight));
+            drawSnow.Invoke(snowfall, [0d]);
+            Snapshot(key + "-snowfall", "ExpandedView", height: 278, width: 720);
+            snowfall.Visibility = Visibility.Collapsed;
+            Call("ApplyMediaState", false, "", "", "");
+            Call("UpdateHomePlayerTimeline", null, null);
             Snapshot(key + "-weather", "WeatherDashboardView");
             var menu = island.ContextMenu;
             Set("_isGameModeActive", true);
@@ -626,6 +707,42 @@ internal static class Program
             Check(dashboardContent.Children.Count >= count, page + ": renders its top-level controls");
             Snapshot("1.1.23-" + page, "DashboardSectionView", height: height);
         }
+        var peripheralType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.ConnectedDevices+Device")!;
+        var deviceFixture = Array.CreateInstance(peripheralType, 2);
+        deviceFixture.SetValue(Activator.CreateInstance(peripheralType, "Test headphones", "Наушники", true, 72, true, false), 0);
+        deviceFixture.SetValue(Activator.CreateInstance(peripheralType, "Test display", "Дисплей", false, null, null, false), 1);
+        Set("_connectedDevices", deviceFixture);
+        SelectDashboardTab("system");
+        var systemCards = dashboardContent.Children.OfType<Border>().ToArray();
+        Check(CardTitle(systemCards[1]).Text == "Connected devices" && CardTitle(systemCards[2]).Text == Translate("Громкость приложений"),
+            "Connected devices are between Control Center and the mixer");
+        var powerControls = ((StackPanel)systemCards[0].Child).Children.OfType<WrapPanel>().Last();
+        Check(powerControls.Children.Count == 4 && powerControls.Children.OfType<Button>().All(button =>
+            button.Content is StackPanel content && content.Children[0] is Border { Child: TextBlock symbol } && symbol.Text.Length == 1),
+            "The four power actions have individual icons");
+        var deviceRows = Field<StackPanel>("_connectedDeviceRows");
+        Check(((TextBlock)((DockPanel)((Border)deviceRows.Children[0]).Child).Children[0]).Text == "72% · Charging"
+            && ((TextBlock)((DockPanel)((Border)deviceRows.Children[1]).Child).Children[0]).Text == "Battery level unavailable",
+            "Device rows distinguish reported charge and unknown battery status");
+        Snapshot("system-connected-devices", "DashboardSectionView", height: 555, width: 720);
+        Set("_connectedDevices", null);
+
+        settings.Karaoke = true; settings.LyricsLineCount = 3;
+        SelectDashboardTab("music");
+        Call("ApplyMediaState", true, "Next track", "Artist", "player");
+        Call("UpdateLyricsTrack", currentTrack, 2d, "", 180d);
+        Call("UpdateHomePlayerTimeline", currentTrack, PlayerTimeline(2, 180));
+        var appLevel = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.PlayerAudioService+Snapshot")!;
+        Call("UpdateHomePlayerVolume", Activator.CreateInstance(appLevel, .60f, false));
+        Call("UpdateMusicMasterVolume", Activator.CreateInstance(volumeSnapshotType, .26f, false));
+        Check(Field<Slider>("_musicSeek").Value == 2 && Field<Slider>("_musicVolume").Value == 60 && Field<Slider>("_musicMaster").Value == 26,
+            "Music page shows independent player and Windows volume and the shared timeline");
+        Call("UpdateMusicLyrics");
+        Check(Field<TextBlock>("_musicLyricLine").Text == "Current line" && Field<TextBlock>("_musicLastLyric").Text == "Last",
+            "Music page honors the same lyric line count as the compact island");
+        Snapshot("music-player-and-lyrics", "DashboardSectionView", height: 525, width: 720);
+        settings.Karaoke = false; settings.LyricsLineCount = 1;
+        Call("ApplyMediaState", false, "", "", "");
         Call("NavAi_Click", Element<Button>("NavAiBtn"), new RoutedEventArgs(Button.ClickEvent));
         Snapshot("1.1.23-ai-agents", "SettingsView", "PageAi");
         SelectDashboardTab("home");

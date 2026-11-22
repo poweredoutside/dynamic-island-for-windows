@@ -15,7 +15,11 @@ public partial class MainWindow
     private (TextBlock Text, ProgressBar Bar)[] _systemMeters = [];
     private DateTime _nextPrivacyRead;
     private DateTime _nextConnectivityRead;
+    private DateTime _nextDevicesRead;
     private bool _connectivityReading, _radioChanging;
+    private bool _devicesReading;
+    private IReadOnlyList<ConnectedDevices.Device>? _connectedDevices;
+    private StackPanel? _connectedDeviceRows;
     private WindowsConnectivity.Snapshot? _connectivity;
     private enum Tile { Wifi, Bluetooth, Airplane, Vpn, Desktop }
     private readonly Dictionary<Tile, (Button Button, TextBlock Status)> _controlTiles = [];
@@ -50,15 +54,20 @@ public partial class MainWindow
 
         var power = new WrapPanel();
         controls.Children.Add(power);
-        power.Children.Add(FeatureButton("Блокировка", () => { if (!SystemOverview.LockWorkStation()) throw new InvalidOperationException("Windows lock failed."); }));
-        power.Children.Add(FeatureButton("Сон", () =>
+        power.Children.Add(PowerButton("Блокировка", "\uE72E", "#5698EC", () => { if (!SystemOverview.LockWorkStation()) throw new InvalidOperationException("Windows lock failed."); }));
+        power.Children.Add(PowerButton("Сон", "\uE708", "#8863D9", () =>
         {
             if (!System.Windows.Forms.Application.SetSuspendState(System.Windows.Forms.PowerState.Suspend, false, false))
                 FeatureNotice(L("Не удалось перевести компьютер в спящий режим."), () => OpenFeaturePage("system"));
         }));
-        power.Children.Add(FeatureButton("Перезагрузка", () => ConfirmPowerAction(true)));
-        power.Children.Add(FeatureButton("Выключение", () => ConfirmPowerAction(false)));
+        power.Children.Add(PowerButton("Перезагрузка", "\uE72C", "#168F80", () => ConfirmPowerAction(true)));
+        power.Children.Add(PowerButton("Выключение", "\uE7E8", "#D75D72", () => ConfirmPowerAction(false)));
 
+        var devices = FeatureCard("Подключённые устройства");
+        _connectedDeviceRows = new StackPanel();
+        devices.Children.Add(_connectedDeviceRows);
+        PaintConnectedDevices(_connectedDevices == null ? "Проверяю подключённые устройства…" : null);
+        _nextDevicesRead = DateTime.MinValue;
         var mixer = FeatureCard("Громкость приложений");
         var resources = new System.Windows.Controls.Primitives.UniformGrid { Columns = 3 };
         DashboardSectionContent.Children.Add(resources);
@@ -99,6 +108,92 @@ public partial class MainWindow
         _nextPrivacyRead = DateTime.MinValue;
         RefreshSystemOverview();
         return mixer;
+    }
+
+    private Button PowerButton(string label, string glyph, string color, Action action)
+    {
+        var button = FeatureButton(label, action);
+        button.Padding = new Thickness(6, 4, 11, 4);
+        var content = new StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+        var icon = new TextBlock
+        {
+            Text = glyph, FontFamily = new System.Windows.Media.FontFamily("Segoe MDL2 Assets"), FontSize = 13,
+            Foreground = System.Windows.Media.Brushes.White, HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        content.Children.Add(new Border
+        {
+            Width = 24, Height = 24, CornerRadius = new CornerRadius(8), Margin = new Thickness(0, 0, 6, 0),
+            Background = WidgetBrush(color), Child = icon
+        });
+        content.Children.Add(new TextBlock { Text = L(label), VerticalAlignment = VerticalAlignment.Center });
+        button.Content = content;
+        System.Windows.Automation.AutomationProperties.SetName(button, L(label));
+        return button;
+    }
+
+    private async Task RefreshConnectedDevicesAsync()
+    {
+        if (_devicesReading || !SystemPageVisible) return;
+        _devicesReading = true;
+        _nextDevicesRead = DateTime.UtcNow.AddSeconds(6);
+        try
+        {
+            var devices = await Task.Run(ConnectedDevices.ReadAsync);
+            if (_windowClosed) return;
+            if (devices != null && _connectedDevices != null && devices.SequenceEqual(_connectedDevices)) return;
+            _connectedDevices = devices;
+            if (SystemPageVisible) PaintConnectedDevices();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Read connected devices", ex);
+            _connectedDevices = null;
+            if (!_windowClosed && SystemPageVisible) PaintConnectedDevices();
+        }
+        finally { _devicesReading = false; }
+    }
+
+    private void PaintConnectedDevices(string? status = null)
+    {
+        if (_connectedDeviceRows is not { } rows) return;
+        rows.Children.Clear();
+        if (_connectedDevices is not { Count: > 0 } devices)
+        {
+            rows.Children.Add(FeatureText(status ?? (_connectedDevices == null
+                ? "Не удалось прочитать список устройств." : "Подключённые устройства не обнаружены."), 11, "ThemeMutedBrush"));
+            return;
+        }
+
+        foreach (var device in devices)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+            string battery = device.Percent is int percent ? $"{percent}%" : L("Заряд недоступен");
+            if (device.Charging == true) battery = device.Percent.HasValue ? battery + " · " + L("Заряжается") : L("Заряжается");
+            else if (device.Charging == false) battery = device.Percent.HasValue ? battery + " · " + L("Не заряжается") : L("Не заряжается");
+            var charge = DeviceLabel(battery, 12, device.Percent.HasValue || device.Charging == true ? "ThemeAccentBrush" : "ThemeMutedBrush");
+            charge.VerticalAlignment = VerticalAlignment.Center;
+            charge.Margin = new Thickness(12, 0, 0, 0);
+            DockPanel.SetDock(charge, Dock.Right);
+            row.Children.Add(charge);
+            var labels = new StackPanel();
+            labels.Children.Add(DeviceLabel(device.Name, 13, "ThemeTextBrush"));
+            string connection = L(device.HasProblem ? "Требуется внимание" : "Подключено");
+            string kind = device.Bluetooth ? "Bluetooth" : L(device.Kind);
+            labels.Children.Add(DeviceLabel($"{kind} · {connection}", 11, "ThemeMutedBrush"));
+            row.Children.Add(labels);
+            var surface = new Border { Child = row, CornerRadius = new CornerRadius(9), Padding = new Thickness(10, 7, 10, 2),
+                Margin = new Thickness(0, 0, 0, 5) };
+            surface.SetResourceReference(Border.BackgroundProperty, "ThemeInputBrush");
+            rows.Children.Add(surface);
+        }
+
+        static TextBlock DeviceLabel(string text, double size, string brush)
+        {
+            var label = new TextBlock { Text = text, FontSize = size, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = text };
+            label.SetResourceReference(TextBlock.ForegroundProperty, brush);
+            return label;
+        }
     }
 
     private async Task ToggleSystemRadioAsync(RadioKind kind, string settings)
@@ -207,6 +302,7 @@ public partial class MainWindow
         if (!SystemPageVisible || _systemMeters.Length != 3) return;
         PaintControlTiles();
         if (IsLoaded && DateTime.UtcNow >= _nextConnectivityRead) _ = RefreshConnectivityAsync();
+        if (IsLoaded && IslandBorder.IsVisible && DateTime.UtcNow >= _nextDevicesRead) _ = RefreshConnectedDevicesAsync();
         _systemBattery!.Text = BatteryDisplay();
         _systemDnd!.Text = _timedDnd is { } timed
             ? string.Format(L("До {0}"), timed.Until.ToLocalTime().ToString("HH:mm"))

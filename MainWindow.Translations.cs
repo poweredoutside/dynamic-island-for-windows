@@ -277,6 +277,34 @@ Discord · Голос¦Discord · Voice¦Discord · Голос¦Discord · Sprac
 новое сообщение¦new message¦нове повідомлення¦neue Nachricht¦nuevo mensaje
 Звук выключен¦Muted¦Звук вимкнено¦Stumm¦Silenciado
 Громкость¦Volume¦Гучність¦Lautstärke¦Volumen
+Падение снега¦Falling snow¦Падіння снігу¦Schneefall¦Nieve cayendo
+Громкость плеера¦Player volume¦Гучність програвача¦Player-Lautstärke¦Volumen del reproductor
+Громкость Windows¦Windows volume¦Гучність Windows¦Windows-Lautstärke¦Volumen de Windows
+Подключённые устройства¦Connected devices¦Підключені пристрої¦Verbundene Geräte¦Dispositivos conectados
+Проверяю подключённые устройства…¦Looking for connected devices…¦Перевіряю підключені пристрої…¦Verbundene Geräte werden gesucht…¦Buscando dispositivos conectados…
+Подключённые устройства не обнаружены.¦No connected devices found.¦Підключених пристроїв не знайдено.¦Keine verbundenen Geräte gefunden.¦No se han encontrado dispositivos conectados.
+Не удалось прочитать список устройств.¦Could not read the device list.¦Не вдалося прочитати список пристроїв.¦Die Geräteliste konnte nicht gelesen werden.¦No se pudo leer la lista de dispositivos.
+Заряд недоступен¦Battery level unavailable¦Рівень заряду недоступний¦Akkustand nicht verfügbar¦Nivel de batería no disponible
+Заряжается¦Charging¦Заряджається¦Wird geladen¦Cargando
+Не заряжается¦Not charging¦Не заряджається¦Wird nicht geladen¦No está cargando
+Подключено¦Connected¦Підключено¦Verbunden¦Conectado
+Требуется внимание¦Needs attention¦Потребує уваги¦Benötigt Aufmerksamkeit¦Requiere atención
+Наушники¦Headphones¦Навушники¦Kopfhörer¦Auriculares
+Мышь¦Mouse¦Миша¦Maus¦Ratón
+Клавиатура¦Keyboard¦Клавіатура¦Tastatur¦Teclado
+Геймпад¦Game controller¦Геймпад¦Gamecontroller¦Mando
+Дисплей¦Display¦Дисплей¦Bildschirm¦Pantalla
+Устройство¦Device¦Пристрій¦Gerät¦Dispositivo
+Ищу текст песни…¦Searching for lyrics…¦Шукаю текст пісні…¦Liedtext wird gesucht…¦Buscando la letra…
+Текст песни не найден.¦Lyrics not found.¦Текст пісні не знайдено.¦Kein Liedtext gefunden.¦No se encontró la letra.
+Найден текст без синхронизации.¦Lyrics found without timestamps.¦Знайдено текст без синхронізації.¦Liedtext ohne Zeitmarken gefunden.¦Se encontró la letra sin marcas de tiempo.
+Текст без синхронизации¦Lyrics without timestamps¦Текст без синхронізації¦Liedtext ohne Zeitmarken¦Letra sin marcas de tiempo
+Повторить поиск¦Search again¦Повторити пошук¦Erneut suchen¦Buscar de nuevo
+Количество строк текста¦Lyric lines¦Кількість рядків тексту¦Anzahl der Liedtextzeilen¦Líneas de la letra
+Аудиосессия плеера недоступна¦Player audio session unavailable¦Аудіосеанс програвача недоступний¦Audiositzung des Players nicht verfügbar¦Sesión de audio del reproductor no disponible
+Перемотка трека¦Seek within track¦Перемотування треку¦Im Titel springen¦Cambiar la posición de la pista
+Доступность перемотки зависит от плеера¦Seeking depends on the player¦Перемотування залежить від програвача¦Die Verfügbarkeit hängt vom Player ab¦La búsqueda depende del reproductor
+Плеер не выполнил перемотку.¦The player could not seek.¦Програвач не виконав перемотування.¦Der Player konnte die Position nicht ändern.¦El reproductor no pudo cambiar la posición.
 OC - Dynamic Island 1.1.9 · нажмите, чтобы увидеть новинки¦OC - Dynamic Island 1.1.9 · click for new features¦OC - Dynamic Island 1.1.9 · натисніть для перегляду новинок¦OC - Dynamic Island 1.1.9 · klicken für Neuigkeiten¦OC - Dynamic Island 1.1.9 · pulsa para ver novedades
 Измерение игры выключено.¦Game measurement off.¦Вимірювання гри вимкнено.¦Spielmessung deaktiviert.¦Medición del juego desactivada.
 Ожидание разрешения Windows…¦Waiting for Windows permission…¦Очікування дозволу Windows…¦Warte auf Windows-Berechtigung…¦Esperando permiso de Windows…
@@ -375,9 +403,10 @@ Windows не подтвердила подпись издателя устано
 Настройки Windows¦Windows Settings¦Налаштування Windows¦Windows-Einstellungen¦Configuración de Windows
 Не удалось перевести компьютер в спящий режим.¦Could not put the computer to sleep.¦Не вдалося перевести комп’ютер у режим сну.¦Der Computer konnte nicht in den Ruhezustand versetzt werden.¦No se pudo suspender el equipo.
 Открыть Discord¦Open Discord¦Відкрити Discord¦Discord öffnen¦Abrir Discord
-Голосовой звонок определяется даже при свёрнутом Discord.¦Voice calls are detected even when Discord is minimized.¦Голосовий дзвінок визначається навіть зі згорнутим Discord.¦Sprachanrufe werden auch bei minimiertem Discord erkannt.¦Las llamadas de voz se detectan incluso con Discord minimizado.
-Таймер показывает время с момента подключения. Нажмите на него, чтобы открыть Discord.¦The timer shows the elapsed time since connection. Click it to open Discord.¦Таймер показує час від підключення. Натисніть на нього, щоб відкрити Discord.¦Der Timer zeigt die Zeit seit dem Verbindungsaufbau. Klicke darauf, um Discord zu öffnen.¦El temporizador muestra el tiempo desde la conexión. Púlsalo para abrir Discord.
-Кнопка наушников выбирает выход Discord, а кнопка микрофона переключает устройство записи в Windows.¦The headphones button selects the Discord output, and the microphone button mutes or unmutes the recording device in Windows.¦Кнопка навушників вибирає вихід Discord, а кнопка мікрофона вмикає або вимикає пристрій запису у Windows.¦Die Kopfhörertaste wählt die Discord-Ausgabe, die Mikrofontaste schaltet das Aufnahmegerät in Windows stumm oder wieder ein.¦El botón de auriculares elige la salida de Discord y el del micrófono silencia o activa el dispositivo de grabación en Windows.
+В плеере появились перемотка по секундам и отдельная громкость приложения.¦The player has one-second seeking and a separate app volume control.¦У програвачі з’явилися перемотування по секундах і окреме регулювання гучності програми.¦Der Player bietet sekundengenaues Springen und eine separate App-Lautstärke.¦El reproductor permite saltar segundo a segundo y ajustar el volumen de la aplicación por separado.
+Текст песни выводится в 1–3 строки с анимацией. Поиск учитывает варианты названия и исполнителя.¦Lyrics display one to three lines with animation. Search handles title and artist variations.¦Текст пісні показується в 1–3 рядки з анімацією. Пошук враховує варіанти назви й виконавця.¦Liedtexte zeigen eine bis drei Zeilen mit Animation. Die Suche berücksichtigt Varianten von Titel und Interpret.¦La letra muestra de una a tres líneas con animación. La búsqueda tiene en cuenta variantes del título y del artista.
+В разделе «Система» видны подключённые устройства и доступные данные об их заряде.¦System shows connected devices and available battery readings.¦У розділі «Система» показано підключені пристрої та доступні дані про їхній заряд.¦Unter „System“ stehen verbundene Geräte und verfügbare Akkudaten.¦Sistema muestra los dispositivos conectados y los datos de batería disponibles.
+Падение снега включается в настройках оформления.¦Turn on falling snow in Appearance settings.¦Падіння снігу вмикається в налаштуваннях оформлення.¦Schneefall lässt sich in den Darstellungseinstellungen aktivieren.¦Activa la nieve en los ajustes de apariencia.
 Выход звука Discord¦Discord audio output¦Аудіовихід Discord¦Discord-Audioausgabe¦Salida de audio de Discord
 Микрофон недоступен¦Microphone unavailable¦Мікрофон недоступний¦Mikrofon nicht verfügbar¦Micrófono no disponible
 Включить микрофон¦Unmute microphone¦Увімкнути мікрофон¦Mikrofon einschalten¦Activar micrófono

@@ -19,6 +19,24 @@ internal static class Program
     {
         int checks = 0;
         void Check(bool result, string reason) { if (!result) throw new InvalidOperationException(reason); checks++; }
+        if (args.Contains("--connected-devices"))
+        {
+            var devices = Task.Run(ConnectedDevices.ReadAsync).GetAwaiter().GetResult();
+            Check(devices != null && devices.All(device => device.Name.Length > 0 && device.Percent is null or >= 0 and <= 100),
+                "Windows returns valid information about connected peripherals");
+            Console.WriteLine($"PASS: Windows reports {devices!.Count} connected peripherals, including {devices.Count(device => device.Bluetooth)} Bluetooth devices. Battery readings: {devices.Count(device => device.Percent.HasValue)}.");
+            return 0;
+        }
+        Check(ConnectedDevices.ReadPercent((byte)0) == 0 && ConnectedDevices.ReadPercent((uint)100) == 100
+            && ConnectedDevices.ReadPercent((byte)255) == null && ConnectedDevices.ReadPercent(-1) == null,
+            "Unknown device battery values never render as a percentage");
+        if (args.Contains("--player-volume")) return CheckPlayerVolume();
+        Check(PlayerAudioService.MatchesDesktopPlayer("ru.yandex.desktop.music", "Яндекс Музыка")
+            && PlayerAudioService.MatchesDesktopPlayer("Spotify.exe", "Spotify")
+            && PlayerAudioService.MatchesDesktopPlayer("Chrome.Default", "chrome")
+            && !PlayerAudioService.MatchesDesktopPlayer("Chrome.Default", "chromedriver")
+            && !PlayerAudioService.MatchesDesktopPlayer("OtherChrome", "chrome"),
+            "Player audio matches application IDs or executable names without matching unrelated processes");
         if (args.Contains("--discord-call"))
         {
             var monitor = new DiscordCallMonitor(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
@@ -161,7 +179,15 @@ internal static class Program
         using (var client = new System.Net.Http.HttpClient(new LyricsResponseHandler()))
         {
             var found = LyricsService.FindAsync(client, new("Track", "Artist", ""), "", 180, CancellationToken.None).GetAwaiter().GetResult();
-            Check(found.Length == 1 && found[0].Text == "Synced line", "LRCLIB lookup reads the synchronized response");
+            Check(found.Lines.Length == 1 && found.Lines[0].Text == "Synced line", "LRCLIB lookup reads the synchronized response");
+        }
+        using (var client = new System.Net.Http.HttpClient(new LyricsResponseHandler(search: true)))
+        {
+            var track = new LyricsService.Track("Много дыма (Official Video)", "FED ELMID", "");
+            var matched = LyricsService.FindAsync(client, track, "", 180, CancellationToken.None).GetAwaiter().GetResult();
+            Check(matched.Lines.Single().Text == "Matched line", "Lyrics search normalizes titles and matches artists before ranking by duration");
+            var plain = LyricsService.FindAsync(client, track, "", 230, CancellationToken.None).GetAwaiter().GetResult();
+            Check(plain.Lines.Length == 0 && plain.Plain == "Matched lyrics", "A different track duration falls back to plain text");
         }
         if (args.Contains("--volume-events")) return CheckVolumeEvents();
         if (args.Contains("--probe-desktop-fps"))
@@ -421,6 +447,45 @@ internal static class Program
         Console.WriteLine($"PASS: {checks} feature checks; offscreen previews: {directory}"); return 0;
     }
 
+    private static int CheckPlayerVolume()
+    {
+        using var enumerator = new NAudio.CoreAudioApi.MMDeviceEnumerator();
+        using var output = enumerator.GetDefaultAudioEndpoint(NAudio.CoreAudioApi.DataFlow.Render, NAudio.CoreAudioApi.Role.Multimedia);
+        var endpoint = output.AudioEndpointVolume;
+        float masterVolume = endpoint.MasterVolumeLevelScalar;
+        bool masterMuted = endpoint.Mute;
+        using var playback = new NAudio.Wave.WasapiOut(output, NAudio.CoreAudioApi.AudioClientShareMode.Shared, true, 80);
+        var silence = new NAudio.Wave.SilenceProvider(new NAudio.Wave.WaveFormat(48000, 16, 2));
+        playback.Init(silence);
+        playback.Play();
+        string source = Environment.ProcessPath!;
+        PlayerAudioService.Snapshot? original = null;
+        if (!SpinWait.SpinUntil(() => (original = PlayerAudioService.ReadOrSet(source)).HasValue, 3000)
+            || original is not { } previous)
+            throw new Exception("The isolated test player has no CoreAudio session.");
+
+        float target = previous.Volume > .5f ? .35f : .75f;
+        try
+        {
+            PlayerAudioService.ReadOrSet(source, target);
+            var actual = PlayerAudioService.ReadOrSet(source);
+            if (actual is not { } result || Math.Abs(result.Volume - target) > .001f)
+                throw new Exception("The audio session did not reflect the requested player volume.");
+            if (PlayerAudioService.ReadOrSet("NoSuchPlayer-" + Guid.NewGuid(), .1f) != null)
+                throw new Exception("An unidentified player should never route to the system volume.");
+            if (endpoint.MasterVolumeLevelScalar != masterVolume || endpoint.Mute != masterMuted)
+                throw new Exception("Player volume changed the system output.");
+        }
+        finally
+        {
+            using var mixer = new DesktopAudioService();
+            foreach (var session in mixer.Apps().Where(session => session.ProcessId == Environment.ProcessId))
+                mixer.SetApp(session.Id, previous.Volume, previous.Muted);
+        }
+        Console.WriteLine("PASS: live CoreAudio player session volume changed without changing the Windows output volume or mute state.");
+        return 0;
+    }
+
     private static int CheckVolumeEvents()
     {
         using var service = new VolumeIslandService(false);
@@ -500,15 +565,23 @@ internal sealed class ManualTime : TimeProvider
     internal void Advance(int seconds) => _ticks += TimeSpan.FromSeconds(seconds).Ticks;
 }
 
-internal sealed class LyricsResponseHandler : System.Net.Http.HttpMessageHandler
+internal sealed class LyricsResponseHandler(bool search = false) : System.Net.Http.HttpMessageHandler
 {
     protected override Task<System.Net.Http.HttpResponseMessage> SendAsync(System.Net.Http.HttpRequestMessage request, CancellationToken cancellationToken)
     {
         if (!request.Headers.UserAgent.ToString().StartsWith("OC-DynamicIsland/"))
             throw new InvalidOperationException("LRCLIB client must be identified");
+        if (search && request.RequestUri?.AbsolutePath == "/api/get")
+            return Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.NotFound));
+        string json = search ? """
+            [
+              {"trackName":"Много дыма","artistName":"Another artist","duration":180,"syncedLyrics":"[00:01]Unrelated"},
+              {"trackName":"Mnogo dyma","artistName":"FedElmid","duration":183,"plainLyrics":"Matched lyrics","syncedLyrics":"[00:01]Matched line"}
+            ]
+            """ : JsonSerializer.Serialize(new { syncedLyrics = "[00:01.50]Synced line" });
         return Task.FromResult(new System.Net.Http.HttpResponseMessage(System.Net.HttpStatusCode.OK)
         {
-            Content = new System.Net.Http.StringContent(JsonSerializer.Serialize(new { syncedLyrics = "[00:01.50]Synced line" }))
+            Content = new System.Net.Http.StringContent(json)
         });
     }
 }

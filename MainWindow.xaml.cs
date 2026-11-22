@@ -178,6 +178,7 @@ public partial class MainWindow : Window
         public string WeatherCity { get; set; } = "";
         public bool UseFahrenheit { get; set; } = false;
         public bool LiquidGlass { get; set; } = true;
+        public bool Snowfall { get; set; }
         public double IslandScalePercent { get; set; } = 100;
         public double? WindowLeft { get; set; } = null;
         public string? IslandMonitor { get; set; }
@@ -1267,7 +1268,7 @@ public partial class MainWindow : Window
                 break;
 
             case IslandState.Expanded:
-                _targetW = 720; _targetH = 262; _targetR = 28;
+                _targetW = 720; _targetH = 278; _targetR = 28;
                 ExpandedView.Visibility = Visibility.Visible;
                 FadeInElement(ExpandedView);
                 break;
@@ -1966,6 +1967,13 @@ public partial class MainWindow : Window
         SaveSettings();
     }
 
+    private void TglSnowfall_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.Snowfall = TglSnowfall.IsChecked == true;
+        IslandSnowfall.Visibility = _settings.Snowfall ? Visibility.Visible : Visibility.Collapsed;
+        SaveSettings();
+    }
+
     private void IslandBorder_MouseEnter(object sender, System.Windows.Input.MouseEventArgs e)
     {
         _mouseLeaveTimer.Stop();
@@ -2364,6 +2372,8 @@ public partial class MainWindow : Window
         string album = "";
         double duration = 0;
         double? position = null;
+        PlayerTimeline? playerTimeline = null;
+        bool playerVisible = PlayerControlsVisible;
 
         if (_mediaManager != null)
         {
@@ -2374,7 +2384,7 @@ public partial class MainWindow : Window
                 {
                     var playbackInfo = session.GetPlaybackInfo();
                     bool playing = playbackInfo?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-                    if (playing || WidgetIsVisible("music"))
+                    if (playing || playerVisible || WidgetIsVisible("music"))
                     {
                         var props = await session.TryGetMediaPropertiesAsync();
                         if (props != null && !string.IsNullOrWhiteSpace(props.Title))
@@ -2384,16 +2394,23 @@ public partial class MainWindow : Window
                             trackArtist = props.Artist?.Trim() ?? "";
                             album = props.AlbumTitle ?? "";
                             sourceAppId = session.SourceAppUserModelId ?? "";
-                            if (playing && (_settings.Karaoke || _settings.OnlineLyrics))
+                            if (playerVisible || (playing && (_settings.Karaoke || _settings.OnlineLyrics)))
                             {
                                 var timeline = session.GetTimelineProperties();
                                 duration = (timeline.EndTime - timeline.StartTime).TotalSeconds;
+                                double reported = Math.Max(0, (timeline.Position - timeline.StartTime).TotalSeconds);
                                 if (timeline.LastUpdatedTime != default)
                                 {
-                                    double elapsed = Math.Max(0, (DateTimeOffset.UtcNow - timeline.LastUpdatedTime).TotalSeconds);
-                                    double reported = Math.Max(0, (timeline.Position - timeline.StartTime).TotalSeconds);
+                                    double elapsed = playing ? Math.Max(0, (DateTimeOffset.UtcNow - timeline.LastUpdatedTime).TotalSeconds) : 0;
+                                    elapsed *= playbackInfo?.PlaybackRate ?? 1;
                                     position = duration > 0 ? Math.Min(duration, reported + elapsed)
                                         : elapsed <= 600 ? reported + elapsed : reported;
+                                }
+                                if (playerVisible && duration > 0)
+                                {
+                                    bool canSeek = playbackInfo?.Controls?.IsPlaybackPositionEnabled == true
+                                        && TryGetSeekBounds(timeline, out _, out _);
+                                    playerTimeline = new(Math.Clamp(position ?? reported, 0, duration), duration, canSeek);
                                 }
                             }
                         }
@@ -2406,8 +2423,11 @@ public partial class MainWindow : Window
         if (_windowClosed) return;
         _widgetTrack = trackTitle;
         _widgetArtist = trackArtist;
-        if (activePlaying) UpdateLyricsTrack(new LyricsService.Track(trackTitle, trackArtist, sourceAppId), position, album, duration);
+        var track = trackTitle.Length > 0 ? new LyricsService.Track(trackTitle, trackArtist, sourceAppId) : null;
+        if (activePlaying && track != null) UpdateLyricsTrack(track, position, album, duration);
+        UpdateHomePlayerTimeline(track, playerTimeline);
         ApplyMediaState(activePlaying, trackTitle, trackArtist, sourceAppId);
+        await RefreshHomePlayerVolumeAsync(PlayerControlsVisible && sourceAppId.Length > 0 ? sourceAppId : null);
     }
 
     private void ApplyMediaState(bool activePlaying, string trackTitle, string trackArtist, string sourceAppId)
@@ -2422,8 +2442,9 @@ public partial class MainWindow : Window
         PlayPauseVectorIcon.Data = _isMediaPlaying
             ? Geometry.Parse("M14,19H18V5H14M6,19H10V5H6V19Z")
             : Geometry.Parse("M8,5.14V19.14L19,12.14L8,5.14Z");
+        UpdateMusicPlayPause();
 
-        HomeMusicWidget.Cursor = _isMediaPlaying ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.Arrow;
+        HomeMusicTrack.Cursor = _isMediaPlaying ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.Arrow;
 
         if (_isMediaPlaying)
         {
@@ -2431,16 +2452,16 @@ public partial class MainWindow : Window
                 trackArtist = Tr("Playing now", "Сейчас играет", "Зараз грає", "Läuft gerade", "Reproduciendo");
             HoverTrackTitle.Text  = trackTitle;
             HoverTrackArtist.Text = trackArtist;
-            MediaTitleText.Text   = trackTitle;
-            MediaArtistText.Text  = trackArtist;
         }
         else
         {
             HoverTrackTitle.Text  = "OC - Dynamic Island";
             HoverTrackArtist.Text = Tr("Click to open hub", "Нажмите для открытия", "Натисніть для відкриття", "Klicken zum Öffnen", "Clic para abrir");
-            MediaTitleText.Text   = Tr("No active media", "Нет активного медиа", "Немає активного медіа", "Keine aktiven Medien", "Sin multimedia");
-            MediaArtistText.Text  = Tr("Spotify · YouTube · Browser", "Spotify · Яндекс Музыка · Браузер", "Spotify · YouTube · Браузер", "Spotify · YouTube · Browser", "Spotify · YouTube · Navegador");
         }
+        MediaTitleText.Text = trackTitle.Length > 0 ? trackTitle
+            : Tr("No active media", "Нет активного медиа", "Немає активного медіа", "Keine aktiven Medien", "Sin multimedia");
+        MediaArtistText.Text = trackTitle.Length > 0 ? trackArtist
+            : Tr("Spotify · YouTube · Browser", "Spotify · Яндекс Музыка · Браузер", "Spotify · YouTube · Браузер", "Spotify · YouTube · Browser", "Spotify · YouTube · Navegador");
     }
 
     private int GetCpuUsage()
@@ -2809,6 +2830,8 @@ public partial class MainWindow : Window
 
         TglLiquidGlass.IsChecked      = _settings.LiquidGlass;
         LiquidGlassOverlay.Visibility = _settings.LiquidGlass ? Visibility.Visible : Visibility.Collapsed;
+        TglSnowfall.IsChecked         = _settings.Snowfall;
+        IslandSnowfall.Visibility     = _settings.Snowfall ? Visibility.Visible : Visibility.Collapsed;
 
         ScaleSlider.Value             = Math.Clamp(_settings.IslandScalePercent, 50, 130);
         ScaleValueText.Text           = $"{(int)ScaleSlider.Value}%";

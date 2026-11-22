@@ -134,6 +134,7 @@ public partial class MainWindow
         foreach (var widget in _widgetWindows.Values) ApplyPopupPalette(widget.Card.ContextMenu);
         UpdateGameHudValues();
         LiquidGlassOverlay.Visibility = glass ? Visibility.Visible : Visibility.Collapsed;
+        IslandSnowfall.UseLightPalette = light;
         IslandBorder.BorderThickness = new Thickness(glass ? 1 : 0);
         SideToastBorder.BorderThickness = new Thickness(glass ? 1 : 0);
         DiscordCallBorder.BorderThickness = new Thickness(glass ? 1 : 0);

@@ -184,7 +184,7 @@ public partial class MainWindow
         if (_settings.WidgetsHidden)
         {
             foreach (var widget in _widgetWindows.Values) widget.Window.Hide();
-            if (_volumeIsland != null) _volumeIsland.ObserveVolume = false;
+            UpdateVolumeObservation();
             _desktopWidgetsTimer.Stop();
             return;
         }
@@ -208,11 +208,7 @@ public partial class MainWindow
             if (!widget.Window.IsVisible) widget.Window.Show();
         }
         _nextWidgetReading.Clear();
-        if (_volumeIsland is { } audio)
-        {
-            audio.ObserveVolume = WidgetIsVisible("volume");
-            if (audio.ObserveVolume) audio.RequestSnapshot();
-        }
+        UpdateVolumeObservation();
         RefreshDesktopWidgets();
     }
 

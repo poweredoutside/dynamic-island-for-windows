@@ -49,6 +49,7 @@ public partial class MainWindow
         public bool ExternalProgress { get; set; } = true;
         public bool Karaoke { get; set; }
         public bool OnlineLyrics { get; set; }
+        public int LyricsLineCount { get; set; } = 1;
         public string GeminiModel { get; set; } = "gemini-3.8-live";
         public string GeminiVoice { get; set; } = "Kore";
         public string UpdateRepository { get; set; } = GitHubUpdateService.DefaultRepository;
@@ -107,8 +108,7 @@ public partial class MainWindow
         _settings.VolumeIslandHud ??= _settings.LevelHud;
         _volumeIsland = new VolumeIslandService(_settings.VolumeIslandHud == true);
         _volumeIsland.Changed += VolumeChanged;
-        _volumeIsland.ObserveVolume = WidgetIsVisible("volume");
-        if (_volumeIsland.ObserveVolume) _volumeIsland.RequestSnapshot();
+        UpdateVolumeObservation();
         _hoverDelay.Tick += (_, _) => { _hoverDelay.Stop(); if (IslandBorder.IsMouseOver && !_isClickCandidate && !_bodyDragging && _currentState == IslandState.Compact && !_manualResize && !_isGameModeActive) MorphToState(IslandState.Hover); };
         _featureTimer.Tick += (_, _) => FeatureTick(); _featureTimer.Start();
         _nextUpdateCheck = DateTime.UtcNow.AddSeconds(5);
@@ -246,9 +246,10 @@ public partial class MainWindow
         bool showTrack = _isMediaPlaying && !_isGameModeActive && !_manualResize && !string.IsNullOrWhiteSpace(_currentMediaTitle);
         CompactTrackText.Text = showTrack ? _currentMediaTitle.Replace('\r', ' ').Replace('\n', ' ') : "";
         CompactTrackText.Visibility = showTrack ? Visibility.Visible : Visibility.Collapsed;
-        string lyric = showTrack && _settings.Karaoke ? CurrentLyricLine() : "";
-        CompactLyricsText.Text = lyric;
-        CompactLyricsText.Visibility = lyric.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        var lyric = showTrack && _settings.Karaoke ? CurrentLyricLines() : ("", "", "");
+        ShowLyricLine(CompactLyricsText, lyric.Item1);
+        ShowLyricLine(CompactNextLyric, lyric.Item2, animate: false);
+        ShowLyricLine(CompactLastLyric, lyric.Item3, animate: false);
         CompactClockText.Visibility = showTrack ? Visibility.Collapsed : Visibility.Visible;
         CompactWeatherPanel.Visibility = !showTrack && _settings.IdleRight == "weather" ? Visibility.Visible : Visibility.Collapsed;
         CompactBatteryText.Visibility = !showTrack && _settings.IdleRight == "battery" ? Visibility.Visible : Visibility.Collapsed;
@@ -256,7 +257,8 @@ public partial class MainWindow
         if (_currentState == IslandState.Compact && !_isGameModeActive)
         {
             _targetW = showTrack ? Math.Max(360, _settings.CompactWidth) : _settings.CompactWidth;
-            _targetH = lyric.Length > 0 ? Math.Max(50, _settings.CompactHeight) : _settings.CompactHeight;
+            int lyricHeight = lyric.Item1.Length == 0 ? 0 : 50 + (lyric.Item2.Length > 0 ? 15 : 0) + (lyric.Item3.Length > 0 ? 15 : 0);
+            _targetH = Math.Max(lyricHeight, _settings.CompactHeight);
             _targetR = Math.Max(4, _targetH * .5 * _settings.CornerRounding);
             if (NeedsIslandFrames()) StartIslandFrames();
         }
@@ -396,7 +398,9 @@ public partial class MainWindow
             lock (_volumeGate) { latest = _pendingVolume; _volumeDispatchPending = false; }
             _widgetVolume = latest;
             if (WidgetIsVisible("volume")) RefreshDesktopWidgets();
-            if (!_windowClosed && (_settings.VolumeIslandHud == true || _manualVolumeOpen))
+            if (_windowClosed) return;
+            if (_musicMaster?.IsVisible == true) UpdateMusicMasterVolume(latest);
+            if (_manualVolumeOpen || (_settings.VolumeIslandHud == true && _musicMaster?.IsVisible != true))
                 ShowVolumeSnapshot(latest);
         }));
     }

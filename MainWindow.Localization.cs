@@ -83,6 +83,7 @@ public partial class MainWindow
         ClipboardEmptyStateText.Text = ClipboardEmptyHint;
         UpdateLensGlassStatus();
         System.Windows.Automation.AutomationProperties.SetName(VolumeHudSlider, L("Громкость"));
+        LocalizeHomePlayer();
         if (LevelHudBorder.Visibility == Visibility.Visible && VolumeHudSlider.Visibility == Visibility.Visible)
             ShowVolumeSnapshot(_displayedVolume);
         if (_currentState == IslandState.Section) OpenFeaturePage(_featurePage);

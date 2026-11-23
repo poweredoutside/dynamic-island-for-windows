@@ -23,7 +23,8 @@ internal sealed class DiscordCallMonitor(string appData)
         Call? activeCall = null;
         foreach (var (processName, folder) in Clients)
         {
-            var started = GetClientStart(processName);
+            string path = Path.Combine(appData, folder, "logs", "renderer_js.log");
+            var started = File.Exists(path) ? GetClientStart(processName) : null;
             if (started == null)
             {
                 _logs.Remove(processName);
@@ -32,7 +33,7 @@ internal sealed class DiscordCallMonitor(string appData)
             if (!_logs.TryGetValue(processName, out var log) || log.ClientStarted != started)
                 _logs[processName] = log = new VoiceLog(started.Value);
 
-            log.Refresh(Path.Combine(appData, folder, "logs", "renderer_js.log"));
+            log.Refresh(path);
             if (log.CallStarted is { } since && (!activeCall.HasValue || since > activeCall.Value.Started))
                 activeCall = new(processName, since);
         }
@@ -88,10 +89,14 @@ internal sealed class DiscordCallMonitor(string appData)
                 if (lastNewLine < 0) return;
 
                 int first = start > _offset ? Array.IndexOf(bytes, (byte)'\n', 0, read) + 1 : 0;
-                if (first <= lastNewLine)
+                var lines = bytes.AsSpan(first, lastNewLine - first + 1);
+                while (!lines.IsEmpty)
                 {
-                    using var lines = new StringReader(Encoding.UTF8.GetString(bytes, first, lastNewLine - first + 1));
-                    while (lines.ReadLine() is { } line) ReadLine(line);
+                    int lineEnd = lines.IndexOf((byte)'\n');
+                    var line = lines[..lineEnd];
+                    if (line.IndexOf("[RTCConnection("u8) >= 0)
+                        ReadLine(Encoding.UTF8.GetString(line));
+                    lines = lines[(lineEnd + 1)..];
                 }
                 _offset = start + lastNewLine + 1;
             }
@@ -103,7 +108,6 @@ internal sealed class DiscordCallMonitor(string appData)
 
         private void ReadLine(string line)
         {
-            if (!line.Contains("[RTCConnection(", StringComparison.Ordinal)) return;
             var match = RtcEvent.Match(line);
             if (!match.Success || !DateTimeOffset.TryParseExact(match.Groups["time"].Value, "yyyy-MM-dd HH:mm:ss.fff",
                 CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out var timestamp) || timestamp < ClientStarted)

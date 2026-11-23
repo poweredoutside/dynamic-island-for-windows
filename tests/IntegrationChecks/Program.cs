@@ -136,6 +136,10 @@ internal static class Program
                 Check((int?)telegram.GetValue("Enabled") == 1 && (int?)telegram.GetValue("ShowInActionCenter") == 1, "Listener delivery and history stay enabled");
                 var saved = System.Text.Json.JsonSerializer.Deserialize<NotificationBannerService.Journal>(File.ReadAllText(journalPath))!;
                 Check(saved.Originals["Telegram.Test"] == null && saved.Originals["Discord.Test"] == 1, "Original values journaled before muting");
+                File.SetLastWriteTimeUtc(journalPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+                var journalWrite = File.GetLastWriteTimeUtc(journalPath);
+                banners.Sync(true, false);
+                Check(File.GetLastWriteTimeUtc(journalPath) == journalWrite, "An unchanged banner policy does not write the journal");
                 banners.Restore("another-owner");
                 Check((int?)discord.GetValue("ShowBanner") == 0, "Old watchdog cannot restore a newer owner's settings");
                 banners.Sync(false, true);
@@ -156,12 +160,22 @@ internal static class Program
                 recovery.Restore();
                 Check((int?)discord.GetValue("ShowBanner") == 1, "Fresh process recovers original values from disk");
             }
+            File.WriteAllBytes(journalPath, new byte[64]);
+            using (var repaired = new NotificationBannerService(testRoot, journalPath))
+            {
+                repaired.Sync(false, false);
+                Check(File.Exists(journalPath), "Corrupted banner journal is replaced with a valid journal");
+                Check(Directory.GetFiles(Path.GetDirectoryName(journalPath)!, Path.GetFileName(journalPath) + ".corrupt-*").Length == 1,
+                    "Corrupted banner journal is preserved for diagnostics");
+            }
             Console.WriteLine($"PASS: {checks - beforeBannerChecks} isolated registry/banner recovery checks.");
         }
         finally
         {
             Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(testRoot, throwOnMissingSubKey: false);
             if (File.Exists(journalPath)) File.Delete(journalPath);
+            foreach (string damaged in Directory.GetFiles(Path.GetDirectoryName(journalPath)!, Path.GetFileName(journalPath) + ".corrupt-*"))
+                File.Delete(damaged);
         }
 
         if (args.Contains("--read-dnd") || args.Contains("--toggle-dnd"))

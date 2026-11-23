@@ -16,8 +16,8 @@ public partial class MainWindow
     private sealed record IslandNotification(uint Id, string Message, bool Messenger, string AppId,
         string AppName, Windows.ApplicationModel.AppInfo? AppInfo, DateTimeOffset Created,
         Task<NotificationActivationService.Target?> Activation);
-    private sealed record NotificationObservation(UserNotification Source, uint Id, DateTimeOffset Created,
-        string Text, string Fingerprint, int Elements);
+    private readonly record struct NotificationObservation(UserNotification Source, uint Id, DateTimeOffset Created,
+        string Text, int Elements);
 
     private static NotificationObservation ReadNotificationObservation(UserNotification notification)
     {
@@ -26,8 +26,7 @@ public partial class MainWindow
             ?? visual?.Bindings.FirstOrDefault(b => b.GetTextElements().Count > 0);
         var elements = binding?.GetTextElements();
         string text = elements == null ? "" : string.Join(" · ", elements.Select(t => t.Text).Where(t => !string.IsNullOrWhiteSpace(t)));
-        return new(notification, notification.Id, notification.CreationTime, text,
-            NotificationActivationService.Fingerprint(text), elements?.Count ?? 0);
+        return new(notification, notification.Id, notification.CreationTime, text, elements?.Count ?? 0);
     }
     private readonly Dictionary<string, ImageSource> _notificationIcons = new();
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
@@ -99,18 +98,19 @@ public partial class MainWindow
             // Capture a short-lived toast directly from its event, before a full
             // enumeration/UI backlog can let the sender withdraw it.
             var notification = args.ChangeKind == UserNotificationChangedKind.Added
-                ? await Task.Run(() => sender.GetNotification(args.UserNotificationId) is { } item ? ReadNotificationObservation(item) : null).WaitAsync(TimeSpan.FromSeconds(2))
+                ? await Task.Run<NotificationObservation?>(() => sender.GetNotification(args.UserNotificationId) is { } item
+                    ? ReadNotificationObservation(item) : null).WaitAsync(TimeSpan.FromSeconds(2))
                 : null;
             if (_windowClosed || Dispatcher.HasShutdownStarted) return;
             await Dispatcher.InvokeAsync(() =>
             {
-                if (notification != null && NotificationsEnabled && _notifAccessGranted)
+                if (notification is { } observation && NotificationsEnabled && _notifAccessGranted)
                 {
                     PollWindowsDndState(false);
-                    ObserveNotification(notification);
+                    ObserveNotification(observation);
                     ShowNextNotification();
                 }
-                _notificationReadAgain = true;
+                if (_notificationBusy) _notificationReadAgain = true;
                 PollSystemNotificationsAsync();
             });
         }
@@ -126,7 +126,7 @@ public partial class MainWindow
         }
         // Events provide immediate updates. Polling also recovers after access changes
         // and missed Shell events; never run concurrent WinRT enumerations.
-        if (DateTime.UtcNow < _nextNotificationPoll) return;
+        if (_notificationBusy || DateTime.UtcNow < _nextNotificationPoll) return;
         _nextNotificationPoll = DateTime.UtcNow.AddSeconds(1);
         await ReadNotificationsAsync();
     }
@@ -203,11 +203,12 @@ public partial class MainWindow
     {
         try
         {
-            string text = observation.Text, fingerprint = observation.Fingerprint;
-            if (!_notificationPolicy.Observe(observation.Id, observation.Created, fingerprint)) return;
+            string text = observation.Text;
+            if (!_notificationPolicy.Observe(observation.Id, observation.Created, text)) return;
             var notification = observation.Source;
-            string appName = notification.AppInfo?.DisplayInfo?.DisplayName ?? "App";
-            string appId = notification.AppInfo?.AppUserModelId ?? "";
+            var app = notification.AppInfo;
+            string appName = app?.DisplayInfo?.DisplayName ?? "App";
+            string appId = app?.AppUserModelId ?? "";
             if (_notificationBanners is { } banners)
                 RunBannerWork(() => banners.ObserveSource(appName, appId));
             AppLog.Notification($"observed id={observation.Id} created={observation.Created:O} baseline={_notificationBaseline} elements={observation.Elements}");
@@ -215,10 +216,10 @@ public partial class MainWindow
             bool messenger = NotificationPolicy.IsMessenger(appName, appId);
             if (!NotificationPolicy.ShouldDisplay(messenger, TglMessengerNotifs.IsChecked ?? false,
                     TglAllAppNotifs.IsChecked ?? false, _isGameModeActive || _isDndActive || !_dndStateKnown)) return;
-            var next = new IslandNotification(notification.Id, $"{appName}: {text}", messenger,
-                appId, appName, notification.AppInfo, notification.CreationTime,
-                NotificationActivationService.CaptureAsync(notification.Id, appId, notification.CreationTime, fingerprint,
-                    GetNotificationPackageManifest(notification.AppInfo)));
+            var next = new IslandNotification(observation.Id, $"{appName}: {text}", messenger,
+                appId, appName, app, observation.Created,
+                NotificationActivationService.CaptureAsync(observation.Id, appId, observation.Created,
+                    NotificationActivationService.Fingerprint(text), GetNotificationPackageManifest(app)));
             // The newest item wins a burst; originals remain in Windows history.
             _pendingNotification = next;
         }

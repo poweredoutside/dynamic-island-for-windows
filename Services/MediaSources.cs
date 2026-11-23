@@ -31,10 +31,16 @@ internal static class MediaSources
         if (FindBrowser(id) is { } browser) return browser.Process.Equals(processName, StringComparison.OrdinalIgnoreCase);
         return processName.ToLowerInvariant() switch
         {
-            "yandexmusic" or "яндекс музыка" => id.Equals("com.yandex.music", StringComparison.OrdinalIgnoreCase)
-                || id.Equals("ru.yandex.desktop.music", StringComparison.OrdinalIgnoreCase),
+            "yandexmusic" or "яндекс музыка" => IsYandexMusic(source),
             _ => false
         };
+    }
+
+    internal static bool IsYandexMusic(string source)
+    {
+        string id = WithoutExe(source);
+        return id.Equals("com.yandex.music", StringComparison.OrdinalIgnoreCase)
+            || id.Equals("ru.yandex.desktop.music", StringComparison.OrdinalIgnoreCase);
     }
 
     private static Browser? FindBrowser(string id) => Browsers.FirstOrDefault(browser =>

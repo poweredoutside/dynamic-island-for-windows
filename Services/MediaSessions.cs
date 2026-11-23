@@ -29,7 +29,14 @@ internal static class MediaSessions
             if (!Equals(session, current) && ReadCandidate(session, includePaused) is { } candidate)
                 candidates.Add(candidate);
         }
-        foreach (var candidate in candidates.OrderByDescending(candidate => candidate.Priority))
+        foreach (var candidate in candidates.Where(candidate => candidate.Priority == 3))
+            if (await ReadTrackAsync(candidate) is { } selected) return selected;
+        // The current player may transiently have no metadata during a track
+        // transition. Check other playing sessions before retrying it.
+        if (preferred is { Priority: 3 } && ReadCandidate(current, includePaused) is { } retry
+            && await ReadTrackAsync(retry) is { } recovered) return recovered;
+        foreach (var candidate in candidates.Where(candidate => candidate.Priority < 3)
+                     .OrderByDescending(candidate => candidate.Priority))
             if (await ReadTrackAsync(candidate) is { } selected) return selected;
         return null;
     }

@@ -63,6 +63,8 @@ public partial class MainWindow : Window
     private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(8) };
 
     private GlobalSystemMediaTransportControlsSessionManager? _mediaManager;
+    private bool _mediaManagerInitializing;
+    private long _nextMediaManagerAttempt;
     private bool _isMediaPlaying;
     private string _currentMediaTitle = "";
 
@@ -381,24 +383,33 @@ public partial class MainWindow : Window
 
     private async Task InitializeMediaManagerAsync()
     {
+        if (_windowClosed || _mediaManager != null || _mediaManagerInitializing
+            || Environment.TickCount64 < _nextMediaManagerAttempt) return;
+        _mediaManagerInitializing = true;
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync().AsTask(timeout.Token);
             if (_windowClosed) return;
-            DetachMediaManager();
             _mediaManager = manager;
             manager.SessionsChanged += MediaSessionsChanged;
             manager.CurrentSessionChanged += MediaSessionsChanged;
             await RefreshMediaSessionStateAsync();
         }
-        catch (Exception ex) { AppLog.Error("Initialize media manager", ex); }
+        catch (Exception ex)
+        {
+            DetachMediaManager();
+            _nextMediaManagerAttempt = Environment.TickCount64 + 5000;
+            AppLog.Error("Initialize media manager", ex);
+        }
+        finally { _mediaManagerInitializing = false; }
     }
 
     private void DetachMediaManager()
     {
         if (_mediaManager is not { } media) return;
         _mediaManager = null;
+        ObserveMediaSession(null);
         _selectedMedia = null;
         try
         {
@@ -2366,18 +2377,58 @@ public partial class MainWindow : Window
         if (DateTime.UtcNow >= _nextClipboardExpiry)
             PruneExpiredClipboardItems(checkFiles: false);
 
-        await RefreshMediaSessionStateAsync();
+        if (_mediaManager == null) await InitializeMediaManagerAsync();
+        else await RefreshMediaSessionStateAsync();
     }
 
     private DateTime _nextDndRead;
     private bool _mediaReadBusy;
+    private bool _mediaReadAgain;
+    private GlobalSystemMediaTransportControlsSession? _observedMediaSession;
     private void MediaSessionsChanged(GlobalSystemMediaTransportControlsSessionManager sender, object args) =>
         Dispatcher.BeginInvoke(new Action(() => _ = RefreshMediaSessionStateAsync()));
+
+    private void SelectedMediaChanged(GlobalSystemMediaTransportControlsSession sender, object args) =>
+        Dispatcher.BeginInvoke(new Action(() =>
+        {
+            if (Equals(sender, _observedMediaSession)) _ = RefreshMediaSessionStateAsync();
+        }));
+
+    private void ObserveMediaSession(GlobalSystemMediaTransportControlsSession? session)
+    {
+        if (Equals(_observedMediaSession, session)) return;
+        if (_observedMediaSession is { } previous)
+        {
+            try
+            {
+                previous.PlaybackInfoChanged -= SelectedMediaChanged;
+                previous.MediaPropertiesChanged -= SelectedMediaChanged;
+            }
+            catch (Exception ex) when (ex is COMException or InvalidOperationException) { AppLog.Error("Unsubscribe media session", ex); }
+        }
+        _observedMediaSession = session;
+        if (session == null) return;
+        try
+        {
+            session.PlaybackInfoChanged += SelectedMediaChanged;
+            session.MediaPropertiesChanged += SelectedMediaChanged;
+        }
+        catch (Exception ex) when (ex is COMException or InvalidOperationException) { AppLog.Error("Subscribe media session", ex); }
+    }
+
     private async Task RefreshMediaSessionStateAsync()
     {
-        if (_mediaReadBusy || _windowClosed) return;
+        if (_windowClosed || _mediaManager == null) return;
+        if (_mediaReadBusy) { _mediaReadAgain = true; return; }
         _mediaReadBusy = true;
-        try { await RefreshMediaSessionCoreAsync(); }
+        try
+        {
+            do
+            {
+                _mediaReadAgain = false;
+                await RefreshMediaSessionCoreAsync();
+            } while (_mediaReadAgain && !_windowClosed && _mediaManager != null);
+        }
         finally { _mediaReadBusy = false; }
     }
 
@@ -2421,6 +2472,7 @@ public partial class MainWindow : Window
         }
 
         _selectedMedia = media;
+        ObserveMediaSession(media?.Session);
         bool trackChanged = _widgetTrack != (track?.Title ?? "") || _widgetArtist != (track?.Artist ?? "");
         _widgetTrack = track?.Title ?? "";
         _widgetArtist = track?.Artist ?? "";
@@ -2429,7 +2481,7 @@ public partial class MainWindow : Window
         UpdateHomePlayerTimeline(track, playerTimeline);
         ApplyMediaState(playing, _widgetTrack, _widgetArtist, track?.Source ?? "");
         if (PlayerControlsVisible) RefreshPlayerTransportControls();
-        await RefreshHomePlayerVolumeAsync(PlayerControlsVisible && track is { Source.Length: > 0 } ? track.Source : null);
+        _ = RefreshHomePlayerVolumeAsync(PlayerControlsVisible && track is { Source.Length: > 0 } ? track.Source : null);
     }
 
     private void ApplyMediaState(bool activePlaying, string trackTitle, string trackArtist, string sourceAppId)

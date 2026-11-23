@@ -2,7 +2,7 @@ namespace DynamicIslandWin.Services;
 
 internal sealed class NotificationPolicy
 {
-    private readonly Dictionary<uint, (DateTimeOffset Created, string Fingerprint)> _seen = new();
+    private readonly Dictionary<uint, (DateTimeOffset Created, string Text)> _seen = new();
     private static readonly string[] MessengerNames =
     [
         "telegram", "exdesktop", "ayugram", "64gram", "kotatogram", "unigram", "discord", "vesktop",
@@ -22,12 +22,12 @@ internal sealed class NotificationPolicy
     public static int ClampDuration(double seconds)
         => double.IsFinite(seconds) ? (int)Math.Clamp(Math.Round(seconds), 3, 10) : 5;
 
-    public bool Observe(uint id, DateTimeOffset created, string fingerprint = "")
+    public bool Observe(uint id, DateTimeOffset created, string text = "")
     {
-        var current = (created, fingerprint);
-        bool fresh = !_seen.TryGetValue(id, out var previous) || previous != current;
+        var current = (created, text);
+        if (_seen.TryGetValue(id, out var previous) && previous == current) return false;
         _seen[id] = current;
-        return fresh;
+        return true;
     }
 
     public void Retain(IEnumerable<uint> currentIds)

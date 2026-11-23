@@ -44,6 +44,7 @@ internal static class Program
             && !DeviceDisconnect.CanEjectUsb(@"SWD\PRINTENUM\TEST", 0x04, []),
             "Safe eject requires a removable physical USB device, never a hub, an interface or a virtual queue");
         if (args.Contains("--player-volume")) return CheckPlayerVolume();
+        if (args.Contains("--yandex-player-volume")) return Task.Run(CheckYandexPlayerVolume).GetAwaiter().GetResult();
         if (args.Contains("--app-mixer")) return CheckAppMixer();
         if (args.Contains("--equalizer-download"))
         {
@@ -695,9 +696,40 @@ internal static class Program
         if (selection == null) Console.WriteLine("No active system media session.");
         else Console.WriteLine($"PASS: {manager.GetSessions().Count} sessions; player detected: " +
             $"{MediaSources.BrowserName(selection.Track.Source) ?? "desktop application"}, " +
-            $"{selection.Playback.PlaybackStatus}, seek={selection.Playback.Controls.IsPlaybackPositionEnabled}.");
+            $"{selection.Playback.PlaybackStatus}, source={selection.Track.Source}, seek={selection.Playback.Controls.IsPlaybackPositionEnabled}, " +
+            $"player volume={PlayerAudioService.ReadOrSet(selection.Track.Source)?.Volume.ToString("P0") ?? "unavailable"}.");
         return 0;
     }).GetAwaiter().GetResult();
+
+    private static int CheckYandexPlayerVolume()
+    {
+        const string source = "ru.yandex.desktop.music";
+        using var audio = new DesktopAudioService();
+        var master = audio.Master();
+        var sessions = audio.Apps();
+        var original = YandexMusicVolume.ReadOrSet(source, null)
+            ?? throw new InvalidOperationException("Open Yandex Music with a loaded track before running this check.");
+        float target = original.Volume >= .15f ? original.Volume - .05f : original.Volume + .05f;
+        try
+        {
+            PlayerAudioService.ReadOrSet(source, target);
+            var actual = YandexMusicVolume.ReadOrSet(source, null);
+            if (actual == null || Math.Abs(actual.Value.Volume - target) > .005f)
+                throw new InvalidOperationException("The Yandex Music slider did not reflect the requested volume.");
+            var currentSessions = audio.Apps();
+            if (audio.Master() != master || sessions.Any(previous => currentSessions.Any(current =>
+                    current.Id == previous.Id && (current.Volume != previous.Volume || current.Muted != previous.Muted))))
+                throw new InvalidOperationException("Changing the Yandex Music slider affected the Windows mixer.");
+        }
+        finally
+        {
+            var restored = YandexMusicVolume.ReadOrSet(source, original.Volume);
+            if (restored == null || Math.Abs(restored.Value.Volume - original.Volume) > .005f)
+                throw new InvalidOperationException("Could not restore the original Yandex Music volume.");
+        }
+        Console.WriteLine($"PASS: Yandex Music changed from {original.Volume:P0} to {target:P0} and back. The Windows mixer was unchanged.");
+        return 0;
+    }
 
     private static int CheckVolumeEvents()
     {

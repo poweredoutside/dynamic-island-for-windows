@@ -24,7 +24,7 @@ public partial class MainWindow
     private string? _playerVolumeSource;
     private PlayerAudioService.Snapshot? _playerVolume;
     private float? _pendingPlayerVolume;
-    private bool _writingPlayerVolume;
+    private bool _readingPlayerVolume, _writingPlayerVolume;
     private int _playerVolumeRevision;
     private long _nextPlayerVolumeRead;
     private bool _hasPlayerMedia;
@@ -81,13 +81,19 @@ public partial class MainWindow
     private async Task RefreshHomePlayerVolumeAsync(string? source)
     {
         SetHomePlayerVolumeSource(source);
-        if (source == null || _writingPlayerVolume || PlayerVolumeSlider.IsMouseCaptureWithin) return;
+        if (source == null || _readingPlayerVolume || _writingPlayerVolume || PlayerVolumeSlider.IsMouseCaptureWithin) return;
         long now = Environment.TickCount64;
         if (now < _nextPlayerVolumeRead) return;
         _nextPlayerVolumeRead = now + 2000;
         int revision = _playerVolumeRevision;
-        var snapshot = await Task.Run(() => ReadOrSetPlayerVolume(source));
-        if (!_windowClosed && revision == _playerVolumeRevision && _playerVolume != snapshot) UpdateHomePlayerVolume(snapshot);
+        _readingPlayerVolume = true;
+        try
+        {
+            var snapshot = await Task.Run(() => ReadOrSetPlayerVolume(source));
+            if (!_windowClosed && revision == _playerVolumeRevision && _playerVolume != snapshot)
+                UpdateHomePlayerVolume(snapshot);
+        }
+        finally { _readingPlayerVolume = false; }
     }
 
     private void UpdateHomePlayerVolume(PlayerAudioService.Snapshot? snapshot)
@@ -182,18 +188,28 @@ public partial class MainWindow
             var info = session.GetPlaybackInfo();
             var controls = info?.Controls;
             if (controls == null) return;
+            bool playing = info!.PlaybackStatus == PlaybackStatus.Playing;
             var operation = action switch
             {
                 PlayerAction.Next when controls.IsNextEnabled => session.TrySkipNextAsync(),
                 PlayerAction.Previous when controls.IsPreviousEnabled => session.TrySkipPreviousAsync(),
+                PlayerAction.PlayPause when playing && controls.IsPauseEnabled => session.TryPauseAsync(),
+                PlayerAction.PlayPause when !playing && controls.IsPlayEnabled => session.TryPlayAsync(),
                 PlayerAction.PlayPause when controls.IsPlayPauseToggleEnabled => session.TryTogglePlayPauseAsync(),
-                PlayerAction.PlayPause when info!.PlaybackStatus == PlaybackStatus.Playing && controls.IsPauseEnabled => session.TryPauseAsync(),
-                PlayerAction.PlayPause when info!.PlaybackStatus != PlaybackStatus.Playing && controls.IsPlayEnabled => session.TryPlayAsync(),
                 _ => null
             };
             if (operation == null) return;
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            if (await operation.AsTask(timeout.Token)) await Task.Delay(120);
+            bool accepted = await operation.AsTask(timeout.Token);
+            if (!accepted && action == PlayerAction.PlayPause && !_windowClosed && Equals(_selectedMedia?.Session, session))
+            {
+                var latest = session.GetPlaybackInfo();
+                if (latest != null && (latest.PlaybackStatus == PlaybackStatus.Playing) == playing
+                    && latest.Controls?.IsPlayPauseToggleEnabled == true
+                    && (playing ? controls.IsPauseEnabled : controls.IsPlayEnabled))
+                    accepted = await session.TryTogglePlayPauseAsync().AsTask(timeout.Token);
+            }
+            if (accepted) await Task.Delay(120);
             await RefreshMediaSessionStateAsync();
         }
         catch (Exception ex) when (ex is COMException or InvalidOperationException or OperationCanceledException)

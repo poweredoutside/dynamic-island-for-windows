@@ -16,7 +16,7 @@ public sealed class SnowfallLayer : FrameworkElement
     private static readonly Vector[] Spokes = Enumerable.Range(0, 3)
         .Select(i => new Vector(Math.Cos(i * Math.PI / 3), Math.Sin(i * Math.PI / 3)))
         .ToArray();
-    private readonly DrawingVisual _drawing = new();
+    private readonly ContainerVisual _drawing = new();
     private readonly DispatcherTimer _timer = new(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
     private readonly Flake[] _flakes = new Flake[MaxFlakes];
     private long _lastFrame;
@@ -65,27 +65,42 @@ public sealed class SnowfallLayer : FrameworkElement
 
     private void DrawFrame(double delta)
     {
-        using var context = _drawing.RenderOpen();
         double width = ActualWidth, height = ActualHeight;
         if (width <= 0 || height <= 0) return;
 
         _elapsed += delta;
         int count = (int)Math.Clamp(width / 31 + height / 34, 6, MaxFlakes);
-        var pen = UseLightPalette ? LightPalette : DarkPalette;
+        var children = _drawing.Children;
+        while (children.Count > count) children.RemoveAt(children.Count - 1);
         for (int i = 0; i < count; i++)
         {
             ref var flake = ref _flakes[i];
             double radius = flake.Radius;
+            var visual = flake.Visual;
+            if (visual == null || flake.IsLight != UseLightPalette)
+            {
+                visual ??= flake.Visual = new DrawingVisual();
+                PaintFlake(visual, radius);
+                flake.IsLight = UseLightPalette;
+            }
+            if (i == children.Count) children.Add(visual);
+
             double travel = height + 2 * radius;
             flake.Progress = (flake.Progress + delta * flake.Speed / travel) % 1;
-            var center = new Point(
+            visual.Offset = new Vector(
                 flake.Across * width + Math.Sin(_elapsed * 1.25 + flake.Phase) * radius * 2,
                 flake.Progress * travel - radius);
-            foreach (var spoke in Spokes)
-            {
-                var arm = spoke * radius;
-                context.DrawLine(pen, center - arm, center + arm);
-            }
+        }
+    }
+
+    private void PaintFlake(DrawingVisual visual, double radius)
+    {
+        var pen = UseLightPalette ? LightPalette : DarkPalette;
+        using var context = visual.RenderOpen();
+        foreach (var spoke in Spokes)
+        {
+            var arm = spoke * radius;
+            context.DrawLine(pen, new Point(-arm.X, -arm.Y), new Point(arm.X, arm.Y));
         }
     }
 
@@ -100,5 +115,7 @@ public sealed class SnowfallLayer : FrameworkElement
     {
         internal readonly double Across = across, Radius = radius, Speed = speed, Phase = phase;
         internal double Progress = progress;
+        internal DrawingVisual? Visual;
+        internal bool IsLight;
     }
 }

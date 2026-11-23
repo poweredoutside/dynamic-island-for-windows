@@ -33,16 +33,42 @@ internal sealed class NotificationBannerService : IDisposable
 
     private Journal Read()
     {
-        if (!File.Exists(_path)) return new Journal(_owner, new Dictionary<string, int?>(StringComparer.OrdinalIgnoreCase));
-        var stored = JsonSerializer.Deserialize<Journal>(File.ReadAllText(_path)) ?? throw new InvalidDataException("Invalid banner journal");
-        return stored with { Originals = new Dictionary<string, int?>(stored.Originals, StringComparer.OrdinalIgnoreCase) };
+        if (!File.Exists(_path)) return EmptyJournal();
+        try
+        {
+            var stored = JsonSerializer.Deserialize<Journal>(File.ReadAllText(_path));
+            if (stored?.Originals == null) throw new JsonException("Invalid banner journal");
+            return stored with { Originals = new Dictionary<string, int?>(stored.Originals, StringComparer.OrdinalIgnoreCase) };
+        }
+        catch (JsonException)
+        {
+            // Preserve the damaged journal before recording any new originals.
+            File.Move(_path, _path + ".corrupt-" + Guid.NewGuid().ToString("N"));
+            return EmptyJournal();
+        }
+
+        static Journal EmptyJournal() => new("", new(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private Journal ReadForCurrentOwner()
+    {
+        var journal = Read();
+        if (journal.Owner == _owner) return journal;
+        // Adopt a crash-recovery journal before the old watchdog can undo it.
+        journal = journal with { Owner = _owner };
+        Save(journal);
+        return journal;
     }
 
     private void Save(Journal journal)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(_path))!);
         string temporary = _path + ".tmp";
-        File.WriteAllText(temporary, JsonSerializer.Serialize(journal));
+        using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            JsonSerializer.Serialize(stream, journal);
+            stream.Flush(flushToDisk: true);
+        }
         File.Move(temporary, _path, overwrite: true);
     }
 
@@ -64,14 +90,13 @@ internal sealed class NotificationBannerService : IDisposable
         Locked(() =>
         {
             _messengers = messengers; _all = all;
-            var journal = Read() with { Owner = _owner };
+            var journal = ReadForCurrentOwner();
             using var root = Registry.CurrentUser.OpenSubKey(_root);
             var ids = (root?.GetSubKeyNames() ?? []).Concat(KnownMessengers).Distinct(StringComparer.OrdinalIgnoreCase);
             var wanted = ids.Where(id => IsAppSource(id) && (all || (messengers && NotificationPolicy.IsMessenger(id, id))))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             foreach (string id in journal.Originals.Keys.Where(id => !wanted.Contains(id)).ToArray())
                 RestoreOne(journal, id);
-            Save(journal); // Adopt a crash-recovery journal before the old watchdog can undo it.
             foreach (string id in wanted) Suppress(journal, id);
         });
     }
@@ -79,7 +104,7 @@ internal sealed class NotificationBannerService : IDisposable
     public void ObserveSource(string appName, string appId)
     {
         if (!IsAppSource(appId) || !(_all || (_messengers && NotificationPolicy.IsMessenger(appName, appId)))) return;
-        Locked(() => Suppress(Read() with { Owner = _owner }, appId));
+        Locked(() => Suppress(ReadForCurrentOwner(), appId));
     }
 
     private static bool IsAppSource(string id) => !string.IsNullOrWhiteSpace(id) && !id.Contains('\\') && !id.Contains('/')

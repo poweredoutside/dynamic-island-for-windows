@@ -153,21 +153,24 @@ internal static class Program
         Check(settings.Snowfall && snowfall.Visibility == Visibility.Visible
             && Element<Grid>("IslandSurfaceLayer").Clip is RectangleGeometry, "Snowfall shares the island's rounded mask");
         var drawSnow = typeof(SnowfallLayer).GetMethod("DrawFrame", flags)!;
-        var snowDrawing = (DrawingVisual)VisualTreeHelper.GetChild(snowfall, 0);
+        var snowDrawing = (ContainerVisual)VisualTreeHelper.GetChild(snowfall, 0);
         snowfall.Measure(new Size(240, 42));
         snowfall.Arrange(new Rect(0, 0, 240, 42));
         drawSnow.Invoke(snowfall, [0d]);
-        var snowBefore = snowDrawing.Drawing.Children.OfType<GeometryDrawing>().Select(d => (LineGeometry)d.Geometry).ToArray();
+        var snowBefore = snowDrawing.Children.OfType<DrawingVisual>().Select(flake =>
+        {
+            var arm = (LineGeometry)((GeometryDrawing)flake.Drawing.Children[0]).Geometry;
+            return (Flake: flake, Y: flake.Offset.Y, Travel: snowfall.ActualHeight + arm.EndPoint.X - arm.StartPoint.X);
+        }).ToArray();
         drawSnow.Invoke(snowfall, [.1d]);
-        var snowAfter = snowDrawing.Drawing.Children.OfType<GeometryDrawing>().Select(d => (LineGeometry)d.Geometry).ToArray();
-        Check(snowBefore.Length >= 18 && snowBefore.Length == snowAfter.Length
-            && snowBefore.Zip(snowAfter).Where((_, i) => i % 3 == 0).All(pair =>
+        Check(snowBefore.Length >= 6 && snowBefore.Length == snowDrawing.Children.Count
+            && snowBefore.Select((before, index) => (before, index)).All(pair =>
             {
-                double rise = pair.Second.StartPoint.Y - pair.First.StartPoint.Y;
-                double travel = snowfall.ActualHeight + pair.First.EndPoint.X - pair.First.StartPoint.X;
-                double drop = rise >= 0 ? rise : rise + travel;
-                return drop >= 2.39 && drop <= 5.91;
-            }), "Every snowflake moves down before wrapping back to the top");
+                var (before, index) = pair;
+                double rise = before.Flake.Offset.Y - before.Y;
+                double drop = rise >= 0 ? rise : rise + before.Travel;
+                return ReferenceEquals(before.Flake, snowDrawing.Children[index]) && drop >= 2.39 && drop <= 5.91;
+            }), "Every snowflake reuses its visual and moves down before wrapping back to the top");
         snowToggle.IsChecked = false;
         Call("TglSnowfall_Click", snowToggle, new RoutedEventArgs());
         Check(!settings.Snowfall && snowfall.Visibility == Visibility.Collapsed, "Turning off snowfall removes its visual layer");
@@ -460,7 +463,7 @@ internal static class Program
         var versionNotes = ((StackPanel)updateCards[1].Child).Children.OfType<TextBlock>()
             .Where(label => label.FontWeight == FontWeights.SemiBold && label.FontSize == 13)
             .Select(label => label.Text).ToArray();
-        Check(versionNotes.SequenceEqual(new[] { "1.1.27", "1.1.26", "1.1.25" }.Select(version => Translate("В версии " + version))),
+        Check(versionNotes.SequenceEqual(new[] { "1.1.28", "1.1.27", "1.1.26", "1.1.25" }.Select(version => Translate("В версии " + version))),
             "What's new lists the current and previous releases in order");
         Element<Button>("NavAppearanceBtn").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Call("RefreshUpdatesPage");

@@ -21,6 +21,8 @@ internal static class PlayerAudioService
     internal static Snapshot? ReadOrSet(string source, float? volume = null)
     {
         if (string.IsNullOrWhiteSpace(source)) return null;
+        // Yandex Music exposes its own volume even when it has no WASAPI mixer session.
+        if (YandexMusicVolume.ReadOrSet(source, volume) is { } playerVolume) return playerVolume;
         var matches = new Dictionary<uint, bool>();
         Snapshot? snapshot = null;
         bool active = false;

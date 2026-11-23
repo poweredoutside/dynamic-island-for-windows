@@ -18,6 +18,29 @@
         <ResourceDictionary>
         <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="ThemeResources.xaml"/><ResourceDictionary Source="IslandControls.xaml"/></ResourceDictionary.MergedDictionaries>
         <StreamGeometry x:Key="PlayerOutputGlyph">M2,9 V8 A6,6 0 0 1 14,8 V9 M2,9 H5 V14 H3 Q2,14 2,13 Z M14,9 H11 V14 H13 Q14,14 14,13 Z</StreamGeometry>
+        <local:DiscordCapsuleMarginConverter x:Key="DiscordCapsuleMargin"/>
+        <Style x:Key="DiscordCapsule" TargetType="Border">
+            <Setter Property="Width" Value="140"/>
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="CornerRadius" Value="19"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Visibility, ElementName=CompactView}" Value="Visible">
+                    <Setter Property="Width" Value="{Binding Width, ElementName=IslandBorder}"/>
+                    <Setter Property="Height" Value="{Binding Height, ElementName=IslandBorder}"/>
+                    <Setter Property="CornerRadius" Value="{Binding CornerRadius, ElementName=IslandBorder}"/>
+                    <Setter Property="LayoutTransform" Value="{Binding ElementName=IslandScaleTransform}"/>
+                    <Setter Property="Margin">
+                        <Setter.Value>
+                            <MultiBinding Converter="{StaticResource DiscordCapsuleMargin}">
+                                <Binding Path="Width" ElementName="IslandBorder"/>
+                                <Binding Path="ScaleX" ElementName="IslandScaleTransform"/>
+                            </MultiBinding>
+                        </Setter.Value>
+                    </Setter>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
         <Style TargetType="Slider">
             <Setter Property="IsMoveToPointEnabled" Value="True"/>
             <Setter Property="Height" Value="24"/>
@@ -909,6 +932,9 @@
                                 <Button x:Name="BtnSettingsDiagnostics" Style="{StaticResource SidebarNavBtn}" Click="OpenDiagnostics_Click" Tag="&#xE9D9;">
                                     <TextBlock x:Name="SettingsDiagnosticsText" Text="Диагностика" TextTrimming="CharacterEllipsis"/>
                                 </Button>
+                                <Button x:Name="BtnSettingsSupport" Style="{StaticResource SidebarNavBtn}" Click="OpenSupport_Click" Tag="&#xEB51;">
+                                    <TextBlock x:Name="SettingsSupportText" Text="Поддержка" TextTrimming="CharacterEllipsis"/>
+                                </Button>
                             </StackPanel>
                             </ScrollViewer>
 
@@ -1380,34 +1406,18 @@
         </Button>
 
         <!-- ПРАВАЯ КОЛОНКА (Col 2): ОТДЕЛЬНЫЙ ОСТРОВОК ЗВОНКА DISCORD + БОКОВАЯ КАПСУЛА УВЕДОМЛЕНИЙ -->
-        <StackPanel x:Name="RightCapsuleStack" Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="10,10,0,0">
-                    <Border x:Name="CompactProgressPanel" Visibility="Collapsed" Background="{DynamicResource ThemeCapsuleBrush}" CornerRadius="12" Padding="8,2" Height="38" Width="190" Margin="0,0,8,0" BorderThickness="1" BorderBrush="{DynamicResource GlassEdgeBrush}" MouseLeftButtonUp="Progress_Click" Cursor="Hand">
-                        <Grid VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                            <Grid Width="24" Height="24"><Ellipse Stroke="{DynamicResource ThemeBorderBrush}" StrokeThickness="2" Margin="2"/><Path x:Name="CompactProgressRing" Stroke="{DynamicResource ThemeAccentBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Grid>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock x:Name="CompactProgressLabel" Foreground="{DynamicResource ThemeTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis"/><ProgressBar x:Name="CompactProgressBar" Visibility="Collapsed" Maximum="100"/></StackPanel>
-                        </Grid>
-                    </Border>
-            <Border x:Name="LevelHudBorder" Visibility="Collapsed" Background="{DynamicResource ThemeCapsuleBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="1" CornerRadius="16" Padding="12,7" Margin="0,0,8,0" Width="200" PreviewMouseWheel="VolumeHud_MouseWheel">
-                <StackPanel>
-                    <Grid>
-                        <TextBlock x:Name="LevelHudText" Foreground="{DynamicResource ThemeTextBrush}" FontSize="11" VerticalAlignment="Center" Margin="0,0,25,0"/>
-                        <Button x:Name="VolumeMuteButton" Style="{StaticResource GlassPillBtn}" HorizontalAlignment="Right" Padding="3,0" Content="&#xE767;" FontFamily="Segoe MDL2 Assets" ToolTip="Выключить звук" Click="VolumeMute_Click"/>
-                    </Grid>
-                    <Slider x:Name="VolumeHudSlider" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" Height="20" Margin="0,3,0,0" Foreground="{DynamicResource ThemeAccentBrush}" ValueChanged="VolumeHudSlider_ValueChanged" AutomationProperties.Name="Volume"/>
-                    <ProgressBar x:Name="LevelHudBar" Maximum="100" Height="4" Margin="0,5,0,0" Foreground="{DynamicResource ThemeAccentBrush}" Background="{DynamicResource ThemeInputBrush}"/>
-                </StackPanel>
-            </Border>
-
-            <Border x:Name="DiscordCallBorder" Height="48" Width="140" CornerRadius="24"
+        <StackPanel x:Name="RightCapsuleStack" Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top"
+                    UseLayoutRounding="True" Margin="10,10,0,0">
+            <Border x:Name="DiscordCallBorder" Style="{StaticResource DiscordCapsule}" VerticalAlignment="Top"
                     Background="{DynamicResource ThemeCapsuleBrush}" BorderThickness="1" BorderBrush="{DynamicResource GlassEdgeBrush}"
-                    UseLayoutRounding="True" SnapsToDevicePixels="True" Margin="0,0,8,0" Visibility="Collapsed">
+                    UseLayoutRounding="True" SnapsToDevicePixels="True" Visibility="Collapsed">
                 <Grid>
-                    <Border x:Name="DiscordGlassOverlay" CornerRadius="24" Background="{DynamicResource GlassSheenBrush}" IsHitTestVisible="False"/>
+                    <Border x:Name="DiscordGlassOverlay" CornerRadius="{Binding CornerRadius, ElementName=DiscordCallBorder}" Background="{DynamicResource GlassSheenBrush}" IsHitTestVisible="False"/>
                     <Grid Margin="5,0" VerticalAlignment="Center">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="34"/>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="38"/>
+                            <ColumnDefinition Width="2*"/>
+                            <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <Button x:Name="DiscordOutputButton" Style="{StaticResource GlassPillBtn}" Width="30" Height="30" Padding="0"
                                 Background="#5865F2" Foreground="White" Click="DiscordOutput_Click">
@@ -1431,6 +1441,23 @@
                         </Button>
                     </Grid>
                 </Grid>
+            </Border>
+
+                    <Border x:Name="CompactProgressPanel" Visibility="Collapsed" Background="{DynamicResource ThemeCapsuleBrush}" CornerRadius="12" Padding="8,2" Height="38" Width="190" Margin="0,0,8,0" BorderThickness="1" BorderBrush="{DynamicResource GlassEdgeBrush}" MouseLeftButtonUp="Progress_Click" Cursor="Hand">
+                        <Grid VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="30"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <Grid Width="24" Height="24"><Ellipse Stroke="{DynamicResource ThemeBorderBrush}" StrokeThickness="2" Margin="2"/><Path x:Name="CompactProgressRing" Stroke="{DynamicResource ThemeAccentBrush}" StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/></Grid>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock x:Name="CompactProgressLabel" Foreground="{DynamicResource ThemeTextBrush}" FontSize="11" TextTrimming="CharacterEllipsis"/><ProgressBar x:Name="CompactProgressBar" Visibility="Collapsed" Maximum="100"/></StackPanel>
+                        </Grid>
+                    </Border>
+            <Border x:Name="LevelHudBorder" Visibility="Collapsed" Background="{DynamicResource ThemeCapsuleBrush}" BorderBrush="{DynamicResource GlassEdgeBrush}" BorderThickness="1" CornerRadius="16" Padding="12,7" Margin="0,0,8,0" Width="200" PreviewMouseWheel="VolumeHud_MouseWheel">
+                <StackPanel>
+                    <Grid>
+                        <TextBlock x:Name="LevelHudText" Foreground="{DynamicResource ThemeTextBrush}" FontSize="11" VerticalAlignment="Center" Margin="0,0,25,0"/>
+                        <Button x:Name="VolumeMuteButton" Style="{StaticResource GlassPillBtn}" HorizontalAlignment="Right" Padding="3,0" Content="&#xE767;" FontFamily="Segoe MDL2 Assets" ToolTip="Выключить звук" Click="VolumeMute_Click"/>
+                    </Grid>
+                    <Slider x:Name="VolumeHudSlider" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True" IsMoveToPointEnabled="True" Height="20" Margin="0,3,0,0" Foreground="{DynamicResource ThemeAccentBrush}" ValueChanged="VolumeHudSlider_ValueChanged" AutomationProperties.Name="Volume"/>
+                    <ProgressBar x:Name="LevelHudBar" Maximum="100" Height="4" Margin="0,5,0,0" Foreground="{DynamicResource ThemeAccentBrush}" Background="{DynamicResource ThemeInputBrush}"/>
+                </StackPanel>
             </Border>
 
             <Border x:Name="SideToastBorder"

@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -10,9 +11,20 @@ using Separator = System.Windows.Controls.Separator;
 
 namespace DynamicIslandWin;
 
+public sealed class DiscordCapsuleMarginConverter : System.Windows.Data.IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture) =>
+        values is [double width, double scale]
+            ? new Thickness(Math.Max(0, width * (scale - 1) / 2), 0, 8, 0)
+            : new Thickness(0, 0, 8, 0);
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
 public partial class MainWindow
 {
-    private DiscordCallAudio.Microphone? _discordMicrophone;
+    private bool? _discordMicrophoneMuted;
     private bool _discordMicSwitching;
     private int _discordMicReadVersion;
     private bool _discordOutputBusy;
@@ -31,7 +43,7 @@ public partial class MainWindow
     {
         if (!call.HasValue || DiscordCallBorder.Visibility != Visibility.Visible)
         {
-            _discordMicrophone = null;
+            _discordMicrophoneMuted = null;
             UpdateDiscordMicrophoneVisual();
             return;
         }
@@ -39,12 +51,13 @@ public partial class MainWindow
         int version = _discordMicReadVersion;
         try
         {
-            var microphone = await Task.Run(() => DiscordCallAudio.ReadMicrophone(call.Value.ProcessName));
-            if (_discordCall == call && version == _discordMicReadVersion) _discordMicrophone = microphone;
+            bool? muted = await Task.Run(() => DiscordMicrophone.ReadMuted(call.Value.ProcessName));
+            if (_discordCall == call && version == _discordMicReadVersion && muted.HasValue)
+                _discordMicrophoneMuted = muted;
         }
-        catch (Exception ex) when (ex is COMException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        catch (Exception ex) when (ex is ElementNotAvailableException or COMException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            if (_discordCall == call && version == _discordMicReadVersion) _discordMicrophone = null;
+            // Keep the last confirmed state while Discord rebuilds its interface.
         }
         finally
         {
@@ -54,38 +67,48 @@ public partial class MainWindow
 
     private void UpdateDiscordMicrophoneVisual()
     {
-        bool available = _discordMicrophone.HasValue && _discordCall.HasValue;
-        bool muted = available && _discordMicrophone!.Value.Muted;
-        DiscordMicButton.IsEnabled = available;
-        DiscordMicButton.Opacity = available ? 1 : .45;
+        bool inCall = _discordCall.HasValue;
+        bool muted = inCall && _discordMicrophoneMuted == true;
+        DiscordMicButton.IsEnabled = inCall && !_discordMicSwitching;
+        DiscordMicButton.Opacity = inCall ? 1 : .45;
         DiscordMicSlash.Visibility = muted ? Visibility.Visible : Visibility.Collapsed;
         DiscordMicIcon.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, muted ? "ThemeDangerBrush" : "ThemeTextBrush");
-        string label = L(!available ? "Микрофон недоступен" : muted ? "Включить микрофон" : "Выключить микрофон");
-        DiscordMicButton.ToolTip = available
-            ? $"{label} · {_discordMicrophone!.Value.Name}\n{L("Действует на все приложения, использующие этот микрофон.")}"
-            : label;
+        string label = L(!inCall ? "Микрофон Discord недоступен" : _discordMicrophoneMuted switch
+        {
+            true => "Включить микрофон в Discord",
+            false => "Выключить микрофон в Discord",
+            null => "Переключить микрофон в Discord"
+        });
+        DiscordMicButton.ToolTip = label;
         System.Windows.Controls.ToolTipService.SetShowOnDisabled(DiscordMicButton, true);
         AutomationProperties.SetName(DiscordMicButton, label);
     }
 
     private async void DiscordMic_Click(object sender, RoutedEventArgs e)
     {
-        if (_discordCall is not { } call || _discordMicrophone is not { } current || _discordMicSwitching) return;
+        if (_discordCall is not { } call || _discordMicSwitching) return;
         _discordMicSwitching = true;
         _discordMicReadVersion++;
+        UpdateDiscordMicrophoneVisual();
         try
         {
-            var updated = await Task.Run(() => DiscordCallAudio.ReadMicrophone(call.ProcessName, current.Id));
+            var result = await Task.Run(() => DiscordMicrophone.ToggleMuted(call.ProcessName));
             if (!_windowClosed && _discordCall == call)
             {
-                _discordMicrophone = updated;
-                if (!updated.HasValue) DiscordAudioNotice("Не удалось переключить микрофон.");
+                _discordMicrophoneMuted = result.Muted;
+                if (!result.Confirmed) DiscordAudioNotice(result.Sent
+                    ? "Discord не подтвердил состояние микрофона."
+                    : "Не удалось переключить микрофон в Discord.");
             }
         }
-        catch (Exception ex) when (ex is COMException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        catch (Exception ex) when (ex is ElementNotAvailableException or ElementNotEnabledException or COMException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
             AppLog.Error("Toggle Discord microphone", ex);
-            if (!_windowClosed) DiscordAudioNotice("Не удалось переключить микрофон.");
+            if (!_windowClosed && _discordCall == call)
+            {
+                _discordMicrophoneMuted = null;
+                DiscordAudioNotice("Не удалось переключить микрофон в Discord.");
+            }
         }
         finally
         {

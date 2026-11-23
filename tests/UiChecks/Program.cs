@@ -36,20 +36,61 @@ internal static class Program
         Call("UpdateDiscordCallState");
         Check(discordCapsule.Visibility == Visibility.Visible && Element<TextBlock>("DiscordCallTimerText").Text.StartsWith("1:"),
             "Discord shows the actual time since connection in the right capsule");
+        var mainCapsule = Element<Border>("IslandBorder");
+        var islandScale = Element<ScaleTransform>("IslandScaleTransform");
+        var layoutRoot = (FrameworkElement)window.Content;
+        var neighboringHud = Element<Border>("LevelHudBorder");
+        neighboringHud.Height = 66;
+        neighboringHud.Visibility = Visibility.Visible;
+        bool savedDocked = settings.DockIslandAtTop;
+        foreach (bool docked in new[] { false, true })
+        {
+            settings.DockIslandAtTop = docked;
+            Call("ApplyIslandPlacementStyle");
+            foreach (var (width, height, scale) in new[] { (210d, 38d, 1d), (175d, 32d, .65), (270d, 64d, 1.30) })
+            {
+                mainCapsule.Width = width;
+                mainCapsule.Height = height;
+                islandScale.ScaleX = islandScale.ScaleY = scale;
+                layoutRoot.Measure(new Size(1360, 700));
+                layoutRoot.Arrange(new Rect(0, 0, 1360, 700));
+                layoutRoot.UpdateLayout();
+                var mainBounds = mainCapsule.TransformToVisual(layoutRoot).TransformBounds(new Rect(mainCapsule.RenderSize));
+                var discordBounds = discordCapsule.TransformToVisual(layoutRoot).TransformBounds(new Rect(discordCapsule.RenderSize));
+                Check(Math.Abs(discordBounds.Top - mainBounds.Top) < .01
+                    && Math.Abs(discordBounds.Width - mainBounds.Width) < .01
+                    && Math.Abs(discordBounds.Height - mainBounds.Height) < .01
+                    && discordBounds.Left > mainBounds.Right
+                    && discordBounds.Right <= layoutRoot.ActualWidth
+                    && discordCapsule.CornerRadius == mainCapsule.CornerRadius,
+                    $"Discord matches the compact island at {scale:P0} in {(docked ? "docked" : "floating")} mode (main {mainBounds}, Discord {discordBounds})");
+            }
+        }
+        mainCapsule.Width = 210;
+        mainCapsule.Height = 38;
+        islandScale.ScaleX = islandScale.ScaleY = 1;
+        settings.DockIslandAtTop = savedDocked;
+        Call("ApplyIslandPlacementStyle");
+        neighboringHud.Visibility = Visibility.Collapsed;
+        neighboringHud.ClearValue(FrameworkElement.HeightProperty);
         var audioType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.DiscordCallAudio")!;
-        var microphoneType = audioType.GetNestedType("Microphone", BindingFlags.NonPublic)!;
         var micButton = Element<Button>("DiscordMicButton");
-        Set("_discordMicrophone", Activator.CreateInstance(microphoneType, "mic", "Test microphone", true));
+        Set("_discordMicrophoneMuted", true);
         Call("UpdateDiscordMicrophoneVisual");
         Check(micButton.IsEnabled && Element<System.Windows.Shapes.Path>("DiscordMicSlash").Visibility == Visibility.Visible
-            && ((string)micButton.ToolTip).StartsWith("Unmute microphone"), "Muted microphone shows the slash and unmute action");
-        Set("_discordMicrophone", Activator.CreateInstance(microphoneType, "mic", "Test microphone", false));
+            && Equals(micButton.ToolTip, "Unmute microphone in Discord"), "Muted microphone shows the slash and unmute action");
+        Set("_discordMicrophoneMuted", false);
         Call("UpdateDiscordMicrophoneVisual");
         Check(micButton.IsEnabled && Element<System.Windows.Shapes.Path>("DiscordMicSlash").Visibility == Visibility.Collapsed
-            && ((string)micButton.ToolTip).StartsWith("Mute microphone"), "Live microphone shows the mute action");
-        Set("_discordMicrophone", null);
+            && Equals(micButton.ToolTip, "Mute microphone in Discord"), "Live microphone shows the mute action");
+        Set("_discordMicSwitching", true);
         Call("UpdateDiscordMicrophoneVisual");
-        Check(!micButton.IsEnabled, "Unavailable microphone cannot change mute");
+        Check(!micButton.IsEnabled, "The microphone button waits for Discord to confirm the change");
+        Set("_discordMicSwitching", false);
+        Set("_discordMicrophoneMuted", null);
+        Call("UpdateDiscordMicrophoneVisual");
+        Check(micButton.IsEnabled && Equals(micButton.ToolTip, "Toggle microphone in Discord"),
+            "A call can retry the microphone even before Discord reports its mute state");
         var deviceType = audioType.GetNestedType("Output", BindingFlags.NonPublic)!;
         var devices = Array.CreateInstance(deviceType, 2);
         devices.SetValue(Activator.CreateInstance(deviceType, "headset", "Test headphones", false), 0);
@@ -399,6 +440,7 @@ internal static class Program
             (Button: "BtnSettingsTabs", Page: "tabs", Title: "Вкладки островка"),
             (Button: "BtnSettingsThemes", Page: "themes", Title: "Ваша палитра"),
             (Button: "BtnSettingsDiagnostics", Page: "diagnostics", Title: "Проверка системы"),
+            (Button: "BtnSettingsSupport", Page: "support", Title: "Поддержка"),
             (Button: "BtnSettingsUpdates", Page: "updates", Title: "Обновления через GitHub")
         };
         TextBlock CardTitle(Border card) => (TextBlock)((StackPanel)card.Child).Children[0];
@@ -415,6 +457,11 @@ internal static class Program
             && !((StackPanel)updateCards[0].Child).Children.OfType<WrapPanel>()
                 .SelectMany(row => row.Children.OfType<Button>()).Any(button => Equals(button.Content, Translate("Что нового"))),
             "What's new is an inline section below the updates card, not a button");
+        var versionNotes = ((StackPanel)updateCards[1].Child).Children.OfType<TextBlock>()
+            .Where(label => label.FontWeight == FontWeights.SemiBold && label.FontSize == 13)
+            .Select(label => label.Text).ToArray();
+        Check(versionNotes.SequenceEqual(new[] { "1.1.27", "1.1.26", "1.1.25" }.Select(version => Translate("В версии " + version))),
+            "What's new lists the current and previous releases in order");
         Element<Button>("NavAppearanceBtn").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Call("RefreshUpdatesPage");
         Check(Element<ScrollViewer>("SettingsFeatureScroll").Visibility == Visibility.Collapsed
@@ -617,7 +664,7 @@ internal static class Program
             Element<TextBlock>("SideToastText").Text = "Новое уведомление";
             var discord = Element<Border>("DiscordCallBorder"); discord.Visibility = Visibility.Visible;
             Set("_discordCall", discordCall);
-            Set("_discordMicrophone", Activator.CreateInstance(microphoneType, "mic", "Test microphone", false));
+            Set("_discordMicrophoneMuted", false);
             Call("UpdateDiscordMicrophoneVisual");
             ((FrameworkElement)window.Content).Measure(new Size(1360, 700));
             ((FrameworkElement)window.Content).Arrange(new Rect(0, 0, 1360, 700));
@@ -625,7 +672,7 @@ internal static class Program
             SaveVisual(toast, key + "-toast-glass", Math.Ceiling(toast.ActualWidth) + 16, 54, 8);
             SaveVisual(discord, key + "-discord-glass", Math.Ceiling(discord.ActualWidth) + 16, Math.Ceiling(discord.ActualHeight) + 16, 8);
             Set("_discordCall", null);
-            Set("_discordMicrophone", null);
+            Set("_discordMicrophoneMuted", null);
             toast.Visibility = Visibility.Collapsed; discord.Visibility = Visibility.Collapsed;
         }
         settings.LiquidGlass = false; Call("ApplyTheme", themes.Single(t => t.Key == "Snow"));
@@ -700,7 +747,8 @@ internal static class Program
                 && Element<TextBlock>("SettingsTabsText").Text == Translate("Вкладки")
                 && Element<TextBlock>("SettingsThemesText").Text == Translate("Своя тема")
                 && Element<TextBlock>("SettingsUpdatesText").Text == Translate("Обновления")
-                && Element<TextBlock>("SettingsDiagnosticsText").Text == Translate("Диагностика"), language + ": Settings navigation is localized");
+                && Element<TextBlock>("SettingsDiagnosticsText").Text == Translate("Диагностика")
+                && Element<TextBlock>("SettingsSupportText").Text == Translate("Поддержка"), language + ": Settings navigation is localized");
             foreach (var (page, host) in new (string, StackPanel)[]
             {
                 ("BuildLayoutPage", settingsContent), ("BuildTabsPage", settingsContent), ("BuildUserThemesPage", settingsContent), ("BuildUpdatesPage", settingsContent),

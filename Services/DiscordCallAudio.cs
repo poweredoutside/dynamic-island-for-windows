@@ -9,33 +9,6 @@ internal static class DiscordCallAudio
 {
     internal sealed record Output(string Id, string Name, bool InUse);
     internal sealed record Outputs(IReadOnlyList<Output> Devices, string? PreferredId, uint ProcessId, bool CanRoute);
-    internal readonly record struct Microphone(string Id, string Name, bool Muted);
-
-    internal static Microphone? ReadMicrophone(string client, string? toggleDevice = null)
-    {
-        var processes = ClientProcesses(client);
-        if (processes.Length == 0) return null;
-        using var audio = new MMDeviceEnumerator();
-        var devices = audio.EnumerateAudioEndPoints(DataFlow.Capture, DeviceState.Active);
-        string? selected = null;
-        string? onlyDevice = null;
-        foreach (var device in devices)
-        {
-            using (device)
-            {
-                onlyDevice = device.ID;
-                if (ActiveSession(device, processes) == 0) continue;
-                if (selected != null) return null;
-                selected = device.ID;
-            }
-        }
-        selected ??= devices.Count == 1 ? onlyDevice : null;
-        if (selected == null || (toggleDevice != null && !string.Equals(toggleDevice, selected, StringComparison.OrdinalIgnoreCase))) return null;
-        using var input = audio.GetDevice(selected);
-        var volume = input.AudioEndpointVolume;
-        if (toggleDevice != null) volume.Mute = !volume.Mute;
-        return new(input.ID, input.FriendlyName, volume.Mute);
-    }
 
     internal static Outputs ReadOutputs(string client)
     {

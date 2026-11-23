@@ -607,7 +607,7 @@ public partial class MainWindow : Window
             var call = await Task.Run(_discordMonitor.Read);
             if (!_windowClosed)
             {
-                if (_discordCall != call) _discordMicrophone = null;
+                if (_discordCall != call) _discordMicrophoneMuted = null;
                 _discordCall = call;
                 UpdateDiscordCallState();
                 await RefreshDiscordMicrophoneAsync(call);

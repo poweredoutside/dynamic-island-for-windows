@@ -78,13 +78,22 @@ public partial class MainWindow
         parent.Children.Add(toggle);
         return toggle;
     }
-    private void FeatureSlider(Panel parent, string text, double min, double max, double value, Action<double> changed, bool integer = false)
+    private Slider FeatureSlider(Panel parent, string text, double min, double max, double value, Action<double>? changed,
+        bool integer = false, bool setting = true)
     {
         text = L(text);
         var label = FeatureText($"{text} · {value:0.##}", 12); parent.Children.Add(label);
         var slider = new Slider { Minimum = min, Maximum = max, Value = Math.Clamp(value, min, max), TickFrequency = 1, IsSnapToTickEnabled = integer, Margin = new Thickness(0, 0, 0, 12) };
-        slider.ValueChanged += (_, _) => { label.Text = $"{text} · {slider.Value:0.##}"; changed(slider.Value); ApplyFeatureAppearance(); QueueSettingsSave(); };
+        slider.ValueChanged += (_, _) =>
+        {
+            label.Text = $"{text} · {slider.Value:0.##}";
+            changed?.Invoke(slider.Value);
+            if (!setting) return;
+            ApplyFeatureAppearance();
+            QueueSettingsSave();
+        };
         parent.Children.Add(slider);
+        return slider;
     }
     private void FeatureChoice(Panel parent, string label, (string Key, string Label)[] options, string current, Action<string> changed)
     {
@@ -96,6 +105,7 @@ public partial class MainWindow
     private void OpenLayout_Click(object sender, RoutedEventArgs e) { e.Handled = true; OpenSettingsFeaturePage("layout"); }
     private void OpenTabs_Click(object sender, RoutedEventArgs e) { e.Handled = true; OpenSettingsFeaturePage("tabs"); }
     private void OpenDiagnostics_Click(object sender, RoutedEventArgs e) { e.Handled = true; OpenSettingsFeaturePage("diagnostics"); }
+    private void OpenSupport_Click(object sender, RoutedEventArgs e) { e.Handled = true; OpenSettingsFeaturePage("support"); }
     private void OpenThemes_Click(object sender, RoutedEventArgs e) { e.Handled = true; OpenSettingsFeaturePage("themes"); }
     private void OpenUpdates_Click(object sender, RoutedEventArgs e) { e.Handled = true; OpenSettingsFeaturePage("updates"); }
 
@@ -111,6 +121,7 @@ public partial class MainWindow
             "tabs" => BtnSettingsTabs,
             "themes" => BtnSettingsThemes,
             "diagnostics" => BtnSettingsDiagnostics,
+            "support" => BtnSettingsSupport,
             _ => BtnSettingsUpdates
         });
         SettingsFeatureScroll.ScrollToTop();
@@ -125,8 +136,16 @@ public partial class MainWindow
             case "tabs": BuildTabsPage(); break;
             case "themes": BuildUserThemesPage(); break;
             case "diagnostics": BuildDiagnosticsPage(); break;
+            case "support": BuildSupportPage(); break;
             case "updates": BuildUpdatesPage(); break;
         }
+    }
+
+    private void BuildSupportPage()
+    {
+        var card = FeatureCard("Поддержка", parent: SettingsFeatureContent);
+        card.Children.Add(FeatureText("Понравился OC - Dynamic Island? Вы можете поддержать проект пожертвованием на любую сумму. Разработчикам будет приятно!", 13));
+        card.Children.Add(FeatureButton("Поддержать через CloudTips", () => OpenWeb(new Uri("https://pay.cloudtips.ru/p/141b036a"))));
     }
 
     private void RefreshUpdatesPage()
@@ -461,20 +480,60 @@ public partial class MainWindow
             var result = await Task.Run(() => { using var audio = new DesktopAudioService(); return (Apps: audio.Apps(), Master: audio.Master(), Brightness: DesktopAudioService.Brightness()); });
             if (_currentState != IslandState.Section || _featurePage != "system" || !DashboardSectionContent.Children.Contains(card.Parent as UIElement)) return;
             card.Children.Remove(placeholder);
-            FeatureSlider(card, "Общая громкость, %", 0, 100, result.Master.Volume * 100, v => { using var audio = new DesktopAudioService(); audio.SetMaster((float)v / 100); }, true);
-            if (result.Brightness is { } brightness) FeatureSlider(card, "Яркость, %", 0, 100, brightness, v => _ = Task.Run(() => { try { DesktopAudioService.SetBrightness((int)v); } catch (Exception ex) { AppLog.Error("Set brightness", ex); } }), true);
-            foreach (var session in result.Apps)
-            {
-                var row = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
-                row.Children.Add(FeatureText(session.Name, 13));
-                var mute = FeatureButton(session.Muted ? "Включить звук" : "Выключить звук", () => { using var audio = new DesktopAudioService(); audio.SetApp(session.Id, null, !session.Muted); OpenFeaturePage("system"); }); row.Children.Add(mute);
-                FeatureSlider(row, "Громкость, %", 0, 100, session.Volume * 100, v => { using var audio = new DesktopAudioService(); audio.SetApp(session.Id, (float)v / 100, null); }, true);
-                card.Children.Add(row);
-            }
+            FeatureSlider(card, "Общая громкость, %", 0, 100, result.Master.Volume * 100, v => { using var audio = new DesktopAudioService(); audio.SetMaster((float)v / 100); }, integer: true, setting: false);
+            if (result.Brightness is { } brightness) FeatureSlider(card, "Яркость, %", 0, 100, brightness, v => _ = Task.Run(() => { try { DesktopAudioService.SetBrightness((int)v); } catch (Exception ex) { AppLog.Error("Set brightness", ex); } }), integer: true, setting: false);
+            foreach (var session in result.Apps) AddAppMixerRow(card, session);
             if (result.Apps.Count == 0) card.Children.Add(FeatureText("Запустите воспроизведение в приложении, затем обновите список.", 11, "ThemeMutedBrush"));
             card.Children.Add(FeatureButton("Обновить список", () => OpenFeaturePage("system")));
         }
         catch (Exception ex) { AppLog.Error("Read audio mixer", ex); placeholder.Text = L("Нет доступного устройства вывода. Откройте настройки звука Windows."); card.Children.Add(FeatureButton("Настройки звука", () => OpenWebSettings("ms-settings:sound"))); }
+    }
+
+    private void AddAppMixerRow(StackPanel card, DesktopAudioService.AppVolume session)
+    {
+        var row = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+        row.Children.Add(FeatureText(session.Name, 13));
+        string output = session.Active ? $"{session.OutputName} · {L("Сейчас используется")}" : session.OutputName;
+        row.Children.Add(FeatureText(output, 11, "ThemeMutedBrush"));
+        float currentVolume = session.Volume;
+        bool muted = session.Muted, updatingSlider = false;
+        string MuteLabel() => L(muted ? "Включить звук" : "Выключить звук");
+        var muteButton = FeatureButton(MuteLabel());
+        row.Children.Add(muteButton);
+        var slider = FeatureSlider(row, "Громкость, %", 0, 100, currentVolume * 100, null, integer: true, setting: false);
+        slider.ValueChanged += (_, e) =>
+        {
+            if (!updatingSlider) Apply((float)e.NewValue / 100, null);
+        };
+        muteButton.Click += (_, e) => { e.Handled = true; Apply(null, !muted); };
+        System.Windows.Automation.AutomationProperties.SetName(slider, $"{L("Громкость, %")} · {L(session.Name)} · {session.OutputName}");
+        card.Children.Add(row);
+
+        void Apply(float? volume, bool? mute)
+        {
+            try
+            {
+                using var audio = new DesktopAudioService();
+                if (audio.SetApp(session, volume, mute) is { } actual)
+                {
+                    (currentVolume, muted) = actual;
+                    muteButton.Content = MuteLabel();
+                    SetSliderVolume();
+                    return;
+                }
+            }
+            catch (System.Runtime.InteropServices.COMException ex) { AppLog.Error("Set app mixer volume", ex); }
+            SetSliderVolume();
+            slider.IsEnabled = muteButton.IsEnabled = false;
+            row.Children.Add(FeatureText("Сеанс звука недоступен. Обновите список.", 11, "ThemeMutedBrush"));
+        }
+
+        void SetSliderVolume()
+        {
+            updatingSlider = true;
+            slider.Value = Math.Round(currentVolume * 100);
+            updatingSlider = false;
+        }
     }
     private void BuildTimersPage() => BuildTimerPageControls();
 
@@ -694,6 +753,13 @@ public partial class MainWindow
     private void BuildWhatsNewSection()
     {
         var card = FeatureCard("Что нового", parent: SettingsFeatureContent);
+        AddChanges("В версии 1.1.27",
+            "Капсула звонка Discord повторяет размеры, скругление и масштаб компактного островка и выровнена по его верхнему краю.",
+            "Кнопка микрофона переключает его в Discord и проверяет результат. Исправлен поиск кнопки после выключения микрофона.",
+            "Микшер на вкладке «Система» показывает устройство вывода и меняет громкость и отключение звука для выбранной сессии, в том числе на Bluetooth Hands-Free.",
+            "Громкость и яркость в системном микшере применяются без пересчёта оформления и записи настроек островка.",
+            "После «Диагностики» появился раздел «Поддержка» с пожертвованиями через CloudTips.",
+            "Подписанный установщик Windows x64 поддерживает обновление с 1.1.26.");
         AddChanges("В версии 1.1.26",
             "Вкладки можно скрывать, менять местами и восстанавливать. Островок может открывать последнюю вкладку.",
             "В меню настроек выровнены иконки и названия разделов.",

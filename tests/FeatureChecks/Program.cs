@@ -11,6 +11,8 @@ using System.Windows.Threading;
 using DynamicIslandWin;
 using DynamicIslandWin.Services;
 using Microsoft.Diagnostics.Tracing;
+using NAudio.CoreAudioApi;
+using NAudio.Wave;
 using MediaStatus = Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus;
 
 internal static class Program
@@ -42,6 +44,7 @@ internal static class Program
             && !DeviceDisconnect.CanEjectUsb(@"SWD\PRINTENUM\TEST", 0x04, []),
             "Safe eject requires a removable physical USB device, never a hub, an interface or a virtual queue");
         if (args.Contains("--player-volume")) return CheckPlayerVolume();
+        if (args.Contains("--app-mixer")) return CheckAppMixer();
         if (args.Contains("--equalizer-download"))
         {
             using var download = EqualizerApoInstaller.DownloadAsync().GetAwaiter().GetResult();
@@ -83,6 +86,39 @@ internal static class Program
             Console.WriteLine($"Discord desktop call detected: {active.HasValue}.");
             return 0;
         }
+        if (args.Contains("--discord-mic-roundtrip"))
+        {
+            return Task.Run(() =>
+            {
+                var monitor = new DiscordCallMonitor(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
+                var call = monitor.Read() ?? throw new InvalidOperationException("No active Discord call.");
+                bool? ReadState()
+                {
+                    bool? value = null;
+                    SpinWait.SpinUntil(() => (value = DiscordMicrophone.ReadMuted(call.ProcessName)).HasValue, 2000);
+                    return value;
+                }
+                bool original = ReadState()
+                    ?? throw new InvalidOperationException("Could not read the initial Discord microphone state.");
+                try
+                {
+                    var first = DiscordMicrophone.ToggleMuted(call.ProcessName);
+                    Console.WriteLine($"Discord microphone before={original}, first change={first}.");
+                    Check(first.Confirmed && first.Muted == !original, $"Discord did not confirm the first change: {first}");
+                    var second = DiscordMicrophone.ToggleMuted(call.ProcessName);
+                    Console.WriteLine($"Discord microphone second change={second}.");
+                    Check(second.Confirmed && second.Muted == original, $"Discord did not confirm the second change: {second}");
+                }
+                finally
+                {
+                    if (ReadState() == !original)
+                        DiscordMicrophone.ToggleMuted(call.ProcessName);
+                    Check(ReadState() == original, "Could not confirm restoration of the initial microphone state.");
+                }
+                Console.WriteLine("PASS: Discord confirmed both microphone changes in the active call and the initial state was restored.");
+                return 0;
+            }).GetAwaiter().GetResult();
+        }
         if (args.Contains("--discord-audio"))
         {
             return Task.Run(() =>
@@ -93,8 +129,8 @@ internal static class Program
                 using var routing = new AppAudioRouting();
                 _ = routing.GetOutput((uint)Environment.ProcessId);
                 var discord = DiscordCallAudio.ReadOutputs("Discord");
-                var mic = DiscordCallAudio.ReadMicrophone("Discord");
-                Console.WriteLine($"Windows audio: {outputs.Count} outputs, {inputs.Count} inputs. Discord routing={discord.CanRoute}, render session={discord.Devices.Any(d => d.InUse)}, identifiable microphone={mic.HasValue}.");
+                bool? muted = DiscordMicrophone.ReadMuted("Discord");
+                Console.WriteLine($"Windows audio: {outputs.Count} outputs, {inputs.Count} inputs. Discord routing={discord.CanRoute}, render session={discord.Devices.Any(d => d.InUse)}, Discord microphone muted={muted?.ToString() ?? "unavailable"}.");
                 if (args.Contains("--test-output"))
                 {
                     uint pid = (uint)Environment.ProcessId;
@@ -529,6 +565,67 @@ internal static class Program
         Console.WriteLine($"PASS: {checks} feature checks; offscreen previews: {directory}"); return 0;
     }
 
+    private static int CheckAppMixer()
+    {
+        using var devices = new MMDeviceEnumerator();
+        using var defaultOutput = devices.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        string? alternateId = null;
+        foreach (var device in devices.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
+            using (device)
+                if (device.ID != defaultOutput.ID) alternateId ??= device.ID;
+        string targetId = alternateId ?? defaultOutput.ID;
+        using var targetOutput = devices.GetDevice(targetId);
+        using var targetPlayback = StartSilence(targetOutput);
+        using var defaultPlayback = alternateId == null ? null : StartSilence(defaultOutput);
+        using var mixer = new DesktopAudioService();
+
+        DesktopAudioService.AppVolume? other = null, target = null;
+        if (!SpinWait.SpinUntil(() => (target = FindSession(targetId)) != null &&
+            (alternateId == null || (other = FindSession(defaultOutput.ID)) != null), 3000) || target == null)
+            throw new InvalidOperationException("The mixer must list live sessions on the active render endpoints.");
+        var master = mixer.Master();
+
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        var window = new MainWindow();
+        var panel = new StackPanel();
+        typeof(MainWindow).GetMethod("AddAppMixerRow", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(window, [panel, target]);
+        var row = (StackPanel)panel.Children[0];
+        var slider = row.Children.OfType<Slider>().Single();
+        var mute = row.Children.OfType<Button>().Single();
+        var sliderVolume = target.Volume > .5f ? 35 : 75;
+        try
+        {
+            slider.Value = sliderVolume;
+            mute.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (FindSession(targetId) is not { } actual || Math.Abs(actual.Volume - sliderVolume / 100f) > .001f
+                || actual.Muted == target.Muted)
+                throw new InvalidOperationException("The mixer row must change volume and mute on its own endpoint.");
+            if ((other != null && FindSession(defaultOutput.ID) != other) || mixer.Master() != master)
+                throw new InvalidOperationException("The mixer row changed the app on the other output or Windows master volume.");
+        }
+        finally
+        {
+            mixer.SetApp(target, target.Volume, target.Muted);
+            app.Shutdown();
+        }
+        Console.WriteLine("PASS: the mixer slider and mute button control a live WASAPI session."
+            + (alternateId != null ? " Verified on a non-default endpoint." : " Only one render endpoint is currently available."));
+        return 0;
+
+        DesktopAudioService.AppVolume? FindSession(string endpointId) =>
+            mixer.Apps().FirstOrDefault(session => session.Active &&
+                session.ProcessId == Environment.ProcessId && session.EndpointId == endpointId);
+
+        static WasapiOut StartSilence(MMDevice endpoint)
+        {
+            var output = new WasapiOut(endpoint, AudioClientShareMode.Shared, true, 80);
+            output.Init(new SilenceProvider(new WaveFormat(48000, 16, 2)));
+            output.Play();
+            return output;
+        }
+    }
+
     private static int CheckPlayerVolume()
     {
         using var enumerator = new NAudio.CoreAudioApi.MMDeviceEnumerator();
@@ -562,7 +659,7 @@ internal static class Program
         {
             using var mixer = new DesktopAudioService();
             foreach (var session in mixer.Apps().Where(session => session.ProcessId == Environment.ProcessId))
-                mixer.SetApp(session.Id, previous.Volume, previous.Muted);
+                mixer.SetApp(session, previous.Volume, previous.Muted);
         }
         Console.WriteLine("PASS: live CoreAudio player session volume changed without changing the Windows output volume or mute state.");
         string outputId = output.ID;

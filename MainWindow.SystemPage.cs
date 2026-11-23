@@ -1,8 +1,11 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using DynamicIslandWin.Services;
 using Windows.Devices.Radios;
+using Windows.Networking.Connectivity;
+using Windows.System.Power;
 using Button = System.Windows.Controls.Button;
 using MessageBox = System.Windows.MessageBox;
 using ProgressBar = System.Windows.Controls.ProgressBar;
@@ -18,6 +21,12 @@ public partial class MainWindow
     private DateTime _nextDevicesRead;
     private bool _connectivityReading, _radioChanging;
     private bool _devicesReading;
+    private bool _deviceReadRequested;
+    private bool _disconnectingDevice;
+    private IDisposable? _deviceObservation;
+    private readonly DispatcherTimer _deviceChangeTimer = new() { Interval = TimeSpan.FromMilliseconds(180) };
+    private int _deviceSignalQueued;
+    private bool _liveStatusHandlers;
     private IReadOnlyList<ConnectedDevices.Device>? _connectedDevices;
     private StackPanel? _connectedDeviceRows;
     private WindowsConnectivity.Snapshot? _connectivity;
@@ -45,6 +54,7 @@ public partial class MainWindow
             var tile = ControlTile(label, glyph, () =>
             {
                 if (radio is { } kind) _ = ToggleSystemRadioAsync(kind, settings!);
+                else if (id == Tile.Vpn && _connectivity?.Vpn is { Name: null, ProxyConfigured: true }) OpenWebSettings("ms-settings:network-proxy");
                 else if (settings != null) OpenWebSettings(settings);
                 else if (ReadDesktopIconsHidden() is bool hidden) SetDesktopIconsHidden(!hidden);
             }, settings);
@@ -134,9 +144,9 @@ public partial class MainWindow
 
     private async Task RefreshConnectedDevicesAsync()
     {
-        if (_devicesReading || !SystemPageVisible) return;
+        if (_windowClosed || !SystemPageVisible) return;
+        if (_devicesReading) { _deviceReadRequested = true; return; }
         _devicesReading = true;
-        _nextDevicesRead = DateTime.UtcNow.AddSeconds(6);
         try
         {
             var devices = await Task.Run(ConnectedDevices.ReadAsync);
@@ -151,8 +161,95 @@ public partial class MainWindow
             _connectedDevices = null;
             if (!_windowClosed && SystemPageVisible) PaintConnectedDevices();
         }
-        finally { _devicesReading = false; }
+        finally
+        {
+            _devicesReading = false;
+            _nextDevicesRead = DateTime.UtcNow.AddSeconds(6);
+            if (_deviceReadRequested)
+            {
+                _deviceReadRequested = false;
+                QueueDeviceRefresh();
+            }
+        }
     }
+
+    private void InitializeLiveSystemStatus()
+    {
+        _deviceChangeTimer.Tick += (_, _) =>
+        {
+            _deviceChangeTimer.Stop();
+            _ = RefreshConnectedDevicesAsync();
+        };
+        _liveStatusHandlers = true;
+        try { NetworkInformation.NetworkStatusChanged += NetworkStatusChanged; }
+        catch (System.Runtime.InteropServices.COMException ex) { AppLog.Error("Observe network changes", ex); }
+        try
+        {
+            PowerManager.PowerSupplyStatusChanged += BatteryStatusChanged;
+            PowerManager.BatteryStatusChanged += BatteryStatusChanged;
+            PowerManager.RemainingChargePercentChanged += BatteryStatusChanged;
+        }
+        catch (System.Runtime.InteropServices.COMException ex) { AppLog.Error("Observe battery changes", ex); }
+    }
+
+    private void DisposeLiveSystemStatus()
+    {
+        if (_liveStatusHandlers)
+        {
+            _liveStatusHandlers = false;
+            try { NetworkInformation.NetworkStatusChanged -= NetworkStatusChanged; }
+            catch (System.Runtime.InteropServices.COMException ex) { AppLog.Error("Release network observer", ex); }
+            try
+            {
+                PowerManager.PowerSupplyStatusChanged -= BatteryStatusChanged;
+                PowerManager.BatteryStatusChanged -= BatteryStatusChanged;
+                PowerManager.RemainingChargePercentChanged -= BatteryStatusChanged;
+            }
+            catch (System.Runtime.InteropServices.COMException ex) { AppLog.Error("Release battery observer", ex); }
+        }
+        _deviceChangeTimer.Stop();
+        _deviceObservation?.Dispose();
+        _deviceObservation = null;
+    }
+
+    private void UpdateDeviceObservation()
+    {
+        if (IsLoaded && !_windowClosed && SystemPageVisible)
+        {
+            try { _deviceObservation ??= ConnectedDevices.Observe(QueueDeviceRefresh); }
+            catch (System.Runtime.InteropServices.COMException ex) { AppLog.Error("Observe devices", ex); }
+            return;
+        }
+        _deviceChangeTimer.Stop();
+        _deviceObservation?.Dispose();
+        _deviceObservation = null;
+    }
+
+    private void QueueDeviceRefresh()
+    {
+        if (Interlocked.Exchange(ref _deviceSignalQueued, 1) != 0) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            Interlocked.Exchange(ref _deviceSignalQueued, 0);
+            if (_windowClosed || !SystemPageVisible) return;
+            _deviceChangeTimer.Stop();
+            _deviceChangeTimer.Start();
+        });
+    }
+
+    private void NetworkStatusChanged(object sender) => Dispatcher.BeginInvoke(() =>
+    {
+        if (_windowClosed) return;
+        _nextConnectivityRead = DateTime.MinValue;
+        _ = RefreshConnectivityAsync();
+    });
+
+    private void BatteryStatusChanged(object? sender, object args) => Dispatcher.BeginInvoke(() =>
+    {
+        if (_windowClosed) return;
+        if (SystemPageVisible && _systemBattery != null) _systemBattery.Text = BatteryDisplay();
+        RefreshWidget("battery");
+    });
 
     private void PaintConnectedDevices(string? status = null)
     {
@@ -176,6 +273,18 @@ public partial class MainWindow
             charge.Margin = new Thickness(12, 0, 0, 0);
             DockPanel.SetDock(charge, Dock.Right);
             row.Children.Add(charge);
+            var disconnect = FeatureButton("Отключить", () => _ = DisconnectDeviceAsync(device));
+            disconnect.IsEnabled = device.CanDisconnect && !_disconnectingDevice;
+            disconnect.Opacity = disconnect.IsEnabled ? 1 : .5;
+            disconnect.Padding = new Thickness(10, 5, 10, 5);
+            disconnect.Margin = new Thickness(10, 0, 0, 0);
+            disconnect.VerticalAlignment = VerticalAlignment.Center;
+            disconnect.ToolTip = L(!device.CanDisconnect ? "Отдельное отключение недоступно"
+                : device.Bluetooth ? "Отключить Bluetooth-устройство" : "Безопасно извлечь USB-устройство");
+            System.Windows.Controls.ToolTipService.SetShowOnDisabled(disconnect, true);
+            System.Windows.Automation.AutomationProperties.SetName(disconnect, $"{L("Отключить")} · {device.Name}");
+            DockPanel.SetDock(disconnect, Dock.Right);
+            row.Children.Add(disconnect);
             var labels = new StackPanel();
             labels.Children.Add(DeviceLabel(device.Name, 13, "ThemeTextBrush"));
             string connection = L(device.HasProblem ? "Требуется внимание" : "Подключено");
@@ -193,6 +302,28 @@ public partial class MainWindow
             var label = new TextBlock { Text = text, FontSize = size, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = text };
             label.SetResourceReference(TextBlock.ForegroundProperty, brush);
             return label;
+        }
+    }
+
+    private async Task DisconnectDeviceAsync(ConnectedDevices.Device device)
+    {
+        if (_disconnectingDevice || !device.CanDisconnect) return;
+        _disconnectingDevice = true;
+        PaintConnectedDevices();
+        bool disconnected = false;
+        try { disconnected = await Task.Run(() => DeviceDisconnect.Request(device)); }
+        catch (Exception ex) { AppLog.Error("Disconnect device", ex); }
+        finally
+        {
+            _disconnectingDevice = false;
+            _nextDevicesRead = DateTime.MinValue;
+            if (!_windowClosed && SystemPageVisible)
+            {
+                PaintConnectedDevices();
+                _ = RefreshConnectedDevicesAsync();
+                if (!disconnected)
+                    ShowSideBubble(L("Windows не удалось отключить устройство.") + $" · {device.Name}", ToastCategory.Info, bypassDnd: true);
+            }
         }
     }
 
@@ -260,6 +391,7 @@ public partial class MainWindow
             if (_windowClosed) return;
             _connectivity = snapshot;
             if (SystemPageVisible) PaintControlTiles();
+            RefreshWidget("network");
         }
         catch (Exception ex) { AppLog.Error("Read Windows connectivity", ex); }
         finally { _connectivityReading = false; }
@@ -272,8 +404,9 @@ public partial class MainWindow
         Paint(Tile.Wifi, ToSwitch(snapshot?.Wifi), snapshot?.WifiProfile);
         Paint(Tile.Bluetooth, ToSwitch(snapshot?.Bluetooth));
         Paint(Tile.Airplane, snapshot?.Airplane);
-        Paint(Tile.Vpn, snapshot?.Vpn.Available == true ? snapshot.Value.Vpn.Name != null : null,
-            snapshot?.Vpn.Name ?? (snapshot?.Vpn.Available == true ? L("Не подключено") : null));
+        var vpn = snapshot?.Vpn;
+        Paint(Tile.Vpn, vpn is { Name: not null } or { ProxyConfigured: true } ? true : vpn?.Available == true ? false : null,
+            VpnDisplay(vpn));
         bool? hidden = ReadDesktopIconsHidden();
         Paint(Tile.Desktop, hidden);
         if (hidden.HasValue) TglHideDesktopIcons.IsChecked = hidden.Value;
@@ -297,12 +430,19 @@ public partial class MainWindow
         static bool? ToSwitch(RadioState? state) => state switch { RadioState.On => true, RadioState.Off or RadioState.Disabled => false, _ => null };
     }
 
+    private string VpnDisplay(WindowsConnectivity.VpnStatus? vpn) => vpn?.Name ?? L(vpn switch
+    {
+        { ProxyConfigured: true } => "Прокси Windows",
+        { Available: true } => "Не подключено",
+        _ => "Состояние недоступно"
+    });
+
     private void RefreshSystemOverview()
     {
         if (!SystemPageVisible || _systemMeters.Length != 3) return;
         PaintControlTiles();
         if (IsLoaded && DateTime.UtcNow >= _nextConnectivityRead) _ = RefreshConnectivityAsync();
-        if (IsLoaded && IslandBorder.IsVisible && DateTime.UtcNow >= _nextDevicesRead) _ = RefreshConnectedDevicesAsync();
+        if (IsLoaded && IslandBorder.IsVisible && !_devicesReading && DateTime.UtcNow >= _nextDevicesRead) _ = RefreshConnectedDevicesAsync();
         _systemBattery!.Text = BatteryDisplay();
         _systemDnd!.Text = _timedDnd is { } timed
             ? string.Format(L("До {0}"), timed.Until.ToLocalTime().ToString("HH:mm"))

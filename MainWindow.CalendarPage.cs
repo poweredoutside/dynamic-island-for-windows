@@ -115,6 +115,7 @@ public partial class MainWindow
                 File.Delete(CalendarPath);
                 _settings.CalendarFeed = null;
                 _meetings = [];
+                RefreshWidget("calendar");
                 SaveSettings();
                 OpenFeaturePage("calendar");
             }));
@@ -228,6 +229,7 @@ public partial class MainWindow
                 : null;
             if (changeSource || uri != null) LocalFile.Write(CalendarPath, snapshot.Ics);
             _meetings = snapshot.Meetings;
+            RefreshWidget("calendar");
             if (changeSource)
             {
                 _settings.CalendarFeed = feed;

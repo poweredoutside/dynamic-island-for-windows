@@ -14,39 +14,57 @@ namespace DynamicIslandWin;
 public partial class MainWindow
 {
     private Slider? _musicSeek, _musicVolume, _musicMaster;
+    private Panel? _musicPlayerCard, _musicTimelineRow, _musicTransportRow, _musicVolumeRow;
     private TextBlock? _musicElapsed, _musicDuration;
     private Path? _musicPlayPause;
+    private Button? _musicPrevious, _musicPlayPauseButton, _musicNext;
     private bool _updatingMusicMaster;
 
     private void BuildMusicPlayerControls(Panel card)
     {
+        _musicPlayerCard = card;
+        card.IsVisibleChanged += (_, e) =>
+        {
+            if ((bool)e.NewValue) _ = RefreshMediaSessionStateAsync();
+            else HomeMusicWidget_IsVisibleChanged(this, e);
+        };
         var timeline = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+        _musicTimelineRow = timeline;
         _musicElapsed = TimeLabel(Dock.Left);
         _musicDuration = TimeLabel(Dock.Right);
         _musicSeek = PlayerSlider("Перемотка трека", 1);
         _musicSeek.Margin = new Thickness(8, 0, 8, 0);
         _musicSeek.ValueChanged += HomePlayerSeek_ValueChanged;
         _musicSeek.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler(HomePlayerSeek_DragCompleted));
-        _musicSeek.IsVisibleChanged += (_, e) =>
-        {
-            if ((bool)e.NewValue) _ = RefreshMediaSessionStateAsync();
-            else HomeMusicWidget_IsVisibleChanged(this, e);
-        };
         timeline.Children.Add(_musicSeek);
         card.Children.Add(timeline);
 
         var transport = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = System.Windows.HorizontalAlignment.Center };
-        transport.Children.Add(TransportButton("Предыдущий трек", "M6,6H8V18H6M9.5,12L18,18V6", PrevTrack_Click));
+        _musicTransportRow = transport;
+        _musicPrevious = TransportButton("Предыдущий трек", "M6,6H8V18H6M9.5,12L18,18V6", PrevTrack_Click);
+        transport.Children.Add(_musicPrevious);
         var play = TransportButton("Воспроизвести / пауза", "M8,5V19L19,12Z", PlayPause_Click);
+        _musicPlayPauseButton = play;
         play.SetResourceReference(Button.BackgroundProperty, "ThemeAccentBrush");
         _musicPlayPause = (Path)play.Content;
         _musicPlayPause.SetResourceReference(Path.FillProperty, "ThemeOnAccentBrush");
         UpdateMusicPlayPause();
         transport.Children.Add(play);
-        transport.Children.Add(TransportButton("Следующий трек", "M16,18H18V6H16M6,18L14.5,12L6,6V18Z", NextTrack_Click));
+        _musicNext = TransportButton("Следующий трек", "M16,18H18V6H16M6,18L14.5,12L6,6V18Z", NextTrack_Click);
+        transport.Children.Add(_musicNext);
+        var output = new Button { Style = (Style)FindResource("GlassPillBtn"), Padding = new Thickness(13, 6, 13, 6),
+            Margin = new Thickness(8, 0, 0, 8) };
+        var headphones = new Path { Data = (Geometry)FindResource("PlayerOutputGlyph"), Width = 15, Height = 15,
+            Stretch = Stretch.Uniform, StrokeThickness = 1.2, StrokeLineJoin = PenLineJoin.Round };
+        headphones.SetResourceReference(Path.StrokeProperty, "ThemeTextBrush");
+        output.Content = headphones;
+        output.Click += PlayerOutput_Click;
+        LocalizePlayerOutputButton(output);
+        transport.Children.Add(output);
         card.Children.Add(transport);
 
         var levels = new UniformGrid { Columns = 2, Margin = new Thickness(0, 8, 0, 0) };
+        _musicVolumeRow = levels;
         _musicVolume = AddLevel("Громкость плеера", new Thickness(0, 0, 12, 0));
         _musicVolume.ValueChanged += HomePlayerVolume_ValueChanged;
         _musicMaster = AddLevel("Громкость Windows", new Thickness(12, 0, 0, 0));
@@ -58,8 +76,12 @@ public partial class MainWindow
         };
         _musicMaster.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler((_, _) => _volumeIsland?.RequestSnapshot()));
         card.Children.Add(levels);
+        BuildMusicEqualizer(card);
+        UpdatePlayerControlVisibility();
+        RefreshPlayerTransportControls();
         UpdateHomePlayerVolume(_playerVolume);
         RenderHomePlayerTimeline();
+        if (card.IsVisible) _ = RefreshMediaSessionStateAsync();
 
         TextBlock TimeLabel(Dock side)
         {

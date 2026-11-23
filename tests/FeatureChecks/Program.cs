@@ -11,6 +11,7 @@ using System.Windows.Threading;
 using DynamicIslandWin;
 using DynamicIslandWin.Services;
 using Microsoft.Diagnostics.Tracing;
+using MediaStatus = Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus;
 
 internal static class Program
 {
@@ -21,22 +22,60 @@ internal static class Program
         void Check(bool result, string reason) { if (!result) throw new InvalidOperationException(reason); checks++; }
         if (args.Contains("--connected-devices"))
         {
+            using var changed = new ManualResetEventSlim();
+            using var observation = ConnectedDevices.Observe(changed.Set);
+            Check(changed.Wait(TimeSpan.FromSeconds(8)), "Windows reports device watcher state changes");
             var devices = Task.Run(ConnectedDevices.ReadAsync).GetAwaiter().GetResult();
             Check(devices != null && devices.All(device => device.Name.Length > 0 && device.Percent is null or >= 0 and <= 100),
                 "Windows returns valid information about connected peripherals");
-            Console.WriteLine($"PASS: Windows reports {devices!.Count} connected peripherals, including {devices.Count(device => device.Bluetooth)} Bluetooth devices. Battery readings: {devices.Count(device => device.Percent.HasValue)}.");
+            Console.WriteLine($"PASS: device watcher notified; Windows reports {devices!.Count} connected peripherals, including {devices.Count(device => device.Bluetooth)} Bluetooth devices. Battery readings: {devices.Count(device => device.Percent.HasValue)}. Disconnect targets: {devices.Count(device => device.CanDisconnect)}.");
             return 0;
         }
         Check(ConnectedDevices.ReadPercent((byte)0) == 0 && ConnectedDevices.ReadPercent((uint)100) == 100
             && ConnectedDevices.ReadPercent((byte)255) == null && ConnectedDevices.ReadPercent(-1) == null,
             "Unknown device battery values never render as a percentage");
+        const string usbDevice = @"USB\VID_1234&PID_5678\DISCONNECT-TEST";
+        Check(DeviceDisconnect.CanEjectUsb(usbDevice, 0x04, [])
+            && !DeviceDisconnect.CanEjectUsb(usbDevice, 0, [])
+            && !DeviceDisconnect.CanEjectUsb(usbDevice, 0x04, [@"USB\Class_09&SubClass_00"])
+            && !DeviceDisconnect.CanEjectUsb(@"USB\VID_1234&PID_5678&MI_00\TEST", 0x04, [])
+            && !DeviceDisconnect.CanEjectUsb(@"SWD\PRINTENUM\TEST", 0x04, []),
+            "Safe eject requires a removable physical USB device, never a hub, an interface or a virtual queue");
         if (args.Contains("--player-volume")) return CheckPlayerVolume();
-        Check(PlayerAudioService.MatchesDesktopPlayer("ru.yandex.desktop.music", "Яндекс Музыка")
-            && PlayerAudioService.MatchesDesktopPlayer("Spotify.exe", "Spotify")
-            && PlayerAudioService.MatchesDesktopPlayer("Chrome.Default", "chrome")
-            && !PlayerAudioService.MatchesDesktopPlayer("Chrome.Default", "chromedriver")
-            && !PlayerAudioService.MatchesDesktopPlayer("OtherChrome", "chrome"),
+        if (args.Contains("--equalizer-download"))
+        {
+            using var download = EqualizerApoInstaller.DownloadAsync().GetAwaiter().GetResult();
+            Console.WriteLine("PASS: downloaded official Equalizer APO x64 and verified its SHA-256.");
+            return 0;
+        }
+        if (args.Contains("--media-sessions")) return CheckMediaSessions(args);
+        Check(MediaSources.MatchesDesktopPlayer("ru.yandex.desktop.music", "Яндекс Музыка")
+            && MediaSources.MatchesDesktopPlayer("Spotify.exe", "Spotify")
+            && MediaSources.MatchesDesktopPlayer("Chrome.Default", "chrome")
+            && MediaSources.MatchesDesktopPlayer("MSEdge._crx_abc", "msedge")
+            && MediaSources.MatchesDesktopPlayer("Firefox-12345", "firefox")
+            && MediaSources.MatchesDesktopPlayer("BraveSoftware.Brave.Browser", "brave")
+            && MediaSources.MatchesDesktopPlayer("OperaGXStable", "opera")
+            && MediaSources.MatchesDesktopPlayer("Vivaldi.Default", "vivaldi")
+            && MediaSources.MatchesDesktopPlayer("Yandex.Browser", "browser")
+            && !MediaSources.MatchesDesktopPlayer("Chrome.Default", "chromedriver")
+            && !MediaSources.MatchesDesktopPlayer("OtherChrome", "chrome"),
             "Player audio matches application IDs or executable names without matching unrelated processes");
+        Check(MediaSessions.Priority(MediaStatus.Playing, false) > MediaSessions.Priority(MediaStatus.Paused, true)
+            && MediaSessions.Priority(MediaStatus.Paused, true) > MediaSessions.Priority(MediaStatus.Opened, true)
+            && MediaSessions.Priority(MediaStatus.Paused, false) == 0 && MediaSessions.Priority(MediaStatus.Closed, true) == 0
+            && MediaSessions.Priority(MediaStatus.Stopped, true) == 0, "A playing browser takes precedence over idle sessions");
+        Check(GeminiVoiceService.BuiltInVoices.Count == 30 && GeminiVoiceService.BuiltInVoices.Contains("Zephyr")
+            && GeminiVoiceService.IsVoiceName("Future-Voice_1") && !GeminiVoiceService.IsVoiceName("wrong voice name"),
+            "The Live voice catalogue includes 30 built-ins and accepts additional API names");
+        using (var setup = JsonSerializer.SerializeToDocument(GeminiVoiceService.CreateSetup("test-model", "Future-Voice_1", "Спокойно и медленно")))
+        {
+            var value = setup.RootElement.GetProperty("setup");
+            Check(value.GetProperty("generationConfig").GetProperty("speechConfig").GetProperty("voiceConfig")
+                .GetProperty("prebuiltVoiceConfig").GetProperty("voiceName").GetString() == "Future-Voice_1"
+                && value.GetProperty("systemInstruction").GetProperty("parts")[0].GetProperty("text").GetString()!.Contains("Спокойно и медленно"),
+                "A custom voice name and speaking style are sent in the Live session setup");
+        }
         if (args.Contains("--discord-call"))
         {
             var monitor = new DiscordCallMonitor(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
@@ -118,8 +157,51 @@ internal static class Program
         {
             var connectivity = Task.Run(WindowsConnectivity.ReadAsync).GetAwaiter().GetResult();
             Check(connectivity.Vpn.Available, "Windows can enumerate native VPN connections");
-            Console.WriteLine($"PASS: read-only Windows status. Wi-Fi={connectivity.Wifi}, Bluetooth={connectivity.Bluetooth}, airplane={connectivity.Airplane}, VPN connected={connectivity.Vpn.Name != null}.");
+            Console.WriteLine($"PASS: read-only Windows status. Wi-Fi={connectivity.Wifi}, Bluetooth={connectivity.Bluetooth}, airplane={connectivity.Airplane}, VPN connected={connectivity.Vpn.Name != null}, Windows proxy={connectivity.Vpn.ProxyConfigured}.");
             return 0;
+        }
+        Check(WindowsConnectivity.IsVpnAdapter("WireGuard Tunnel") && WindowsConnectivity.IsVpnAdapter("Fortinet SSL VPN Virtual Ethernet Adapter")
+            && WindowsConnectivity.IsVpnAdapter("OpenVPN Data Channel Offload") && WindowsConnectivity.IsVpnAdapter("Wintun Userspace Tunnel")
+            && !WindowsConnectivity.IsVpnAdapter("WAN Miniport (IP)") && !WindowsConnectivity.IsVpnAdapter("Hyper-V Virtual Ethernet Adapter"),
+            "VPN matching detects third-party tunnel drivers without marking WAN miniports or virtualization adapters as connected");
+        Check(WindowsConnectivity.IsVpnAddress(System.Net.IPAddress.Parse("10.5.0.2"))
+            && WindowsConnectivity.IsVpnAddress(System.Net.IPAddress.Parse("fd00::2"))
+            && !WindowsConnectivity.IsVpnAddress(System.Net.IPAddress.Parse("169.254.7.5"))
+            && !WindowsConnectivity.IsVpnAddress(System.Net.IPAddress.Parse("fe80::2"))
+            && !WindowsConnectivity.IsVpnAddress(System.Net.IPAddress.Loopback),
+            "A tunnel requires a configured address, including IPv6-only VPNs");
+        var apoFixture = System.IO.Directory.CreateTempSubdirectory("island-equalizer-");
+        string mainConfig = System.IO.Path.Combine(apoFixture.FullName, "config.txt");
+        string managedConfig = System.IO.Path.Combine(apoFixture.FullName, MusicEqualizer.ConfigName);
+        try
+        {
+            var install = new EqualizerApoInstaller.Installation(apoFixture.FullName, null);
+            var encoding = new System.Text.UTF8Encoding(true);
+            const string existing = "# Audífonos\nPreamp: -2 dB\nInclude: example.txt\n";
+            System.IO.File.WriteAllText(mainConfig, existing, encoding);
+            MusicEqualizer.Apply(install, [3, -1], false);
+            Check(!System.IO.File.Exists(managedConfig) && System.IO.File.ReadAllText(mainConfig) == existing,
+                "An unused equalizer does not touch the existing APO configuration");
+            MusicEqualizer.Apply(install, [99, -2, 0, 1, -99], true);
+            string activeConfig = System.IO.File.ReadAllText(managedConfig);
+            string rootConfig = "Include: " + MusicEqualizer.ConfigName + "\n" + existing;
+            Check(System.IO.File.ReadAllBytes(mainConfig).SequenceEqual(encoding.GetPreamble().Concat(encoding.GetBytes(rootConfig)))
+                && activeConfig.Contains("If: stage == \"post-mix\"") && activeConfig.Contains("Preamp: -12 dB")
+                && activeConfig.Contains("GraphicEQ: 60 12; 250 -2; 1000 0; 4000 1; 12000 -12"),
+                "The EQ preserves existing config text and encoding and generates playback-only filters with headroom and bounded gains");
+            MusicEqualizer.Apply(install, [7], true);
+            Check(System.IO.File.ReadAllText(mainConfig) == rootConfig
+                && System.IO.File.ReadAllText(managedConfig).Contains("GraphicEQ: 60 7; 250 0; 1000 0; 4000 0; 12000 0"),
+                "Changing the curve updates only the included file and fills missing bands with zero");
+            MusicEqualizer.Apply(install, [7], false);
+            Check(System.IO.File.ReadAllText(mainConfig) == rootConfig && !System.IO.File.ReadAllText(managedConfig).Contains("GraphicEQ:"),
+                "Disabling the EQ leaves the rest of the APO setup active and removes the island's filters");
+        }
+        finally
+        {
+            System.IO.File.Delete(mainConfig);
+            System.IO.File.Delete(managedConfig);
+            apoFixture.Delete();
         }
         var calculator = new WidgetCalculator();
         foreach (string key in new[] { "1", "2", "×", "3", "=", "÷", "4", "=" }) calculator.Press(key);
@@ -321,24 +403,29 @@ internal static class Program
             && FpsService.SelectFrameCount(0, 0, 0, 50) == 50 && FpsService.SelectFrameCount(0, 0, 0, 0) == 0, "FPS falls back to one kernel source without adding overlapping frame counts");
         FpsService.ParseSample("?|72", out var startingFps, out int startingTemperature);
         Check(startingFps == null && startingTemperature == 72, "CPU samples are available before ETW finishes starting");
-        Check(GitHubUpdateService.Repository("https://github.com/example/island/") == "example/island", "Update repository normalization");
         string releaseJson = "{\"tag_name\":\"v1.2.0\",\"name\":\"1.2\",\"assets\":[{\"name\":\"Setup.exe\",\"browser_download_url\":\"https://github.com/example/island/releases/download/v1.2.0/Setup.exe\"},{\"name\":\"SHA256SUMS.txt\",\"browser_download_url\":\"https://github.com/example/island/releases/download/v1.2.0/SHA256SUMS.txt\"}]}";
-        Check(GitHubUpdateService.Parse("example/island", releaseJson).Version == new Version(1, 2, 0), "Update resolves exact same-repository installer");
-        string brandedRelease = releaseJson.Replace("Setup.exe", "ocdynamicisland.exe");
-        Check(GitHubUpdateService.Parse("example/island", brandedRelease).InstallerName == "ocdynamicisland.exe", "Branded installer is supported");
-        string bothInstallers = releaseJson.Replace("\"assets\":[", "\"assets\":[{\"name\":\"ocdynamicisland.exe\",\"browser_download_url\":\"https://github.com/example/island/releases/download/v1.2.0/ocdynamicisland.exe\"},");
-        Check(GitHubUpdateService.Parse("example/island", bothInstallers).InstallerName == "ocdynamicisland.exe", "Branded installer takes priority over legacy Setup.exe");
-        try { GitHubUpdateService.Parse("example/island", brandedRelease.Replace("https://github.com/example/island/releases/download/v1.2.0/ocdynamicisland.exe", "https://attacker.example/ocdynamicisland.exe")); throw new Exception("External installer accepted"); }
+        try { GitHubUpdateService.Parse(releaseJson); throw new Exception("A different GitHub repository was accepted"); }
         catch (FormatException) { checks++; }
-        foreach (string bad in new[] { releaseJson.Replace("SHA256SUMS.txt", "other.txt"), releaseJson.Replace("https://github.com/example/island/releases/download/v1.2.0/Setup.exe", "https://attacker.example/Setup.exe") })
-        { try { GitHubUpdateService.Parse("example/island", bad); throw new Exception("Unsafe release accepted"); } catch (FormatException) { checks++; } }
+        releaseJson = releaseJson.Replace("example/island", GitHubUpdateService.RepositoryName, StringComparison.Ordinal);
+        Check(GitHubUpdateService.Parse(releaseJson).Version == new Version(1, 2, 0), "Update resolves the installer in the official release");
+        string brandedRelease = releaseJson.Replace("Setup.exe", "ocdynamicisland.exe");
+        Check(GitHubUpdateService.Parse(brandedRelease).InstallerName == "ocdynamicisland.exe", "Branded installer is supported");
+        string bothInstallers = releaseJson.Replace("\"assets\":[", "\"assets\":[{\"name\":\"ocdynamicisland.exe\",\"browser_download_url\":\"https://github.com/" + GitHubUpdateService.RepositoryName + "/releases/download/v1.2.0/ocdynamicisland.exe\"},");
+        Check(GitHubUpdateService.Parse(bothInstallers).InstallerName == "ocdynamicisland.exe", "Branded installer takes priority over legacy Setup.exe");
+        try { GitHubUpdateService.Parse(brandedRelease.Replace("https://github.com/", "https://outside.example/")); throw new Exception("External installer accepted"); }
+        catch (FormatException) { checks++; }
+        foreach (string bad in new[] { releaseJson.Replace("SHA256SUMS.txt", "other.txt"), releaseJson.Replace("/download/v1.2.0/", "/download/v1.2.1/") })
+        { try { GitHubUpdateService.Parse(bad); throw new Exception("Unsafe release accepted"); } catch (FormatException) { checks++; } }
         string digest = new string('a', 64);
         Check(GitHubUpdateService.Digest(digest + "  Setup.exe", "Setup.exe") == digest, "Mandatory exact-file checksum read");
         foreach (string bad in new[] { "", digest + "  another.exe", digest + "  Setup.exe\n" + digest + "  Setup.exe" })
         { try { GitHubUpdateService.Digest(bad, "Setup.exe"); throw new Exception("Missing or ambiguous digest accepted"); } catch (FormatException) { checks++; } }
         var migrated = JsonSerializer.Deserialize<MainWindow.AppSettings>("{\"NotificationDurationSeconds\":7,\"SelectedTheme\":\"Ocean\"}")!;
         Check(migrated.CompactWidth == 210 && migrated.NotificationDurationSeconds == 7 && migrated.SelectedTheme == "Ocean" && !migrated.FollowCursorMonitor, "Settings migration preserves values and safe defaults");
-        Check(migrated.UpdateRepository == "poweredoutside/dynamic-island-for-windows", "New and absent settings use the production update repository");
+        var legacyRepository = JsonSerializer.Deserialize<MainWindow.AppSettings>("{\"UpdateRepository\":\"example/custom\"}");
+        Check(legacyRepository != null && !JsonSerializer.Serialize(legacyRepository).Contains("UpdateRepository")
+            && GitHubUpdateService.ReleasesPage.ToString() == "https://github.com/poweredoutside/dynamic-island-for-windows/releases",
+            "Legacy update settings cannot override the official repository");
         Check(migrated.AutoCheckUpdates && migrated.Language == "system", "System language and automatic update checks default on for missing settings");
         Check(JsonSerializer.Deserialize<MainWindow.AppSettings>("{\"Language\":\"Deutsch\",\"AutoCheckUpdates\":false}") is { Language: "Deutsch", AutoCheckUpdates: false }, "Manual language and update preferences survive migration");
         Check(MainWindow.LanguageForCulture("ru-RU") == "Русский" && MainWindow.LanguageForCulture("es-MX") == "Español"
@@ -364,11 +451,6 @@ internal static class Program
         T Element<T>(string name) => (T)window.FindName(name);
         var settings = (MainWindow.AppSettings)typeof(MainWindow).GetField("_settings", flags)!.GetValue(window)!;
         settings.Language = "English";
-        settings.UpdateRepository = ""; Call("LoadFeatureThemes");
-        Check(settings.UpdateRepository == GitHubUpdateService.DefaultRepository, "Existing empty update repository migrates to the default");
-        settings.UpdateRepository = "example/custom"; Call("LoadFeatureThemes");
-        Check(settings.UpdateRepository == "example/custom", "An explicitly selected update repository is preserved");
-        settings.UpdateRepository = GitHubUpdateService.DefaultRepository;
         Check((JsonSerializer.Deserialize<MainWindow.AppSettings>("{\"LevelHud\":false}")! is { VolumeIslandHud: null, LevelHud: false }), "Migration retains a previously disabled HUD");
         settings.VolumeIslandHud = true;
         for (int i = 0; i < 1000; i++) Call("VolumeChanged", new VolumeIslandService.Snapshot(i / 999f, i == 999));
@@ -483,8 +565,42 @@ internal static class Program
                 mixer.SetApp(session.Id, previous.Volume, previous.Muted);
         }
         Console.WriteLine("PASS: live CoreAudio player session volume changed without changing the Windows output volume or mute state.");
+        string outputId = output.ID;
+        Task.Run(() =>
+        {
+            var available = PlayerAudioService.ReadOutputs(source);
+            if (!available.CanRoute || !available.Devices.Any(device => device.Id == outputId && device.InUse))
+                throw new Exception("The isolated player output is missing from its routing menu.");
+            using var routing = new AppAudioRouting();
+            var pid = (uint)Environment.ProcessId;
+            try
+            {
+                if (PlayerAudioService.ChangeOutput(source, outputId) != outputId
+                    || PlayerAudioService.ReadOutputs(source).PreferredId != outputId)
+                    throw new Exception("Windows did not retain the requested output for the isolated player.");
+                PlayerAudioService.ChangeOutput(source, null);
+                if (PlayerAudioService.ReadOutputs(source).PreferredId != null)
+                    throw new Exception("Windows did not clear the isolated player's output override.");
+            }
+            finally { routing.SetOutput(pid, available.PreferredId); }
+        }).GetAwaiter().GetResult();
+        Console.WriteLine("PASS: the isolated CoreAudio player's output override can be set and reset.");
         return 0;
     }
+
+    private static int CheckMediaSessions(string[] args) => Task.Run(async () =>
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var manager = await Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager.RequestAsync().AsTask(timeout.Token);
+        var selection = await MediaSessions.ReadAsync(manager, includePaused: true);
+        if (args.Length > 1 && (selection?.Track.Title != args[1] || selection.Playback.PlaybackStatus != MediaStatus.Playing))
+            throw new InvalidOperationException("The playing browser media fixture was not selected.");
+        if (selection == null) Console.WriteLine("No active system media session.");
+        else Console.WriteLine($"PASS: {manager.GetSessions().Count} sessions; player detected: " +
+            $"{MediaSources.BrowserName(selection.Track.Source) ?? "desktop application"}, " +
+            $"{selection.Playback.PlaybackStatus}, seek={selection.Playback.Controls.IsPlaybackPositionEnabled}.");
+        return 0;
+    }).GetAwaiter().GetResult();
 
     private static int CheckVolumeEvents()
     {
@@ -548,7 +664,7 @@ internal static class Program
     private static int CheckPublishedRelease()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
-        var release = GitHubUpdateService.CheckAsync(GitHubUpdateService.DefaultRepository, timeout.Token).GetAwaiter().GetResult();
+        var release = GitHubUpdateService.CheckAsync(timeout.Token).GetAwaiter().GetResult();
         if (release.Version.ToString(3) != GitHubUpdateService.CurrentVersion.ToString(3) || release.InstallerName != GitHubUpdateService.InstallerFileName)
             throw new Exception("Unexpected published release");
         string path = GitHubUpdateService.DownloadAsync(release, new Progress<double>(), timeout.Token).GetAwaiter().GetResult();

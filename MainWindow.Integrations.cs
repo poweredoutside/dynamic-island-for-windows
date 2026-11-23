@@ -494,7 +494,11 @@ public partial class MainWindow
             _timedDnd = null;
         _dndStateKnown = true;
         _isDndActive = state.IsActive;
-        if (changed || wasUnknown) UpdateDndVisuals();
+        if (changed || wasUnknown)
+        {
+            UpdateDndVisuals();
+            RefreshWidget("focus");
+        }
         if (!changed) return;
         _pendingNotification = null;
         HideNotificationBubble();

@@ -159,7 +159,7 @@ public partial class MainWindow
         $"{TimeZoneInfo.ConvertTime(now, zone.Zone):HH:mm}   {L(zone.Label)}"));
 
     private string WidgetNetworkStatus() => _connectivity is { } value
-        ? $"Wi-Fi · {value.WifiProfile ?? L(value.Wifi == RadioState.On ? "Включено" : value.Wifi is RadioState.Off or RadioState.Disabled ? "Выключено" : "Состояние недоступно")}\nVPN · {value.Vpn.Name ?? L(value.Vpn.Available ? "Не подключено" : "Состояние недоступно")}"
+        ? $"Wi-Fi · {value.WifiProfile ?? L(value.Wifi == RadioState.On ? "Включено" : value.Wifi is RadioState.Off or RadioState.Disabled ? "Выключено" : "Состояние недоступно")}\nVPN · {VpnDisplay(value.Vpn)}"
         : L("Состояние недоступно");
 
     private string WidgetUptime()

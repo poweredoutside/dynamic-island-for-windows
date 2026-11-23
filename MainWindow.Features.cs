@@ -51,8 +51,9 @@ public partial class MainWindow
         public bool OnlineLyrics { get; set; }
         public int LyricsLineCount { get; set; } = 1;
         public string GeminiModel { get; set; } = "gemini-3.8-live";
-        public string GeminiVoice { get; set; } = "Kore";
-        public string UpdateRepository { get; set; } = GitHubUpdateService.DefaultRepository;
+        public string GeminiVoice { get; set; } = GeminiVoiceService.DefaultVoice;
+        public Guid? GeminiVoicePresetId { get; set; }
+        public List<GeminiVoicePreset> GeminiVoicePresets { get; set; } = [];
         public bool AutoCheckUpdates { get; set; } = true;
         public double GeminiGain { get; set; } = .8;
         public List<UserTheme> CustomThemes { get; set; } = [];
@@ -67,6 +68,7 @@ public partial class MainWindow
     }
 
     private readonly DispatcherTimer _featureTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+    private DispatcherTimer? _settingsSaveTimer;
     private readonly DispatcherTimer _hoverDelay = new();
     private GeminiVoiceService? _voice;
     private Task? _featureScan;
@@ -104,6 +106,7 @@ public partial class MainWindow
         ApplyTheme(_themes.FirstOrDefault(t => t.Key == _settings.SelectedTheme) ?? _themes[0]);
         ConfigureLensGlass();
         InitializeNotesWidgets();
+        InitializeLiveSystemStatus();
         IslandBorder.LostMouseCapture += (_, _) => { _isClickCandidate = false; if (_bodyDragging) { _bodyDragging = false; RememberIslandPlacement(); SaveSettings(); } };
         _settings.VolumeIslandHud ??= _settings.LevelHud;
         _volumeIsland = new VolumeIslandService(_settings.VolumeIslandHud == true);
@@ -130,7 +133,6 @@ public partial class MainWindow
 
     private void LoadFeatureThemes()
     {
-        if (string.IsNullOrWhiteSpace(_settings.UpdateRepository)) _settings.UpdateRepository = GitHubUpdateService.DefaultRepository;
         _settings.CustomThemes = (_settings.CustomThemes ?? []).Where(ThemeCode.Valid).DistinctBy(t => t.Name).Take(32).ToList();
         _settings.ActionOrder ??= []; _settings.HiddenTabs ??= []; _settings.TabOrder ??= [];
         _settings.Timers ??= []; _settings.DeliveredReminders ??= [];
@@ -141,14 +143,28 @@ public partial class MainWindow
     private void DisposeFeatures()
     {
         DisposeDesktopWidgets();
+        DisposeLiveSystemStatus();
         _calendarCancellation.Cancel();
         DisposeLensGlass();
         _featureTimer.Stop(); _hoverDelay.Stop(); _watchdog?.Dispose();
+        _settingsSaveTimer?.Stop();
         if (_volumeIsland != null) { _volumeIsland.Changed -= VolumeChanged; _volumeIsland.Dispose(); }
         StopGameMetrics();
         _updateCancellation?.Cancel();
         CancelLyricsSearch();
         if (_voice != null) _ = _voice.DisposeAsync();
+    }
+
+    private void QueueSettingsSave()
+    {
+        if (_isLoadingSettings || _windowClosed) return;
+        if (_settingsSaveTimer == null)
+        {
+            _settingsSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+            _settingsSaveTimer.Tick += (_, _) => SaveSettings();
+        }
+        _settingsSaveTimer.Stop();
+        _settingsSaveTimer.Start();
     }
 
     private void ApplyFeatureAppearance()
@@ -190,7 +206,7 @@ public partial class MainWindow
         }
         if (_currentState == IslandState.Section && _featurePage == "system") RefreshGameMetricsControls();
         if (_settings.AutoCheckUpdates && !_updateBusy && DateTime.UtcNow >= _nextUpdateCheck)
-            _ = CheckForUpdatesAsync(_settings.UpdateRepository, automatic: true);
+            _ = CheckForUpdatesAsync(automatic: true);
         if (NeedsIslandFrames()) StartIslandFrames();
         if (now.UtcDateTime >= _nextReminderCheck)
         {
@@ -290,14 +306,25 @@ public partial class MainWindow
     private static IReadOnlyList<WindowSignal> ReadWindowSignals()
     {
         var items = new List<WindowSignal>();
+        var processes = new Dictionary<uint, string>();
+        var title = new System.Text.StringBuilder(512);
         EnumWindows((handle, _) =>
         {
             if (!IsWindowVisible(handle)) return true;
             GetWindowThreadProcessId(handle, out uint pid);
             if (pid == Environment.ProcessId) return true;
-            var text = new System.Text.StringBuilder(512); GetWindowText(handle, text, text.Capacity);
-            if (text.Length == 0) return true;
-            try { using var process = Process.GetProcessById((int)pid); items.Add(new(handle, (int)pid, process.ProcessName, text.ToString())); } catch { }
+            title.Clear();
+            if (GetWindowText(handle, title, title.Capacity) == 0) return true;
+            try
+            {
+                if (!processes.TryGetValue(pid, out string? name))
+                {
+                    using var process = Process.GetProcessById((int)pid);
+                    processes[pid] = name = process.ProcessName;
+                }
+                items.Add(new(handle, (int)pid, name, title.ToString()));
+            }
+            catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception) { }
             return items.Count < 2048;
         }, IntPtr.Zero);
         return items;
@@ -397,7 +424,7 @@ public partial class MainWindow
             VolumeIslandService.Snapshot latest;
             lock (_volumeGate) { latest = _pendingVolume; _volumeDispatchPending = false; }
             _widgetVolume = latest;
-            if (WidgetIsVisible("volume")) RefreshDesktopWidgets();
+            RefreshWidget("volume");
             if (_windowClosed) return;
             if (_musicMaster?.IsVisible == true) UpdateMusicMasterVolume(latest);
             if (_manualVolumeOpen || (_settings.VolumeIslandHud == true && _musicMaster?.IsVisible != true))

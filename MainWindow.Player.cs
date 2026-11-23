@@ -2,16 +2,21 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Automation;
+using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using DynamicIslandWin.Services;
 using Windows.Media.Control;
+using Button = System.Windows.Controls.Button;
+using PlaybackStatus = Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus;
 
 namespace DynamicIslandWin;
 
 public partial class MainWindow
 {
     private readonly record struct PlayerTimeline(double Position, double Duration, bool CanSeek);
+    private enum PlayerAction { PlayPause, Next, Previous }
+    private MediaSessions.Selection? _selectedMedia;
     private LyricsService.Track? _playerTrack;
     private PlayerTimeline? _playerTimeline;
     private DispatcherTimer? _playerSeekTimer;
@@ -21,7 +26,9 @@ public partial class MainWindow
     private float? _pendingPlayerVolume;
     private bool _writingPlayerVolume;
     private int _playerVolumeRevision;
-    private bool PlayerControlsVisible => HomeMusicWidget.IsVisible || _musicSeek?.IsVisible == true;
+    private long _nextPlayerVolumeRead;
+    private bool _hasPlayerMedia;
+    private bool PlayerControlsVisible => HomeMusicWidget.IsVisible || _musicPlayerCard?.IsVisible == true;
     private System.Windows.Controls.Slider PlayerSeekSlider => _musicSeek?.IsVisible == true ? _musicSeek : HomePlayerSeek;
     private System.Windows.Controls.Slider PlayerVolumeSlider => _musicVolume?.IsVisible == true ? _musicVolume : HomePlayerVolume;
 
@@ -30,12 +37,31 @@ public partial class MainWindow
         AutomationProperties.SetName(HomePlayerVolume, L("Громкость плеера"));
         UpdateHomePlayerVolume(_playerVolume);
         AutomationProperties.SetName(HomePlayerSeek, L("Перемотка трека"));
+        LocalizePlayerOutputButton(HomePlayerOutputButton);
         RenderHomePlayerTimeline();
+    }
+
+    private void UpdatePlayerControlVisibility()
+    {
+        var visibility = _hasPlayerMedia ? Visibility.Visible : Visibility.Collapsed;
+        HomePlayerTimelineRow.Visibility = HomePlayerControlsRow.Visibility = visibility;
+        if (_musicTimelineRow != null) _musicTimelineRow.Visibility = visibility;
+        if (_musicTransportRow != null) _musicTransportRow.Visibility = visibility;
+        if (_musicVolumeRow != null) _musicVolumeRow.Visibility = visibility;
+        if (_hasPlayerMedia) return;
+        _playerSeekTimer?.Stop();
+        SetHomePlayerVolumeSource(null);
     }
 
     private void HomeMusicWidget_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if ((bool)e.NewValue || PlayerControlsVisible) return;
+        if ((bool)e.NewValue)
+        {
+            _nextPlayerVolumeRead = 0;
+            _ = RefreshMediaSessionStateAsync();
+            return;
+        }
+        if (PlayerControlsVisible) return;
         _playerSeekTimer?.Stop();
         SetHomePlayerVolumeSource(null);
     }
@@ -44,6 +70,7 @@ public partial class MainWindow
     {
         if (_playerVolumeSource == source) return;
         _playerVolumeSource = source;
+        _nextPlayerVolumeRead = 0;
         _playerVolumeRevision++;
         _pendingPlayerVolume = null;
         if (PlayerVolumeSlider.IsMouseCaptureWithin && System.Windows.Input.Mouse.Captured is Thumb thumb)
@@ -55,9 +82,12 @@ public partial class MainWindow
     {
         SetHomePlayerVolumeSource(source);
         if (source == null || _writingPlayerVolume || PlayerVolumeSlider.IsMouseCaptureWithin) return;
+        long now = Environment.TickCount64;
+        if (now < _nextPlayerVolumeRead) return;
+        _nextPlayerVolumeRead = now + 2000;
         int revision = _playerVolumeRevision;
         var snapshot = await Task.Run(() => ReadOrSetPlayerVolume(source));
-        if (!_windowClosed && revision == _playerVolumeRevision) UpdateHomePlayerVolume(snapshot);
+        if (!_windowClosed && revision == _playerVolumeRevision && _playerVolume != snapshot) UpdateHomePlayerVolume(snapshot);
     }
 
     private void UpdateHomePlayerVolume(PlayerAudioService.Snapshot? snapshot)
@@ -95,7 +125,7 @@ public partial class MainWindow
             {
                 _pendingPlayerVolume = null;
                 int revision = _playerVolumeRevision;
-                if (_mediaManager?.GetCurrentSession()?.SourceAppUserModelId != source)
+                if (_selectedMedia?.Track.Source != source)
                 {
                     SetHomePlayerVolumeSource(null);
                     break;
@@ -119,8 +149,62 @@ public partial class MainWindow
         catch (COMException) { return null; }
     }
 
+    private void RefreshPlayerTransportControls()
+    {
+        var controls = _selectedMedia?.Playback.Controls;
+        Set(HomePlayerPrevious, _musicPrevious, controls?.IsPreviousEnabled == true, "Предыдущий трек");
+        Set(HomePlayerPlayPause, _musicPlayPauseButton, controls?.IsPlayPauseToggleEnabled == true
+            || (_isMediaPlaying ? controls?.IsPauseEnabled == true : controls?.IsPlayEnabled == true), "Воспроизвести / пауза");
+        Set(HomePlayerNext, _musicNext, controls?.IsNextEnabled == true, "Следующий трек");
+
+        void Set(Button home, Button? music, bool supported, string label)
+        {
+            Update(home);
+            if (music != null) Update(music);
+
+            void Update(Button button)
+            {
+                button.IsEnabled = supported;
+                button.Opacity = supported ? 1 : .45;
+                button.ToolTip = L(supported ? label : "Действие недоступно в этом плеере");
+                AutomationProperties.SetName(button, L(label));
+                ToolTipService.SetShowOnDisabled(button, true);
+            }
+        }
+    }
+
+    private async Task RunPlayerActionAsync(PlayerAction action)
+    {
+        if (_windowClosed || _selectedMedia is not { } media) return;
+        try
+        {
+            var session = media.Session;
+            var info = session.GetPlaybackInfo();
+            var controls = info?.Controls;
+            if (controls == null) return;
+            var operation = action switch
+            {
+                PlayerAction.Next when controls.IsNextEnabled => session.TrySkipNextAsync(),
+                PlayerAction.Previous when controls.IsPreviousEnabled => session.TrySkipPreviousAsync(),
+                PlayerAction.PlayPause when controls.IsPlayPauseToggleEnabled => session.TryTogglePlayPauseAsync(),
+                PlayerAction.PlayPause when info!.PlaybackStatus == PlaybackStatus.Playing && controls.IsPauseEnabled => session.TryPauseAsync(),
+                PlayerAction.PlayPause when info!.PlaybackStatus != PlaybackStatus.Playing && controls.IsPlayEnabled => session.TryPlayAsync(),
+                _ => null
+            };
+            if (operation == null) return;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            if (await operation.AsTask(timeout.Token)) await Task.Delay(120);
+            await RefreshMediaSessionStateAsync();
+        }
+        catch (Exception ex) when (ex is COMException or InvalidOperationException or OperationCanceledException)
+        {
+            AppLog.Error("Control media session", ex);
+        }
+    }
+
     private void UpdateHomePlayerTimeline(LyricsService.Track? track, PlayerTimeline? timeline)
     {
+        if (_playerTrack?.Source != track?.Source && _playerOutputMenu is { IsOpen: true } menu) menu.IsOpen = false;
         if (_playerTrack != track || timeline is not { CanSeek: true })
         {
             _playerSeekTimer?.Stop();
@@ -200,30 +284,31 @@ public partial class MainWindow
     private async Task SeekHomePlayerAsync()
     {
         if (_windowClosed || _playerSeeking || !PlayerControlsVisible
-            || _playerTimeline is not { CanSeek: true } || _playerTrack is not { } track) return;
+            || _playerTimeline is not { CanSeek: true } || _selectedMedia is not { } selected) return;
+        var session = selected.Session;
+        var track = selected.Track;
 
         double seconds = PlayerSeekSlider.Value;
         _playerSeeking = true;
         RenderHomePlayerTimeline();
         try
         {
-            var session = _mediaManager?.GetCurrentSession();
-            if (session == null || session.SourceAppUserModelId != track.Source) return;
-            var media = await session.TryGetMediaPropertiesAsync();
-            if (_windowClosed || !PlayerControlsVisible || _playerTrack != track || media?.Title?.Trim() != track.Title
-                || (media.Artist?.Trim() ?? "") != track.Artist) return;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            var media = await session.TryGetMediaPropertiesAsync().AsTask(timeout.Token);
+            if (_windowClosed || !PlayerControlsVisible || !Equals(_selectedMedia?.Session, session) || _playerTrack != track
+                || string.IsNullOrWhiteSpace(media?.Title) || MediaSessions.ReadTrack(media, track.Source) != track) return;
             var timeline = session.GetTimelineProperties();
             if (session.GetPlaybackInfo()?.Controls?.IsPlaybackPositionEnabled != true
                 || !TryGetSeekBounds(timeline, out var earliest, out var latest)) return;
 
             var requested = timeline.StartTime + TimeSpan.FromSeconds(seconds);
             var target = requested < earliest ? earliest : requested > latest ? latest : requested;
-            if (!await session.TryChangePlaybackPositionAsync(target.Ticks))
+            if (!await session.TryChangePlaybackPositionAsync(target.Ticks).AsTask(timeout.Token))
             {
                 if (!_windowClosed) ShowSideBubble(L("Плеер не выполнил перемотку."), ToastCategory.Info);
                 return;
             }
-            if (!_windowClosed && _playerTrack == track && _playerTimeline is { } current)
+            if (!_windowClosed && Equals(_selectedMedia?.Session, session) && _playerTrack == track && _playerTimeline is { } current)
             {
                 var position = Math.Clamp((target - timeline.StartTime).TotalSeconds, 0, current.Duration);
                 _playerTimeline = current with { Position = position };

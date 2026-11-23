@@ -40,9 +40,12 @@ public partial class MainWindow
 ♫  Музыка¦♫  Music¦♫  Музика¦♫  Musik¦♫  Música
 ✧  Чат¦✧  Chat¦✧  Чат¦✧  Chat¦✧  Chat
 ▤  Раскладка¦▤  Layout¦▤  Компонування¦▤  Layout¦▤  Diseño
-▦  Раскладка¦▦  Layout¦▦  Компонування¦▦  Layout¦▦  Diseño
-◈  Своя тема¦◈  Custom theme¦◈  Власна тема¦◈  Eigenes Thema¦◈  Tema propio
-✓  Диагностика¦✓  Diagnostics¦✓  Діагностика¦✓  Diagnose¦✓  Diagnóstico
+Раскладка¦Layout¦Компонування¦Layout¦Diseño
+Вкладки¦Tabs¦Вкладки¦Tabs¦Pestañas
+Вкладки островка¦Island tabs¦Вкладки острівця¦Insel-Tabs¦Pestañas de la isla
+Восстановить вкладки¦Reset tabs¦Відновити вкладки¦Tabs zurücksetzen¦Restablecer pestañas
+Своя тема¦Custom theme¦Власна тема¦Eigenes Thema¦Tema propio
+Диагностика¦Diagnostics¦Діагностика¦Diagnose¦Diagnóstico
 ↓  Обновления¦↓  Updates¦↓  Оновлення¦↓  Updates¦↓  Actualizaciones
 ↗  Что нового¦↗  What's new¦↗  Що нового¦↗  Neuigkeiten¦↗  Novedades
 Не удалось выполнить действие. Подробности — в диагностике.¦Action failed. See diagnostics for details.¦Не вдалося виконати дію. Докладніше в діагностиці.¦Aktion fehlgeschlagen. Details unter Diagnose.¦La acción falló. Consulta el diagnóstico.
@@ -152,12 +155,21 @@ FPS измеряется по событиям отправки кадров а�
 Удалить ключ¦Delete key¦Видалити ключ¦Schlüssel löschen¦Eliminar clave
 Модель Live API¦Live API model¦Модель Live API¦Live-API-Modell¦Modelo Live API
 Голос¦Voice¦Голос¦Stimme¦Voz
+Добавить голос¦Add a voice¦Додати голос¦Stimme hinzufügen¦Añadir una voz
+Сохранить голос¦Save voice¦Зберегти голос¦Stimme speichern¦Guardar voz
+Удалить свой голос¦Delete custom voice¦Видалити свій голос¦Eigene Stimme löschen¦Eliminar voz personalizada
+Название голоса в островке¦Voice label in the island¦Назва голосу в острівці¦Anzeigename der Stimme¦Nombre de la voz en la isla
+Имя голоса в Gemini¦Gemini voice name¦Ім’я голосу в Gemini¦Gemini-Stimmenname¦Nombre de voz en Gemini
+Манера речи (необязательно)¦Speaking style (optional)¦Манера мовлення (необов’язково)¦Sprechstil (optional)¦Estilo de voz (opcional)
+Укажите название и имя голоса из Gemini Live.¦Enter a label and a Gemini Live voice name.¦Укажіть назву й ім’я голосу з Gemini Live.¦Anzeigenamen und Gemini-Live-Stimme eingeben.¦Introduce un nombre y una voz de Gemini Live.
+Голос с таким названием уже добавлен.¦A voice with that label already exists.¦Голос із такою назвою вже додано.¦Eine Stimme mit diesem Anzeigenamen ist bereits vorhanden.¦Ya existe una voz con ese nombre.
+Выбранный голос применяется при следующем сеансе.¦The selected voice takes effect in the next session.¦Вибраний голос застосовується в наступному сеансі.¦Die gewählte Stimme gilt ab der nächsten Sitzung.¦La voz seleccionada se aplica en la próxima sesión.
 Громкость голоса¦Voice volume¦Гучність голосу¦Sprachlautstärke¦Volumen de voz
 Микрофон включён¦Microphone on¦Мікрофон увімкнено¦Mikrofon an¦Micrófono activado
 Микрофон выключен¦Microphone off¦Мікрофон вимкнено¦Mikrofon aus¦Micrófono desactivado
 ● Голос¦● Voice¦● Голос¦● Stimme¦● Voz
 ■ Остановить голос¦■ Stop voice¦■ Зупинити голос¦■ Stimme stoppen¦■ Detener voz
-Не удалось начать разговор. Проверьте ключ, модель, сеть и разрешение микрофона.¦Could not start voice. Check key, model, network and microphone permission.¦Не вдалося почати розмову. Перевірте ключ, модель, мережу й дозвіл мікрофона.¦Sprachstart fehlgeschlagen. Schlüssel, Modell, Netzwerk und Mikrofonberechtigung prüfen.¦No se pudo iniciar la voz. Comprueba clave, modelo, red y permiso del micrófono.
+Не удалось начать разговор. Проверьте ключ, модель, голос, сеть и разрешение микрофона.¦Could not start the session. Check the key, model, voice, network and microphone permission.¦Не вдалося почати розмову. Перевірте ключ, модель, голос, мережу й дозвіл мікрофона.¦Sprachstart fehlgeschlagen. Schlüssel, Modell, Stimme, Netzwerk und Mikrofonberechtigung prüfen.¦No se pudo iniciar la sesión. Comprueba la clave, el modelo, la voz, la red y el permiso del micrófono.
 Сообщение во время голосового сеанса¦Message during voice session¦Повідомлення під час голосового сеансу¦Nachricht während Sprachsitzung¦Mensaje durante la sesión de voz
 Отправить в сеанс¦Send to session¦Надіслати в сеанс¦An Sitzung senden¦Enviar a la sesión
 Уведомления¦Notifications¦Сповіщення¦Benachrichtigungen¦Notificaciones
@@ -194,8 +206,6 @@ FPS измеряется по событиям отправки кадров а�
 Запрошен в настройках; Windows может ограничить запуск.¦Requested in settings; Windows may restrict startup.¦Запитано в налаштуваннях; Windows може обмежувати запуск.¦In Einstellungen angefordert; Windows kann Start einschränken.¦Solicitado en ajustes; Windows puede restringir el inicio.
 Выключен.¦Disabled.¦Вимкнено.¦Deaktiviert.¦Desactivado.
 Обновления¦Updates¦Оновлення¦Updates¦Actualizaciones
-Укажите репозиторий GitHub в разделе обновлений.¦Set a GitHub repository on the Updates page.¦Укажіть репозиторій GitHub у розділі оновлень.¦GitHub-Repository unter Updates angeben.¦Indica un repositorio GitHub en Actualizaciones.
-Источник задан. Доступность новой версии проверяется в разделе обновлений.¦Source set. Check for a new version on the Updates page.¦Джерело задано. Перевірте нову версію в розділі оновлень.¦Quelle gesetzt. Neue Version unter Updates prüfen.¦Origen configurado. Busca nuevas versiones en Actualizaciones.
 Календарь¦Calendar¦Календар¦Kalender¦Calendario
 Импортируйте файл .ics на странице календаря.¦Import an .ics file on the Calendar page.¦Імпортуйте .ics на сторінці календаря.¦.ics-Datei auf der Kalenderseite importieren.¦Importa un archivo .ics en Calendario.
 Яркость¦Brightness¦Яскравість¦Helligkeit¦Brillo
@@ -216,12 +226,12 @@ FPS измеряется по событиям отправки кадров а�
 Версия приложения¦App version¦Версія програми¦App-Version¦Versión de la aplicación
 Обновления через GitHub¦Updates from GitHub¦Оновлення через GitHub¦Updates über GitHub¦Actualizaciones de GitHub
 Обновления OC - Dynamic Island загружаются из GitHub. Дополнительные программы не нужны. Проверяются контрольная сумма и подпись установщика ocdynamicisland.exe.¦Updates download from GitHub without extra software. The ocdynamicisland.exe checksum and signature are verified.¦Оновлення з GitHub без додаткових програм. Перевіряються контрольна сума й підпис ocdynamicisland.exe.¦Updates von GitHub ohne Zusatzsoftware. Prüfsumme und Signatur von ocdynamicisland.exe werden geprüft.¦Actualizaciones desde GitHub sin programas adicionales. Se verifica la suma y firma de ocdynamicisland.exe.
-Репозиторий owner/repository¦Repository owner/repository¦Репозиторій owner/repository¦Repository owner/repository¦Repositorio owner/repository
+Релизы на GitHub¦GitHub releases¦Релізи на GitHub¦GitHub-Releases¦Versiones en GitHub
 Проверить¦Check¦Перевірити¦Prüfen¦Comprobar
 Проверяю опубликованные релизы…¦Checking published releases…¦Перевіряю опубліковані релізи…¦Veröffentlichte Versionen werden geprüft…¦Buscando versiones publicadas…
 Доступна версия¦Version available¦Доступна версія¦Version verfügbar¦Versión disponible
 Установлена актуальная версия.¦You are up to date.¦Встановлено актуальну версію.¦Aktuelle Version installiert.¦Tienes la última versión.
-Не удалось проверить релиз. Проверьте адрес публичного репозитория и интернет.¦Could not check release. Check public repository address and internet.¦Не вдалося перевірити реліз. Перевірте адресу репозиторію й інтернет.¦Versionsprüfung fehlgeschlagen. Repository-Adresse und Internet prüfen.¦No se pudo comprobar la versión. Revisa el repositorio público e internet.
+Не удалось проверить релиз. Проверьте подключение к интернету.¦Could not check for a release. Check the internet connection.¦Не вдалося перевірити реліз. Перевірте з’єднання з інтернетом.¦Versionsprüfung fehlgeschlagen. Internetverbindung prüfen.¦No se pudo comprobar la versión. Comprueba la conexión a internet.
 Что нового¦What's new¦Що нового¦Neuigkeiten¦Novedades
 Открыть релиз¦Open release¦Відкрити реліз¦Version öffnen¦Abrir versión
 Загрузить и проверить¦Download and verify¦Завантажити й перевірити¦Herunterladen und prüfen¦Descargar y verificar
@@ -302,6 +312,10 @@ Discord · Голос¦Discord · Voice¦Discord · Голос¦Discord · Sprac
 Повторить поиск¦Search again¦Повторити пошук¦Erneut suchen¦Buscar de nuevo
 Количество строк текста¦Lyric lines¦Кількість рядків тексту¦Anzahl der Liedtextzeilen¦Líneas de la letra
 Аудиосессия плеера недоступна¦Player audio session unavailable¦Аудіосеанс програвача недоступний¦Audiositzung des Players nicht verfügbar¦Sesión de audio del reproductor no disponible
+Выход звука плеера¦Player audio output¦Аудіовихід програвача¦Audioausgabe des Players¦Salida de audio del reproductor
+Выход выбран. Если звук не переключился, возобновите воспроизведение.¦Output selected. If the sound did not switch, resume playback.¦Вихід вибрано. Якщо звук не перемкнувся, відновіть відтворення.¦Ausgabe gewählt. Setze die Wiedergabe fort, falls der Ton nicht gewechselt hat.¦Salida seleccionada. Si el sonido no cambió, reanuda la reproducción.
+Не удалось переключить выход плеера.¦Could not switch the player output.¦Не вдалося перемкнути вихід програвача.¦Die Ausgabe des Players konnte nicht gewechselt werden.¦No se pudo cambiar la salida del reproductor.
+Запоминать последнюю вкладку¦Remember the last tab¦Запам’ятовувати останню вкладку¦Letzten Tab merken¦Recordar la última pestaña
 Перемотка трека¦Seek within track¦Перемотування треку¦Im Titel springen¦Cambiar la posición de la pista
 Доступность перемотки зависит от плеера¦Seeking depends on the player¦Перемотування залежить від програвача¦Die Verfügbarkeit hängt vom Player ab¦La búsqueda depende del reproductor
 Плеер не выполнил перемотку.¦The player could not seek.¦Програвач не виконав перемотування.¦Der Player konnte die Position nicht ändern.¦El reproductor no pudo cambiar la posición.
@@ -329,7 +343,6 @@ Gemini отклонил запрос. Проверьте ключ, модель 
 Москва¦Moscow¦Москва¦Moskau¦Moscú
 Санкт-Петербург¦Saint Petersburg¦Санкт-Петербург¦Sankt Petersburg¦San Petersburgo
 Казань¦Kazan¦Казань¦Kasan¦Kazán
-Укажите owner/repository или ссылку https://github.com/owner/repository.¦Enter owner/repository or a GitHub repository URL.¦Укажіть owner/repository або посилання на GitHub.¦owner/repository oder GitHub-Repository-URL angeben.¦Introduce owner/repository o la URL del repositorio GitHub.
 Ответ сервера слишком большой.¦Server response too large.¦Відповідь сервера завелика.¦Serverantwort zu groß.¦Respuesta del servidor demasiado grande.
 Версия релиза должна иметь вид v1.2.3.¦Release version must look like v1.2.3.¦Версія релізу має виглядати як v1.2.3.¦Versionsformat muss v1.2.3 sein.¦La versión debe tener el formato v1.2.3.
 Релиз не опубликован.¦Release is not published.¦Реліз не опубліковано.¦Version nicht veröffentlicht.¦La versión no está publicada.
@@ -436,6 +449,62 @@ Discord остался на прежнем выходе. Выберите «По
 Не удалось сохранить заметку.¦Could not save the note.¦Не вдалося зберегти нотатку.¦Notiz konnte nicht gespeichert werden.¦No se pudo guardar la nota.
 Пока пусто — напишите заметку выше¦No notes yet. Write one above.¦Нотаток ще немає. Напишіть вище.¦Noch keine Notizen. Oben eine schreiben.¦Aún no hay notas. Escribe una arriba.
 Редактировать¦Edit¦Редагувати¦Bearbeiten¦Editar
+Новая заметка¦New note¦Нова нотатка¦Neue Notiz¦Nueva nota
+Редактирование заметки¦Edit note¦Редагування нотатки¦Notiz bearbeiten¦Editar nota
+Тематика (необязательно)¦Topic (optional)¦Тематика (необов’язково)¦Thema (optional)¦Tema (opcional)
+Тематика заметок¦Note topic¦Тематика нотаток¦Notizthema¦Tema de las notas
+Все тематики¦All topics¦Усі тематики¦Alle Themen¦Todos los temas
+Без тематики¦Uncategorized¦Без тематики¦Ohne Thema¦Sin tema
+Сохранить изменения¦Save changes¦Зберегти зміни¦Änderungen speichern¦Guardar cambios
+Эквалайзер¦Equalizer¦Еквалайзер¦Equalizer¦Ecualizador
+Включить эквалайзер¦Enable equalizer¦Увімкнути еквалайзер¦Equalizer einschalten¦Activar ecualizador
+Ровный звук¦Flat¦Рівний звук¦Neutral¦Plano
+Больше баса¦Bass boost¦Більше басу¦Mehr Bass¦Refuerzo de graves
+Чёткий голос¦Clear voice¦Чіткий голос¦Klare Stimmen¦Voz clara
+Больше высоких¦Treble boost¦Більше високих¦Mehr Höhen¦Refuerzo de agudos
+Своя настройка¦Custom¦Власне налаштування¦Benutzerdefiniert¦Personalizado
+Профиль эквалайзера¦Equalizer preset¦Профіль еквалайзера¦Equalizer-Profil¦Perfil del ecualizador
+{0} Гц¦{0} Hz¦{0} Гц¦{0} Hz¦{0} Hz
+Применить эквалайзер¦Apply equalizer¦Застосувати еквалайзер¦Equalizer anwenden¦Aplicar ecualizador
+Установить Equalizer APO¦Install Equalizer APO¦Встановити Equalizer APO¦Equalizer APO installieren¦Instalar Equalizer APO
+Выходы Equalizer APO¦Equalizer APO outputs¦Виходи Equalizer APO¦Equalizer-APO-Ausgänge¦Salidas de Equalizer APO
+Установите Equalizer APO и выберите устройство воспроизведения.¦Install Equalizer APO and select a playback device.¦Встановіть Equalizer APO й виберіть пристрій відтворення.¦Equalizer APO installieren und ein Wiedergabegerät wählen.¦Instala Equalizer APO y selecciona un dispositivo de reproducción.
+Скачивание Equalizer APO…¦Downloading Equalizer APO…¦Завантаження Equalizer APO…¦Equalizer APO wird heruntergeladen…¦Descargando Equalizer APO…
+Выберите устройство воспроизведения в установщике Equalizer APO.¦Select a playback device in the Equalizer APO setup.¦Виберіть пристрій відтворення в інсталяторі Equalizer APO.¦Wiedergabegerät im Equalizer-APO-Setup wählen.¦Selecciona un dispositivo de reproducción en el instalador de Equalizer APO.
+Установка Equalizer APO не завершилась. Нажмите кнопку, чтобы повторить.¦Equalizer APO setup did not finish. Click the button to retry.¦Встановлення Equalizer APO не завершилося. Натисніть кнопку, щоб повторити.¦Equalizer-APO-Installation nicht abgeschlossen. Zum Wiederholen die Schaltfläche drücken.¦La instalación de Equalizer APO no terminó. Pulsa el botón para reintentar.
+Прокси Windows¦Windows proxy¦Проксі Windows¦Windows-Proxy¦Proxy de Windows
+Стабильность и ресурсы¦Stability and resources¦Стабільність і ресурси¦Stabilität und Ressourcen¦Estabilidad y recursos
+Замер длится около двух секунд и измеряет только процесс островка.¦The sample takes about two seconds and measures the island process.¦Вимір триває близько двох секунд і перевіряє процес острівця.¦Die Messung dauert rund zwei Sekunden und erfasst den Inselprozess.¦La muestra tarda unos dos segundos y mide el proceso de la isla.
+Запустить тесты¦Run tests¦Запустити тести¦Tests starten¦Ejecutar pruebas
+Выполняются замеры…¦Taking measurements…¦Тривають вимірювання…¦Messung läuft…¦Midiendo…
+Не удалось выполнить замеры.¦Could not complete the measurements.¦Не вдалося виконати вимірювання.¦Messung fehlgeschlagen.¦No se completaron las mediciones.
+Задержка интерфейса до {0:N0} мс · задержек от 50 мс: {1}¦UI delay up to {0:N0} ms · delays of 50 ms or more: {1}¦Затримка інтерфейсу до {0:N0} мс · затримок від 50 мс: {1}¦UI-Verzögerung bis {0:N0} ms · Verzögerungen ab 50 ms: {1}¦Demora de interfaz hasta {0:N0} ms · demoras de al menos 50 ms: {1}
+Средняя загрузка CPU · {0:N2}%¦Average CPU usage · {0:N2}%¦Середнє завантаження ЦП · {0:N2}%¦Mittlere CPU-Last · {0:N2}%¦Uso medio de CPU · {0:N2}%
+ОЗУ · {0:N1} МБ в рабочем наборе · {1:N1} МБ частной памяти¦Memory · {0:N1} MB working set · {1:N1} MB private memory¦ОЗП · {0:N1} МБ у робочому наборі · {1:N1} МБ приватної пам’яті¦RAM · {0:N1} MB Arbeitsmenge · {1:N1} MB privater Speicher¦Memoria · {0:N1} MB de conjunto de trabajo · {1:N1} MB de memoria privada
+Изменение рабочего набора с прошлого замера · {0:+0.0;-0.0;0.0} МБ¦Working set change since the previous sample · {0:+0.0;-0.0;0.0} MB¦Зміна робочого набору з попереднього виміру · {0:+0.0;-0.0;0.0} МБ¦Arbeitsmenge seit der letzten Messung · {0:+0.0;-0.0;0.0} MB¦Cambio del conjunto de trabajo desde la muestra anterior · {0:+0.0;-0.0;0.0} MB
+В версии 1.1.26¦In version 1.1.26¦У версії 1.1.26¦In Version 1.1.26¦En la versión 1.1.26
+В версии 1.1.25¦In version 1.1.25¦У версії 1.1.25¦In Version 1.1.25¦En la versión 1.1.25
+Вкладки можно скрывать, менять местами и восстанавливать. Островок может открывать последнюю вкладку.¦Hide, reorder and restore tabs. The island can reopen the last tab.¦Вкладки можна ховати, міняти місцями й відновлювати. Острівець може відкривати останню вкладку.¦Tabs lassen sich ausblenden, verschieben und wiederherstellen. Die Insel kann den letzten Tab öffnen.¦Puedes ocultar, reordenar y restaurar pestañas. La isla puede abrir la última pestaña.
+В меню настроек выровнены иконки и названия разделов.¦Settings icons and section labels are aligned.¦У меню налаштувань вирівняно іконки й назви розділів.¦Symbole und Beschriftungen im Einstellungsmenü sind ausgerichtet.¦Los iconos y los nombres del menú de ajustes están alineados.
+Заметки можно редактировать, группировать и фильтровать по тематикам.¦Edit notes, group them and filter by topic.¦Нотатки можна редагувати, групувати й фільтрувати за темами.¦Notizen bearbeiten, gruppieren und nach Thema filtern.¦Edita, agrupa y filtra notas por tema.
+Плеер отдаёт приоритет играющему источнику и поддерживает больше браузеров. На главной и в «Музыке» можно выбрать выход звука.¦The player prefers active playback and supports more browsers. Select the audio output on Home or Music.¦Плеєр надає пріоритет активному джерелу й підтримує більше браузерів. На головній і в «Музиці» можна вибрати аудіовихід.¦Der Player bevorzugt aktive Wiedergabe und unterstützt mehr Browser. Audioausgabe auf Start oder Musik wählen.¦El reproductor prioriza la reproducción activa y admite más navegadores. Elige la salida en Inicio o Música.
+Кнопки управления, громкость и перемотка скрываются без активного медиа. Доступность команд зависит от плеера.¦Playback controls, volume and seek hide without active media. Commands depend on the player.¦Кнопки відтворення, гучність і перемотування ховаються без активного медіа. Команди залежать від плеєра.¦Wiedergabetasten, Lautstärke und Spulen werden ohne aktive Medien ausgeblendet. Befehle hängen vom Player ab.¦Los controles, el volumen y la barra se ocultan sin contenido activo. Los comandos dependen del reproductor.
+Под громкостью в «Музыке» появился пятиполосный эквалайзер с пресетами и прямым скачиванием Equalizer APO.¦Music adds a five-band equalizer below volume with presets and a direct Equalizer APO download.¦Під гучністю в «Музиці» є п’ятисмуговий еквалайзер із пресетами й прямим завантаженням Equalizer APO.¦Musik hat einen Fünfband-Equalizer unter der Lautstärke mit Presets und direktem Equalizer-APO-Download.¦Música añade un ecualizador de cinco bandas con preajustes y descarga directa de Equalizer APO.
+Пункт управления показывает VPN-туннели и системный прокси Windows.¦Control Center shows VPN tunnels and the Windows system proxy.¦Пункт керування показує VPN-тунелі й системний проксі Windows.¦Das Kontrollzentrum zeigt VPN-Tunnel und den Windows-Systemproxy.¦El Centro de control muestra los túneles VPN y el proxy de Windows.
+Подключённые устройства обновляются по событиям Windows. Для совместимых устройств есть кнопка «Отключить».¦The device list updates on Windows events. Compatible devices have a Disconnect button.¦Підключені пристрої оновлюються за подіями Windows. Для сумісних пристроїв є кнопка «Від’єднати».¦Die Geräteliste reagiert auf Windows-Ereignisse. Kompatible Geräte haben eine Trennen-Schaltfläche.¦La lista se actualiza con eventos de Windows. Los dispositivos compatibles tienen un botón Desconectar.
+Виджеты обновляют сеть, батарею, музыку, погоду, календарь, буфер обмена и режим «Не беспокоить» при изменении данных.¦Network, battery, music, weather, calendar, clipboard and Do Not Disturb widgets refresh as their data changes.¦Віджети мережі, батареї, музики, погоди, календаря, буфера й режиму «Не турбувати» оновлюються після зміни даних.¦Widgets für Netzwerk, Akku, Musik, Wetter, Kalender, Zwischenablage und Nicht stören reagieren auf Datenänderungen.¦Los widgets de red, batería, música, tiempo, calendario, portapapeles y No molestar se actualizan cuando cambian sus datos.
+В чате доступны 30 голосов Gemini Live и свои пресеты с манерой речи.¦Chat offers 30 Gemini Live voices and custom speaking-style presets.¦У чаті є 30 голосів Gemini Live і власні пресети з манерою мовлення.¦Der Chat bietet 30 Gemini-Live-Stimmen und eigene Sprechstil-Presets.¦El chat ofrece 30 voces de Gemini Live y preajustes de estilo personalizados.
+Уведомления и установщики обновлений берутся из официального репозитория проекта.¦Update notifications and installers come from the official repository.¦Сповіщення й інсталятори оновлень надходять з офіційного репозиторію.¦Update-Hinweise und Installer kommen aus dem offiziellen Repository.¦Las notificaciones y los instaladores de actualizaciones vienen del repositorio oficial.
+Диагностика измеряет задержку интерфейса, загрузку CPU и расход оперативной памяти.¦Diagnostics measure UI delay, CPU load and memory use.¦Діагностика вимірює затримку інтерфейсу, завантаження ЦП й витрати ОЗП.¦Die Diagnose misst UI-Verzögerung, CPU-Last und RAM-Verbrauch.¦El diagnóstico mide la demora de la interfaz, CPU y memoria.
+Установщик получил тёмный мастер и отдельную галочку для Equalizer APO.¦Setup has a dark wizard and an optional Equalizer APO checkbox.¦Інсталятор отримав темний майстер і окремий прапорець для Equalizer APO.¦Setup hat einen dunklen Assistenten und eine Option für Equalizer APO.¦El instalador incluye un asistente oscuro y una casilla para Equalizer APO.
+История буфера обмена проверяет файлы при открытии и изменении, а в фоне удаляет записи по сроку хранения.¦Clipboard history checks files when opened or changed and expires entries in the background.¦Історія буфера перевіряє файли під час відкриття чи зміни й видаляє застарілі записи у фоновому режимі.¦Der Verlauf prüft Dateien beim Öffnen und Ändern und entfernt abgelaufene Einträge im Hintergrund.¦El historial comprueba archivos al abrirlo o cambiarlo y caduca entradas en segundo plano.
+Громкость плеера проверяется реже, а поиск фонового прогресса читает имя процесса один раз за обход.¦Player volume is sampled less often. Progress detection reads each process name once per scan.¦Гучність плеєра перевіряється рідше, а пошук прогресу читає назву процесу один раз за обхід.¦Die Player-Lautstärke wird seltener abgefragt. Die Fortschrittserkennung liest jeden Prozessnamen einmal pro Durchlauf.¦El volumen del reproductor se consulta con menos frecuencia. La detección de progreso lee cada proceso una vez por búsqueda.
+Настройки ползунков записываются после паузы в изменениях. Виджеты с событиями обновляются отдельно.¦Slider settings save after changes pause. Widgets with events update individually.¦Параметри повзунків зберігаються після паузи. Віджети з подіями оновлюються окремо.¦Reglerwerte werden nach einer kurzen Pause gespeichert. Ereignisgesteuerte Widgets werden einzeln aktualisiert.¦Los ajustes de los deslizadores se guardan tras una pausa. Los widgets por eventos se actualizan individualmente.
+Для блокировки, сна, перезагрузки и выключения добавлены цветные иконки.¦Lock, sleep, restart and shutdown have colorful icons.¦Для блокування, сну, перезавантаження й вимкнення додано кольорові іконки.¦Sperren, Energiesparmodus, Neustart und Herunterfahren haben farbige Symbole.¦Bloquear, suspender, reiniciar y apagar tienen iconos de colores.
+Эквалайзер действует на все приложения на выходах, выбранных в Equalizer APO.¦The equalizer affects all apps on the outputs selected in Equalizer APO.¦Еквалайзер діє на всі застосунки на виходах, вибраних в Equalizer APO.¦Der Equalizer wirkt auf alle Apps an den in Equalizer APO gewählten Ausgängen.¦El ecualizador afecta a todas las apps en las salidas seleccionadas en Equalizer APO.
+Не удалось записать настройки Equalizer APO.¦Could not write the Equalizer APO settings.¦Не вдалося записати налаштування Equalizer APO.¦Equalizer-APO-Einstellungen konnten nicht geschrieben werden.¦No se pudo guardar la configuración de Equalizer APO.
+Настройки переданы в Equalizer APO.¦Settings sent to Equalizer APO.¦Налаштування передано до Equalizer APO.¦Einstellungen an Equalizer APO übergeben.¦Configuración enviada a Equalizer APO.
+Эквалайзер островка выключен.¦Island equalizer is off.¦Еквалайзер острівця вимкнено.¦Der Insel-Equalizer ist aus.¦El ecualizador de la isla está desactivado.
 Сохранить заметку¦Save note¦Зберегти нотатку¦Notiz speichern¦Guardar nota
 {0} завершил ответ¦{0} finished responding¦{0} завершив відповідь¦{0} hat die Antwort abgeschlossen¦{0} terminó de responder
 Голосовой ассистент · Gemini Live¦Voice assistant · Gemini Live¦Голосовий асистент · Gemini Live¦Sprachassistent · Gemini Live¦Asistente de voz · Gemini Live
@@ -447,6 +516,10 @@ Discord остался на прежнем выходе. Выберите «По
 Не удалось прочитать настройки агента.¦Could not read the agent settings.¦Не вдалося прочитати налаштування агента.¦Agenteneinstellungen konnten nicht gelesen werden.¦No se pudo leer la configuración del agente.
 Островок покажет уведомление, когда агент завершит ответ.¦The island shows a notification when the agent finishes responding.¦Острівець покаже сповіщення, коли агент завершить відповідь.¦Die Insel meldet, wenn der Agent seine Antwort abgeschlossen hat.¦La isla avisa cuando el agente termina de responder.
 Отключить¦Disconnect¦Відключити¦Trennen¦Desconectar
+Отдельное отключение недоступно¦This device cannot be disconnected individually¦Окреме відключення недоступне¦Dieses Gerät kann nicht einzeln getrennt werden¦Este dispositivo no se puede desconectar por separado
+Отключить Bluetooth-устройство¦Disconnect Bluetooth device¦Відключити пристрій Bluetooth¦Bluetooth-Gerät trennen¦Desconectar dispositivo Bluetooth
+Безопасно извлечь USB-устройство¦Safely eject USB device¦Безпечно вилучити USB-пристрій¦USB-Gerät sicher auswerfen¦Expulsar dispositivo USB de forma segura
+Windows не удалось отключить устройство.¦Windows could not disconnect the device.¦Windows не вдалося відключити пристрій.¦Windows konnte das Gerät nicht trennen.¦Windows no pudo desconectar el dispositivo.
 Хук уведомлений записан. Проверьте его в /hooks.¦Notification hook saved. Check it with /hooks.¦Хук сповіщень збережено. Перевірте його через /hooks.¦Benachrichtigungs-Hook gespeichert. Mit /hooks prüfen.¦Hook de avisos guardado. Revísalo con /hooks.
 Хук уведомлений записан. Codex может запросить доверие через /hooks.¦Notification hook saved. Codex may ask you to trust it in /hooks.¦Хук сповіщень збережено. Codex може попросити довіру через /hooks.¦Benachrichtigungs-Hook gespeichert. Codex fordert möglicherweise Vertrauen in /hooks an.¦Hook de avisos guardado. Codex puede pedirte que confíes en él desde /hooks.
 API-ключ Gemini¦Gemini API key¦Ключ API Gemini¦Gemini-API-Schlüssel¦Clave de API de Gemini
@@ -474,6 +547,7 @@ API-ключ Gemini¦Gemini API key¦Ключ API Gemini¦Gemini-API-Schlüssel�
 Светлая¦Light¦Світла¦Hell¦Clara
 Скрыть с рабочего стола¦Hide from the desktop¦Сховати з робочого столу¦Auf dem Desktop ausblenden¦Ocultar del escritorio
 Следующий трек¦Next track¦Наступний трек¦Nächster Titel¦Pista siguiente
+Действие недоступно в этом плеере¦This player does not offer that action¦Дія недоступна в цьому плеєрі¦Diese Aktion ist in diesem Player nicht verfügbar¦Esta acción no está disponible en este reproductor
 Слива¦Plum¦Слива¦Pflaume¦Ciruela
 Старт / пауза¦Start / pause¦Старт / пауза¦Start / Pause¦Iniciar / pausar
 Тема виджетов¦Widget theme¦Тема віджетів¦Widget-Design¦Tema de los widgets

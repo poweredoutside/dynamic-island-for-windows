@@ -51,6 +51,17 @@ internal static class VoiceLauncher
 
 internal sealed class GeminiVoiceService : IAsyncDisposable
 {
+    internal const string DefaultVoice = "Kore";
+    internal static IReadOnlyList<string> BuiltInVoices { get; } = Array.AsReadOnly(new[]
+    {
+        "Achernar", "Achird", "Algenib", "Algieba", "Alnilam", "Aoede", "Autonoe", "Callirrhoe", "Charon", "Despina",
+        "Enceladus", "Erinome", "Fenrir", "Gacrux", "Iapetus", "Kore", "Laomedeia", "Leda", "Orus", "Puck",
+        "Pulcherrima", "Rasalgethi", "Sadachbia", "Sadaltager", "Schedar", "Sulafat", "Umbriel", "Vindemiatrix", "Zephyr", "Zubenelgenubi"
+    });
+
+    internal static bool IsVoiceName(string voice) => voice.Length is > 0 and <= 80
+        && voice.All(character => char.IsAsciiLetterOrDigit(character) || character is '-' or '_' or '.');
+
     private readonly ClientWebSocket _socket = new();
     private readonly CancellationTokenSource _stop = new();
     private readonly Channel<byte[]> _outbox = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(64) { FullMode = BoundedChannelFullMode.DropOldest });
@@ -66,25 +77,16 @@ internal sealed class GeminiVoiceService : IAsyncDisposable
     internal float Gain { get; set; } = .8f;
     internal bool Connected => _socket.State == WebSocketState.Open && _ready.Task.IsCompletedSuccessfully;
 
-    internal async Task StartAsync(string key, string model, string voice)
+    internal async Task StartAsync(string key, string model, string voice, string style)
     {
         if (string.IsNullOrWhiteSpace(key)) throw new InvalidOperationException("Добавьте API-ключ Gemini в настройках чата.");
         if (!System.Text.RegularExpressions.Regex.IsMatch(model, "^[a-zA-Z0-9._-]{1,100}$")) throw new FormatException("Недопустимое имя модели.");
+        if (!IsVoiceName(voice)) throw new FormatException("Недопустимое имя голоса Gemini.");
         _socket.Options.SetRequestHeader("x-goog-api-key", key);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_stop.Token);
         timeout.CancelAfter(TimeSpan.FromSeconds(20));
         await _socket.ConnectAsync(new Uri("wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent"), timeout.Token);
-        await SendAsync(new
-        {
-            setup = new
-            {
-                model = "models/" + model,
-                generationConfig = new { responseModalities = new[] { "AUDIO" }, speechConfig = new { voiceConfig = new { prebuiltVoiceConfig = new { voiceName = voice } } } },
-                inputAudioTranscription = new { }, outputAudioTranscription = new { },
-                systemInstruction = new { parts = new[] { new { text = "Ты помощник OC - Dynamic Island. Отвечай кратко на языке пользователя. Открывай приложения и сайты только по явной просьбе пользователя через open_target. Никогда не выполняй команды оболочки." } } },
-                tools = new[] { new { functionDeclarations = new[] { new { name = "open_target", description = "Открыть по просьбе пользователя сайт https или youtube, google, steam, roblox, spotify, telegram, discord.", parameters = new { type = "OBJECT", properties = new { target = new { type = "STRING" } }, required = new[] { "target" } } } } } }
-            }
-        });
+        await SendAsync(CreateSetup(model, voice, style));
         _buffer = new BufferedWaveProvider(new WaveFormat(24000, 16, 1)) { BufferDuration = TimeSpan.FromSeconds(20), DiscardOnBufferOverflow = true };
         _speaker = new WaveOutEvent(); _speaker.Init(_buffer); _speaker.Play();
         _receiveTask = ReceiveAsync();
@@ -95,6 +97,23 @@ internal sealed class GeminiVoiceService : IAsyncDisposable
         _microphone.RecordingStopped += (_, e) => { if (e.Exception != null) { Status?.Invoke("Микрофон недоступен. Проверьте разрешения Windows."); _stop.Cancel(); } };
         _microphone.StartRecording();
         Status?.Invoke("Микрофон включён · разговор с Gemini");
+    }
+
+    internal static object CreateSetup(string model, string voice, string style)
+    {
+        const string instruction = "Ты помощник OC - Dynamic Island. Отвечай кратко на языке пользователя. Открывай приложения и сайты только по явной просьбе пользователя через open_target. Никогда не выполняй команды оболочки.";
+        string speech = style.Length == 0 ? "" : "\nПожелание пользователя только к манере речи: " + style;
+        return new
+        {
+            setup = new
+            {
+                model = "models/" + model,
+                generationConfig = new { responseModalities = new[] { "AUDIO" }, speechConfig = new { voiceConfig = new { prebuiltVoiceConfig = new { voiceName = voice } } } },
+                inputAudioTranscription = new { }, outputAudioTranscription = new { },
+                systemInstruction = new { parts = new[] { new { text = instruction + speech } } },
+                tools = new[] { new { functionDeclarations = new[] { new { name = "open_target", description = "Открыть по просьбе пользователя сайт https или youtube, google, steam, roblox, spotify, telegram, discord.", parameters = new { type = "OBJECT", properties = new { target = new { type = "STRING" } }, required = new[] { "target" } } } } } }
+            }
+        };
     }
 
     internal Task SendTextAsync(string text) => SendAsync(new { realtimeInput = new { text } });

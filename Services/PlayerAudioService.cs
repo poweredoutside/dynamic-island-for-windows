@@ -12,6 +12,9 @@ namespace DynamicIslandWin.Services;
 internal static class PlayerAudioService
 {
     internal readonly record struct Snapshot(float Volume, bool Muted);
+    internal sealed record Output(string Id, string Name, bool InUse);
+    internal sealed record Outputs(IReadOnlyList<Output> Devices, string? PreferredId, bool CanRoute);
+    private sealed record OutputScan(IReadOnlyList<Output> Devices, uint ProcessId, string? DefaultId);
 
     // Windows can create several render sessions for one app, including on different outputs.
     // The active session supplies the displayed level. Writes apply to the matched app's sessions.
@@ -27,26 +30,18 @@ internal static class PlayerAudioService
             using var device = endpoint;
             try
             {
-                var sessions = device.AudioSessionManager.Sessions;
-                for (int i = 0; i < sessions.Count; i++)
+                foreach (var (session, _, isActive) in MatchingSessions(device, source, matches))
                 {
-                    using var session = sessions[i];
-                    var state = session.State;
-                    if (state == AudioSessionState.AudioSessionStateExpired || session.IsSystemSoundsSession) continue;
-                    uint pid = session.GetProcessID;
-                    if (!matches.TryGetValue(pid, out bool match)) matches[pid] = match = MatchesProcess(source, pid);
-                    if (!match) continue;
-
                     var audioVolume = session.SimpleAudioVolume;
                     if (volume.HasValue)
                     {
                         audioVolume.Volume = Math.Clamp(volume.Value, 0, 1);
                         if (volume.Value > 0 && audioVolume.Mute) audioVolume.Mute = false;
                     }
-                    if (snapshot == null || (!active && state == AudioSessionState.AudioSessionStateActive))
+                    if (snapshot == null || (!active && isActive))
                     {
                         snapshot = new Snapshot(audioVolume.Volume, audioVolume.Mute);
-                        active = state == AudioSessionState.AudioSessionStateActive;
+                        active = isActive;
                         if (active && !volume.HasValue) return snapshot;
                     }
                 }
@@ -56,7 +51,77 @@ internal static class PlayerAudioService
         return snapshot;
     }
 
-    private static bool MatchesProcess(string source, uint pid)
+    internal static Outputs ReadOutputs(string source)
+    {
+        var scan = ScanOutputs(source);
+        if (scan.ProcessId == 0 || scan.Devices.Count == 0) return new(scan.Devices, null, false);
+        using var routing = new AppAudioRouting();
+        return new(scan.Devices, routing.GetOutput(scan.ProcessId), true);
+    }
+
+    internal static string? ChangeOutput(string source, string? endpointId)
+    {
+        var scan = ScanOutputs(source);
+        if (!MatchesProcess(source, scan.ProcessId))
+            throw new InvalidOperationException("The audio session for the player ended.");
+        if (endpointId != null && !scan.Devices.Any(device => string.Equals(device.Id, endpointId, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException("The selected player output is unavailable.");
+        using var routing = new AppAudioRouting();
+        routing.SetOutput(scan.ProcessId, endpointId);
+        return endpointId ?? scan.DefaultId;
+    }
+
+    private static OutputScan ScanOutputs(string source)
+    {
+        var matches = new Dictionary<uint, bool>();
+        var outputs = new List<Output>();
+        uint activePid = 0, pausedPid = 0;
+        using var audio = new MMDeviceEnumerator();
+        foreach (var endpoint in audio.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
+        {
+            using var device = endpoint;
+            try
+            {
+                bool playingHere = false;
+                foreach (var (_, pid, active) in MatchingSessions(device, source, matches))
+                {
+                    if (pausedPid == 0) pausedPid = pid;
+                    if (!active) continue;
+                    if (activePid == 0) activePid = pid;
+                    playingHere = true;
+                    break;
+                }
+                outputs.Add(new(device.ID, device.FriendlyName, playingHere));
+            }
+            catch (COMException) { } // The endpoint may have been unplugged.
+        }
+        string? defaultId = null;
+        try
+        {
+            using var endpoint = audio.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+            defaultId = endpoint.ID;
+        }
+        catch (COMException) { }
+        return new(outputs, activePid != 0 ? activePid : pausedPid, defaultId);
+    }
+
+    private static IEnumerable<(AudioSessionControl Session, uint ProcessId, bool Active)> MatchingSessions(
+        MMDevice endpoint, string source, Dictionary<uint, bool> matches)
+    {
+        if (string.IsNullOrWhiteSpace(source)) yield break;
+        var sessions = endpoint.AudioSessionManager.Sessions;
+        for (int i = 0; i < sessions.Count; i++)
+        {
+            using var session = sessions[i];
+            var state = session.State;
+            if (state == AudioSessionState.AudioSessionStateExpired || session.IsSystemSoundsSession) continue;
+            uint pid = session.GetProcessID;
+            if (!matches.TryGetValue(pid, out bool match)) matches[pid] = match = MatchesProcess(source, pid);
+            if (match) yield return (session, pid, state == AudioSessionState.AudioSessionStateActive);
+        }
+    }
+
+    internal static bool MatchesProcess(string source, uint pid)
     {
         if (pid == 0) return false;
         try
@@ -79,24 +144,9 @@ internal static class PlayerAudioService
                     && source.Equals(executable.ToString(), StringComparison.OrdinalIgnoreCase);
             }
 
-            return MatchesDesktopPlayer(source, process.ProcessName);
+            return MediaSources.MatchesDesktopPlayer(source, process.ProcessName);
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or Win32Exception) { return false; }
-    }
-
-    internal static bool MatchesDesktopPlayer(string source, string processName)
-    {
-        var appId = source.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? source[..^4] : source;
-        if (appId.Equals(processName, StringComparison.OrdinalIgnoreCase)) return true;
-
-        return processName.ToLowerInvariant() switch
-        {
-            "chrome" => appId.StartsWith("Chrome.", StringComparison.OrdinalIgnoreCase),
-            "msedge" => appId.StartsWith("MSEdge.", StringComparison.OrdinalIgnoreCase) || appId.Equals("Microsoft.MicrosoftEdge", StringComparison.OrdinalIgnoreCase),
-            "yandexmusic" or "яндекс музыка" => appId.Equals("com.yandex.music", StringComparison.OrdinalIgnoreCase)
-                || appId.Equals("ru.yandex.desktop.music", StringComparison.OrdinalIgnoreCase),
-            _ => false
-        };
     }
 
     [DllImport("kernel32.dll", SetLastError = true)]

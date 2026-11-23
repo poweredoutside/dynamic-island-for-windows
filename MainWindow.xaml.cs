@@ -54,8 +54,6 @@ public partial class MainWindow : Window
     private double _curR = 19,  _targetR = 19,  _velR;
     private readonly Stopwatch _frameClock = Stopwatch.StartNew();
     private double _lastFrameTime;
-    private int _renderedFramesCount;
-    private int _currentMeasuredFps = 144;
 
     private readonly DispatcherTimer _telemetryTimer = new();
     private readonly DispatcherTimer _weatherRefreshTimer = new();
@@ -68,7 +66,6 @@ public partial class MainWindow : Window
     private bool _isMediaPlaying;
     private string _currentMediaTitle = "";
 
-    private string _currentMediaAppId = "";
 
     // Состояние игрового режима и звонка Discord
     private bool _isGameModeActive;
@@ -187,6 +184,10 @@ public partial class MainWindow : Window
 
         public bool ExpandOnHover { get; set; } = true;
         public bool CloseOnMouseLeave { get; set; } = true;
+        public bool RememberDashboardTab { get; set; }
+        public string LastDashboardTab { get; set; } = "home";
+        public bool MusicEqualizerEnabled { get; set; }
+        public int[] MusicEqualizerGains { get; set; } = [];
         public bool PinPosition { get; set; } = false;
         public bool ShowCapsLock { get; set; } = true;
         public bool ShowNumLock { get; set; } = true;
@@ -384,14 +385,33 @@ public partial class MainWindow : Window
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             var manager = await GlobalSystemMediaTransportControlsSessionManager.RequestAsync().AsTask(timeout.Token);
-            if (!_windowClosed) _mediaManager = manager;
+            if (_windowClosed) return;
+            DetachMediaManager();
+            _mediaManager = manager;
+            manager.SessionsChanged += MediaSessionsChanged;
+            manager.CurrentSessionChanged += MediaSessionsChanged;
+            await RefreshMediaSessionStateAsync();
         }
         catch (Exception ex) { AppLog.Error("Initialize media manager", ex); }
+    }
+
+    private void DetachMediaManager()
+    {
+        if (_mediaManager is not { } media) return;
+        _mediaManager = null;
+        _selectedMedia = null;
+        try
+        {
+            media.SessionsChanged -= MediaSessionsChanged;
+            media.CurrentSessionChanged -= MediaSessionsChanged;
+        }
+        catch (COMException ex) { AppLog.Error("Unsubscribe media manager", ex); }
     }
 
     private void Window_Closed(object? sender, EventArgs e)
     {
         _windowClosed = true;
+        DetachMediaManager();
         DisposeFeatures();
         _screenRecording?.Dispose();
         _keyboardPollTimer.Stop();
@@ -886,6 +906,7 @@ public partial class MainWindow : Window
 
     private void RenderWeatherUi()
     {
+        RefreshWidget("weather");
         if (!_hasWeatherData || string.IsNullOrWhiteSpace(_settings.WeatherCity))
         {
             CompactTempText.Text         = "--°";
@@ -1123,12 +1144,7 @@ public partial class MainWindow : Window
         };
 
         RebuildTrayMenu();
-        _trayIcon.DoubleClick += (_, _) =>
-            Dispatcher.Invoke(() =>
-            {
-                ShowIsland();
-                MorphToState(_currentState == IslandState.Compact ? IslandState.Expanded : IslandState.Compact);
-            });
+        _trayIcon.DoubleClick += (_, _) => Dispatcher.Invoke(ToggleIslandDashboard);
     }
 
     private void RebuildTrayMenu()
@@ -1136,11 +1152,7 @@ public partial class MainWindow : Window
         if (_trayIcon == null) return;
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add(Tr("Expand / Collapse", "Развернуть / Свернуть", "Розгорнути / Згорнути", "Öffnen / Schließen", "Expandir / Contraer"), null, (_, _) =>
-            Dispatcher.Invoke(() =>
-            {
-                ShowIsland();
-                MorphToState(_currentState == IslandState.Compact ? IslandState.Expanded : IslandState.Compact);
-            }));
+            Dispatcher.Invoke(ToggleIslandDashboard));
 
         menu.Items.Add(Tr("Weather Dashboard", "Окно погоды", "Вікно погоди", "Wetter-Ansicht", "Panel del clima"), null, (_, _) =>
             Dispatcher.Invoke(() => { ShowIsland(); MorphToState(IslandState.Weather); }));
@@ -1172,7 +1184,6 @@ public partial class MainWindow : Window
 
     private void OnCompositionTargetRendering(object? sender, EventArgs e)
     {
-        _renderedFramesCount++;
         double now = _frameClock.Elapsed.TotalSeconds;
         double dt = Math.Clamp(now - _lastFrameTime, 0.001, 0.033);
         _lastFrameTime = now;
@@ -1302,6 +1313,8 @@ public partial class MainWindow : Window
 
         UpdateDiscordCallState();
         ApplyScaleForCurrentState();
+        RememberDashboardTab();
+        UpdateDeviceObservation();
     }
 
     private void ApplyScaleForCurrentState()
@@ -1663,13 +1676,13 @@ public partial class MainWindow : Window
         Tile7PrecipCap.Text      = Tr("PRECIPITATION", "ОСАДКИ", "ОПАДИ", "NIEDERSCHLAG", "LLUVIA");
         Tile8HourlyCap.Text      = Tr("HOURLY", "ПО ЧАСАМ", "ПО ГОДИНАХ", "STÜNDLICH", "POR HORAS");
 
-        NavAppearanceText.Text = Tr("🎨  Appearance", "🎨  Внешний вид", "🎨  Зовнішній вигляд", "🎨  Aussehen", "🎨  Apariencia");
-        NavCharacterText.Text  = Tr("🧸  Character", "🧸  Персонаж", "🧸  Персонаж", "🧸  Charakter", "🧸  Personaje");
-        NavHomeText.Text       = Tr("🏠  Home", "🏠  Главная", "🏠  Головна", "🏠  Startseite", "🏠  Inicio");
-        NavWeatherText.Text    = Tr("🌤  Weather", "🌤  Погода", "🌤  Погода", "🌤  Wetter", "🌤  Clima");
-        NavBehaviorText.Text   = Tr("⚙  Behavior", "⚙  Поведение", "⚙  Поведінка", "⚙  Verhalten", "⚙  Conducta");
-        NavActionsText.Text    = Tr("⚡  Actions", "⚡  Действия", "⚡  Дії", "⚡  Aktionen", "⚡  Acciones");
-        NavAiText.Text         = Tr("🤖  AI Agents", "🤖  ИИ-агенты", "🤖  ШІ-агенти", "🤖  KI-Agenten", "🤖  Agentes IA");
+        NavAppearanceText.Text = Tr("Appearance", "Внешний вид", "Зовнішній вигляд", "Aussehen", "Apariencia");
+        NavCharacterText.Text  = Tr("Character", "Персонаж", "Персонаж", "Charakter", "Personaje");
+        NavHomeText.Text       = Tr("Home", "Главная", "Головна", "Startseite", "Inicio");
+        NavWeatherText.Text    = Tr("Weather", "Погода", "Погода", "Wetter", "Clima");
+        NavBehaviorText.Text   = Tr("Behavior", "Поведение", "Поведінка", "Verhalten", "Conducta");
+        NavActionsText.Text    = Tr("Actions", "Действия", "Дії", "Aktionen", "Acciones");
+        NavAiText.Text         = Tr("AI Agents", "ИИ-агенты", "ШІ-агенти", "KI-Agenten", "Agentes IA");
         BtnExitApp.Content     = Tr("Exit", "Выйти", "Вийти", "Beenden", "Salir");
 
         LblThemesCap.Text      = Tr("THEMES", "ТЕМЫ", "ТЕМИ", "THEMEN", "TEMAS");
@@ -2029,7 +2042,7 @@ public partial class MainWindow : Window
         if (drag) { RememberIslandPlacement(); SaveSettings(); }
         if (click && _currentState is IslandState.Compact or IslandState.Hover)
         {
-            MorphToState(IslandState.Expanded);
+            OpenDashboard();
             e.Handled = true;
         }
     }
@@ -2090,17 +2103,25 @@ public partial class MainWindow : Window
         StartIslandFrames();
     }
 
+    private void ToggleIslandDashboard()
+    {
+        ShowIsland();
+        if (_currentState is IslandState.Compact or IslandState.Hover) OpenDashboard();
+        else MorphToState(IslandState.Compact);
+    }
+
     private void HiddenIslandHandle_Click(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
         ShowIsland();
+        if (_settings.RememberDashboardTab) OpenDashboard();
     }
 
     private async void CtxCheckUpdates_Click(object sender, RoutedEventArgs e)
     {
         OpenSettingsFeaturePage("updates");
         e.Handled = true;
-        await CheckForUpdatesAsync(_settings.UpdateRepository, automatic: false);
+        await CheckForUpdatesAsync(automatic: false);
     }
 
     #endregion
@@ -2307,8 +2328,7 @@ public partial class MainWindow : Window
             int id = wParam.ToInt32();
             if (id == HOTKEY_CUSTOM_TOGGLE)
             {
-                ShowIsland();
-                MorphToState(_currentState == IslandState.Compact ? IslandState.Expanded : IslandState.Compact);
+                ToggleIslandDashboard();
                 handled = true;
             }
             else if (id == HOTKEY_SNIP_S) { ActionSnipRegion_Click(this, new RoutedEventArgs()); handled = true; }
@@ -2325,9 +2345,6 @@ public partial class MainWindow : Window
         ExpandedClockText.Text    = now;
         SettingsClockText.Text    = now;
 
-        _currentMeasuredFps = _renderedFramesCount;
-        _renderedFramesCount = 0;
-
         if (_isGameModeActive || SystemPageVisible || WidgetIsVisible("cpu") || WidgetIsVisible("system"))
             _lastCpuUsage = GetCpuUsage();
         else
@@ -2343,18 +2360,19 @@ public partial class MainWindow : Window
         }
         RefreshSystemOverview();
 
-        UpdateTelemetrySummaries();
-
         UpdateDiscordCallState();
         _ = RefreshDiscordCallAsync();
 
-        PruneExpiredClipboardItems();
+        if (DateTime.UtcNow >= _nextClipboardExpiry)
+            PruneExpiredClipboardItems(checkFiles: false);
 
         await RefreshMediaSessionStateAsync();
     }
 
     private DateTime _nextDndRead;
     private bool _mediaReadBusy;
+    private void MediaSessionsChanged(GlobalSystemMediaTransportControlsSessionManager sender, object args) =>
+        Dispatcher.BeginInvoke(new Action(() => _ = RefreshMediaSessionStateAsync()));
     private async Task RefreshMediaSessionStateAsync()
     {
         if (_mediaReadBusy || _windowClosed) return;
@@ -2365,76 +2383,61 @@ public partial class MainWindow : Window
 
     private async Task RefreshMediaSessionCoreAsync()
     {
-        bool activePlaying = false;
-        string trackTitle = "";
-        string trackArtist = "";
-        string sourceAppId = "";
-        string album = "";
+        bool playerVisible = PlayerControlsVisible;
+        MediaSessions.Selection? media = null;
+        if (_mediaManager is { } manager)
+        {
+            try { media = await MediaSessions.ReadAsync(manager, playerVisible || WidgetIsVisible("music")); }
+            catch (Exception ex) when (ex is COMException or InvalidOperationException) { }
+        }
+        if (_windowClosed) return;
+
+        var track = media?.Track;
+        bool playing = media?.Playback.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
         double duration = 0;
         double? position = null;
         PlayerTimeline? playerTimeline = null;
-        bool playerVisible = PlayerControlsVisible;
-
-        if (_mediaManager != null)
+        if (media != null && (playerVisible || (playing && (_settings.Karaoke || _settings.OnlineLyrics))))
         {
             try
             {
-                var session = _mediaManager.GetCurrentSession();
-                if (session != null)
+                var timeline = media.Session.GetTimelineProperties();
+                duration = (timeline.EndTime - timeline.StartTime).TotalSeconds;
+                double reported = Math.Max(0, (timeline.Position - timeline.StartTime).TotalSeconds);
+                if (timeline.LastUpdatedTime != default)
                 {
-                    var playbackInfo = session.GetPlaybackInfo();
-                    bool playing = playbackInfo?.PlaybackStatus == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing;
-                    if (playing || playerVisible || WidgetIsVisible("music"))
-                    {
-                        var props = await session.TryGetMediaPropertiesAsync();
-                        if (props != null && !string.IsNullOrWhiteSpace(props.Title))
-                        {
-                            activePlaying = playing;
-                            trackTitle = props.Title.Trim();
-                            trackArtist = props.Artist?.Trim() ?? "";
-                            album = props.AlbumTitle ?? "";
-                            sourceAppId = session.SourceAppUserModelId ?? "";
-                            if (playerVisible || (playing && (_settings.Karaoke || _settings.OnlineLyrics)))
-                            {
-                                var timeline = session.GetTimelineProperties();
-                                duration = (timeline.EndTime - timeline.StartTime).TotalSeconds;
-                                double reported = Math.Max(0, (timeline.Position - timeline.StartTime).TotalSeconds);
-                                if (timeline.LastUpdatedTime != default)
-                                {
-                                    double elapsed = playing ? Math.Max(0, (DateTimeOffset.UtcNow - timeline.LastUpdatedTime).TotalSeconds) : 0;
-                                    elapsed *= playbackInfo?.PlaybackRate ?? 1;
-                                    position = duration > 0 ? Math.Min(duration, reported + elapsed)
-                                        : elapsed <= 600 ? reported + elapsed : reported;
-                                }
-                                if (playerVisible && duration > 0)
-                                {
-                                    bool canSeek = playbackInfo?.Controls?.IsPlaybackPositionEnabled == true
-                                        && TryGetSeekBounds(timeline, out _, out _);
-                                    playerTimeline = new(Math.Clamp(position ?? reported, 0, duration), duration, canSeek);
-                                }
-                            }
-                        }
-                    }
+                    double elapsed = playing ? Math.Max(0, (DateTimeOffset.UtcNow - timeline.LastUpdatedTime).TotalSeconds) : 0;
+                    double rate = media.Playback.PlaybackRate ?? 1;
+                    if (double.IsFinite(rate)) elapsed *= rate;
+                    position = duration > 0 ? Math.Min(duration, reported + elapsed) : elapsed <= 600 ? reported + elapsed : reported;
+                }
+                if (playerVisible && duration > 0)
+                {
+                    bool canSeek = media.Playback.Controls?.IsPlaybackPositionEnabled == true && TryGetSeekBounds(timeline, out _, out _);
+                    playerTimeline = new(Math.Clamp(position ?? reported, 0, duration), duration, canSeek);
                 }
             }
-            catch { }
+            catch (Exception ex) when (ex is COMException or InvalidOperationException or OverflowException) { }
         }
 
-        if (_windowClosed) return;
-        _widgetTrack = trackTitle;
-        _widgetArtist = trackArtist;
-        var track = trackTitle.Length > 0 ? new LyricsService.Track(trackTitle, trackArtist, sourceAppId) : null;
-        if (activePlaying && track != null) UpdateLyricsTrack(track, position, album, duration);
+        _selectedMedia = media;
+        bool trackChanged = _widgetTrack != (track?.Title ?? "") || _widgetArtist != (track?.Artist ?? "");
+        _widgetTrack = track?.Title ?? "";
+        _widgetArtist = track?.Artist ?? "";
+        if (trackChanged) RefreshWidget("music");
+        if (playing && media != null) UpdateLyricsTrack(media.Track, position, media.Album, duration);
         UpdateHomePlayerTimeline(track, playerTimeline);
-        ApplyMediaState(activePlaying, trackTitle, trackArtist, sourceAppId);
-        await RefreshHomePlayerVolumeAsync(PlayerControlsVisible && sourceAppId.Length > 0 ? sourceAppId : null);
+        ApplyMediaState(playing, _widgetTrack, _widgetArtist, track?.Source ?? "");
+        if (PlayerControlsVisible) RefreshPlayerTransportControls();
+        await RefreshHomePlayerVolumeAsync(PlayerControlsVisible && track is { Source.Length: > 0 } ? track.Source : null);
     }
 
     private void ApplyMediaState(bool activePlaying, string trackTitle, string trackArtist, string sourceAppId)
     {
+        _hasPlayerMedia = trackTitle.Length > 0;
+        UpdatePlayerControlVisibility();
         _isMediaPlaying = activePlaying;
         _currentMediaTitle = activePlaying ? trackTitle : "";
-        _currentMediaAppId = activePlaying ? sourceAppId : "";
         if (!activePlaying) _lyricsPosition = null;
         RefreshLyricsStatus();
         UpdateCompactContent();
@@ -2444,7 +2447,9 @@ public partial class MainWindow : Window
             : Geometry.Parse("M8,5.14V19.14L19,12.14L8,5.14Z");
         UpdateMusicPlayPause();
 
-        HomeMusicTrack.Cursor = _isMediaPlaying ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.Arrow;
+        HomeMusicTrack.Cursor = _hasPlayerMedia ? System.Windows.Input.Cursors.Hand : System.Windows.Input.Cursors.Arrow;
+
+        if (string.IsNullOrWhiteSpace(trackArtist)) trackArtist = MediaSources.BrowserName(sourceAppId) ?? "";
 
         if (_isMediaPlaying)
         {
@@ -2479,10 +2484,10 @@ public partial class MainWindow : Window
 
     private void HomeMusicWidget_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (!_isMediaPlaying) return;
+        if (_playerTrack is not { Source.Length: > 0 } track) return;
         e.Handled = true;
 
-        IntPtr playerHwnd = FindActiveMediaPlayerWindow();
+        IntPtr playerHwnd = FindActiveMediaPlayerWindow(track);
         if (playerHwnd != IntPtr.Zero)
         {
             if (IsIconic(playerHwnd))
@@ -2492,78 +2497,44 @@ public partial class MainWindow : Window
         }
     }
 
-    private IntPtr FindActiveMediaPlayerWindow()
+    private static IntPtr FindActiveMediaPlayerWindow(LyricsService.Track track)
     {
-        string appIdLower = (_currentMediaAppId ?? "").ToLowerInvariant();
-        string titleLower = (_currentMediaTitle ?? "").ToLowerInvariant();
-
-        string[] knownPlayers =
-        [
-            "spotify", "yandexmusic", "яндекс музыка", "aimp", "vlc",
-            "foobar2000", "itunes", "music.ui", "chrome", "msedge",
-            "browser", "opera", "firefox", "brave", "vivaldi"
-        ];
-
+        IntPtr appWindow = IntPtr.Zero;
+        var processes = Process.GetProcesses();
         try
         {
-            var processes = Process.GetProcesses();
-
-            // 1. Сначала ищем окно по совпадению названия трека в заголовке или по имени процесса из SourceAppUserModelId
             foreach (var p in processes)
             {
-                if (p.MainWindowHandle == IntPtr.Zero) continue;
-
-                string procName = p.ProcessName.ToLowerInvariant();
-                string winTitle = p.MainWindowTitle.ToLowerInvariant();
-
-                if (!string.IsNullOrEmpty(titleLower) && winTitle.Contains(titleLower))
-                    return p.MainWindowHandle;
-
-                if (!string.IsNullOrEmpty(appIdLower) &&
-                    (appIdLower.Contains(procName) || procName.Contains(appIdLower.Replace(".exe", ""))))
+                try
                 {
-                    return p.MainWindowHandle;
+                    IntPtr window = p.MainWindowHandle;
+                    if (window == IntPtr.Zero || !PlayerAudioService.MatchesProcess(track.Source, (uint)p.Id)) continue;
+                    if (p.MainWindowTitle.Contains(track.Title, StringComparison.OrdinalIgnoreCase)) return window;
+                    if (appWindow == IntPtr.Zero) appWindow = window;
                 }
-            }
-
-            // 2. Запасной поиск среди запущенных популярных плееров и браузеров
-            foreach (var p in processes)
-            {
-                if (p.MainWindowHandle == IntPtr.Zero) continue;
-                string procName = p.ProcessName.ToLowerInvariant();
-                if (knownPlayers.Any(k => procName.Contains(k)))
-                    return p.MainWindowHandle;
+                catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { }
             }
         }
-        catch { }
-
-        return IntPtr.Zero;
+        finally { foreach (var p in processes) p.Dispose(); }
+        return appWindow;
     }
 
     private async void PlayPause_Click(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        var s = _mediaManager?.GetCurrentSession();
-        if (s != null)
-        {
-            await s.TryTogglePlayPauseAsync();
-            await Task.Delay(120);
-            await RefreshMediaSessionStateAsync();
-        }
+        await RunPlayerActionAsync(PlayerAction.PlayPause);
     }
 
     private async void NextTrack_Click(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        var s = _mediaManager?.GetCurrentSession();
-        if (s != null) await s.TrySkipNextAsync();
+        await RunPlayerActionAsync(PlayerAction.Next);
     }
 
     private async void PrevTrack_Click(object sender, RoutedEventArgs e)
     {
         e.Handled = true;
-        var s = _mediaManager?.GetCurrentSession();
-        if (s != null) await s.TrySkipPreviousAsync();
+        await RunPlayerActionAsync(PlayerAction.Previous);
     }
 
     private void HomeFilter_Changed(object sender, RoutedEventArgs e)
@@ -2753,6 +2724,7 @@ public partial class MainWindow : Window
 
     private void SaveSettings()
     {
+        _settingsSaveTimer?.Stop();
         if (_isLoadingSettings) return;
 
         try
@@ -2841,6 +2813,7 @@ public partial class MainWindow : Window
 
         TglExpandOnHover.IsChecked    = _settings.ExpandOnHover;
         TglCloseOnLeave.IsChecked     = _settings.CloseOnMouseLeave;
+        TglRememberDashboardTab.IsChecked = _settings.RememberDashboardTab;
         RefreshIslandPlacementControls();
         ApplyIslandPlacementStyle();
         TglShowCapsLock.IsChecked     = _settings.ShowCapsLock;

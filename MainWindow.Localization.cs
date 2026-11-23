@@ -81,6 +81,7 @@ public partial class MainWindow
         LblExternalProgressSub.Text = L("Отдельная капсула, не закрывающая часы и погоду");
         LblClipboardWatch.Text = L("Текст и скриншоты в буфере обмена");
         ClipboardEmptyStateText.Text = ClipboardEmptyHint;
+        RefreshDesktopWidgets();
         UpdateLensGlassStatus();
         System.Windows.Automation.AutomationProperties.SetName(VolumeHudSlider, L("Громкость"));
         LocalizeHomePlayer();

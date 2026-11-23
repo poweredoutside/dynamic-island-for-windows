@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>1.1.25</Version>
+    <Version>1.1.26</Version>
     <Title>OC - Dynamic Island</Title>
     <Product>OC - Dynamic Island</Product>
     <Description>OC - Dynamic Island для Windows</Description>
@@ -19,6 +19,7 @@
     <Resource Include="Shaders\LiquidGlass.ps" />
     <Compile Remove="tests\**;installer\**;broker\**" />
     <EmbeddedResource Remove="tests\**;installer\**;broker\**" />
+    <Page Remove="installer\**" />
   </ItemGroup>
 
   <ItemGroup>

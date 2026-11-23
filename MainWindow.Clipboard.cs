@@ -22,6 +22,7 @@ public partial class MainWindow
     private const long ClipboardImageLimit = 16 * 1024 * 1024;
     private const long ClipboardHistoryImageLimit = 64 * 1024 * 1024;
     private int _clipboardCaptureVersion;
+    private DateTime _nextClipboardExpiry = DateTime.MaxValue;
     private string ClipboardImageDirectory => System.IO.Path.Combine(System.IO.Path.GetDirectoryName(_clipboardHistoryPath)!, "clipboard-images");
     private string ClipboardEmptyHint => Tr("Copy text or a screenshot to see it here", "Скопируйте текст или скриншот, и он появится здесь", "Скопіюйте текст або знімок екрана", "Text oder Screenshot kopieren", "Copia texto o una captura para verla aquí");
     private string ScreenshotLabel => Tr("Screenshot", "Скриншот", "Знімок екрана", "Screenshot", "Captura de pantalla");
@@ -60,13 +61,14 @@ public partial class MainWindow
         catch { }
     }
 
-    private void PruneExpiredClipboardItems(bool saveIfChanged = true)
+    private void PruneExpiredClipboardItems(bool saveIfChanged = true, bool checkFiles = true)
     {
+        DateTime cutoff = DateTime.UtcNow.AddHours(-24);
         int before = _clipboardHistory.Count;
-        _clipboardHistory.RemoveAll(i => i.CopiedAt < DateTime.Now.AddHours(-24));
+        _clipboardHistory.RemoveAll(item => item.CopiedAt.ToUniversalTime() <= cutoff);
         if (_clipboardHistory.Count > 100) _clipboardHistory.RemoveRange(100, _clipboardHistory.Count - 100);
         long bytes = 0;
-        _clipboardHistory.RemoveAll(item =>
+        if (checkFiles) _clipboardHistory.RemoveAll(item =>
         {
             if (item.ImageFile == null) return false;
             try
@@ -78,6 +80,8 @@ public partial class MainWindow
             }
             catch { return true; }
         });
+        _nextClipboardExpiry = _clipboardHistory.Count == 0 ? DateTime.MaxValue
+            : _clipboardHistory.Min(item => item.CopiedAt.ToUniversalTime()).AddHours(24);
         if (before == _clipboardHistory.Count) return;
         if (saveIfChanged) SaveClipboardHistory();
         RenderClipboardHistoryUi();
@@ -175,6 +179,7 @@ public partial class MainWindow
 
     private void RenderClipboardHistoryUi()
     {
+        RefreshWidget("clipboard");
         if (LblClipboardHeader == null || HomeClipboardPreview == null) return;
         string title = Tr("Clipboard", "Буфер обмена", "Буфер обміну", "Zwischenablage", "Portapapeles");
         LblClipboardHeader.Text = _clipboardHistory.Count > 0 ? $"{title} ({_clipboardHistory.Count})" : title;
@@ -210,6 +215,7 @@ public partial class MainWindow
     private void BtnClearClipboardHistory_Click(object sender, RoutedEventArgs e)
     {
         e.Handled = true; ++_clipboardCaptureVersion; _clipboardHistory.Clear(); _lastClipboardHash = "";
+        _nextClipboardExpiry = DateTime.MaxValue;
         SaveClipboardHistory(); RenderClipboardHistoryUi();
     }
 }

@@ -68,7 +68,7 @@ public partial class MainWindow
         LoadNotes();
         _settings.DesktopWidgets = (_settings.DesktopWidgets ?? []).Where(p => p != null && WidgetTypes.Any(t => t.Key == p.Kind))
             .DistinctBy(p => p.Kind).ToList();
-        _desktopWidgetsTimer.Tick += (_, _) => RefreshDesktopWidgets();
+        _desktopWidgetsTimer.Tick += (_, _) => RefreshDesktopWidgets(includeEventWidgets: false);
         SyncDesktopWidgets();
     }
 
@@ -320,7 +320,13 @@ public partial class MainWindow
         Activate();
     }
 
-    private void RefreshDesktopWidgets()
+    private void RefreshWidget(string kind)
+    {
+        if (WidgetIsVisible(kind) && _widgetWindows.TryGetValue(kind, out var widget))
+            RenderWidget(kind, widget, DateTimeOffset.Now);
+    }
+
+    private void RefreshDesktopWidgets(bool includeEventWidgets = true)
     {
         if (_settings.WidgetsHidden || _widgetWindows.Count == 0)
         {
@@ -334,14 +340,15 @@ public partial class MainWindow
             if (!WidgetIsVisible(key) || key is "calculator" or "quick") continue;
             TimeSpan? interval = key switch
             {
-                "volume" or "notes" => null,
+                "volume" or "notes" or "music" or "weather" or "focus" or "clipboard" => null,
                 "stopwatch" when !_widgetStopwatch.Running => null,
                 "clock" or "world" => TimeSpan.FromMilliseconds(60000 - now.Second * 1000 - now.Millisecond),
                 "disk" or "month" => TimeSpan.FromSeconds(30),
-                "battery" or "weather" or "calendar" or "uptime" => TimeSpan.FromSeconds(10),
+                "battery" or "calendar" or "uptime" => TimeSpan.FromSeconds(10),
                 "network" => TimeSpan.FromSeconds(2),
                 _ => TimeSpan.FromSeconds(1)
             };
+            if (!interval.HasValue && !includeEventWidgets) continue;
             if (interval.HasValue && _nextWidgetReading.TryGetValue(key, out var next) && now < next)
             {
                 Schedule(next);
@@ -353,32 +360,7 @@ public partial class MainWindow
                 _nextWidgetReading[key] = due;
                 Schedule(due);
             }
-            string value = key switch
-            {
-                "clock" => now.ToString("HH:mm\nddd, dd MMM"),
-                "weather" => _hasWeatherData ? $"{FormatTempShort(_lastTempC)}\n{_resolvedCityName}" : L("Погода недоступна"),
-                "music" => _widgetTrack.Length == 0 ? L("Нет активного трека") : $"{_widgetTrack}\n{_widgetArtist}",
-                "calendar" => _meetings.FirstOrDefault(m => m.End >= now) is { } meeting ? $"{meeting.Start.ToLocalTime():ddd HH:mm}\n{meeting.Title}" : now.ToString("dddd\ndd MMMM"),
-                "reminders" => _settings.Timers.Where(t => t.Due > now).MinBy(t => t.Due) is { } timer ? $"{timer.Due.ToLocalTime():ddd HH:mm}\n{timer.Label}" : L("Нет напоминаний"),
-                "notes" => _notes.Count > 0 ? _notes[0].Text : L("Нет заметок"),
-                "timer" => _dashboardTimer.Display,
-                "focus" => L(!_dndStateKnown ? "Состояние недоступно" : _isDndActive ? "Включено" : "Выключено"),
-                "system" => $"{L("Процессор")}  {UsageDisplay(_lastCpuUsage)}\n{L("Память")}  {MemoryDisplay(SystemOverview.Memory())}",
-                "cpu" => UsageDisplay(_lastCpuUsage),
-                "gpu" => UsageDisplay(_lastGpuUsage),
-                "ram" => MemoryDisplay(SystemOverview.Memory()),
-                "disk" => SystemDriveDisplay(),
-                "battery" => BatteryDisplay(),
-                "clipboard" => string.Format(L("Элементов в истории: {0}"), _clipboardHistory.Count),
-                "month" => WidgetMonth(now.LocalDateTime),
-                "world" => WidgetWorldTime(now),
-                "stopwatch" => _widgetStopwatch.Display,
-                "volume" => _widgetVolume is { } volume ? volume.Muted ? L("Звук выключен") : $"{volume.Volume:P0}" : "—",
-                "network" => WidgetNetworkStatus(),
-                "uptime" => WidgetUptime(),
-                _ => ""
-            };
-            if (widget.Body.Text != value) widget.Body.Text = value;
+            RenderWidget(key, widget, now);
         }
         if (WidgetIsVisible("network") && DateTime.UtcNow >= _nextConnectivityRead) _ = RefreshConnectivityAsync();
         if (nextTick is { } tick)
@@ -392,6 +374,36 @@ public partial class MainWindow
         {
             if (!nextTick.HasValue || due < nextTick.Value) nextTick = due;
         }
+    }
+
+    private void RenderWidget(string key, WidgetWindow widget, DateTimeOffset now)
+    {
+        string value = key switch
+        {
+            "clock" => now.ToString("HH:mm\nddd, dd MMM"),
+            "weather" => _hasWeatherData ? $"{FormatTempShort(_lastTempC)}\n{_resolvedCityName}" : L("Погода недоступна"),
+            "music" => _widgetTrack.Length == 0 ? L("Нет активного трека") : $"{_widgetTrack}\n{_widgetArtist}",
+            "calendar" => _meetings.FirstOrDefault(m => m.End >= now) is { } meeting ? $"{meeting.Start.ToLocalTime():ddd HH:mm}\n{meeting.Title}" : now.ToString("dddd\ndd MMMM"),
+            "reminders" => _settings.Timers.Where(t => t.Due > now).MinBy(t => t.Due) is { } timer ? $"{timer.Due.ToLocalTime():ddd HH:mm}\n{timer.Label}" : L("Нет напоминаний"),
+            "notes" => _notes.Count > 0 ? _notes[0].Text : L("Нет заметок"),
+            "timer" => _dashboardTimer.Display,
+            "focus" => L(!_dndStateKnown ? "Состояние недоступно" : _isDndActive ? "Включено" : "Выключено"),
+            "system" => $"{L("Процессор")}  {UsageDisplay(_lastCpuUsage)}\n{L("Память")}  {MemoryDisplay(SystemOverview.Memory())}",
+            "cpu" => UsageDisplay(_lastCpuUsage),
+            "gpu" => UsageDisplay(_lastGpuUsage),
+            "ram" => MemoryDisplay(SystemOverview.Memory()),
+            "disk" => SystemDriveDisplay(),
+            "battery" => BatteryDisplay(),
+            "clipboard" => string.Format(L("Элементов в истории: {0}"), _clipboardHistory.Count),
+            "month" => WidgetMonth(now.LocalDateTime),
+            "world" => WidgetWorldTime(now),
+            "stopwatch" => _widgetStopwatch.Display,
+            "volume" => _widgetVolume is { } volume ? volume.Muted ? L("Звук выключен") : $"{volume.Volume:P0}" : "—",
+            "network" => WidgetNetworkStatus(),
+            "uptime" => WidgetUptime(),
+            _ => ""
+        };
+        if (widget.Body.Text != value) widget.Body.Text = value;
     }
 
     private static LinearGradientBrush WidgetBackground(string value)

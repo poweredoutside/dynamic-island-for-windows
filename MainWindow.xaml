@@ -17,6 +17,7 @@
     <Window.Resources>
         <ResourceDictionary>
         <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="ThemeResources.xaml"/><ResourceDictionary Source="IslandControls.xaml"/></ResourceDictionary.MergedDictionaries>
+        <StreamGeometry x:Key="PlayerOutputGlyph">M2,9 V8 A6,6 0 0 1 14,8 V9 M2,9 H5 V14 H3 Q2,14 2,13 Z M14,9 H11 V14 H13 Q14,14 14,13 Z</StreamGeometry>
         <Style TargetType="Slider">
             <Setter Property="IsMoveToPointEnabled" Value="True"/>
             <Setter Property="Height" Value="24"/>
@@ -200,12 +201,21 @@
             <Setter Property="Foreground" Value="{DynamicResource ThemeSecondaryBrush}"/>
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Margin" Value="0,0,0,3"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Margin" Value="0,0,0,2"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="14" Padding="12,8">
-                            <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                        <Border Background="{TemplateBinding Background}" CornerRadius="14" Padding="10,0,8,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="24"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="{TemplateBinding Tag}" FontFamily="Segoe MDL2 Assets" FontSize="13"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                                <ContentPresenter Grid.Column="1" Margin="4,0,0,0" VerticalAlignment="Center"/>
+                            </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -495,7 +505,7 @@
                                     </StackPanel>
                                 </Grid>
 
-                                <Grid Grid.Row="1" Margin="0,5,0,3">
+                                <Grid x:Name="HomePlayerTimelineRow" Grid.Row="1" Margin="0,5,0,3" Visibility="Collapsed">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto"/>
                                         <ColumnDefinition Width="*"/>
@@ -510,16 +520,20 @@
                                                HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="{DynamicResource ThemeSecondaryBrush}"/>
                                 </Grid>
 
-                                <DockPanel Grid.Row="2" LastChildFill="True">
+                                <DockPanel x:Name="HomePlayerControlsRow" Grid.Row="2" LastChildFill="True" Visibility="Collapsed">
                                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="10,0,0,0">
-                                        <Button Style="{StaticResource GlassPillBtn}" Padding="11,6" Margin="0,0,6,0" Click="PrevTrack_Click">
+                                        <Button x:Name="HomePlayerPrevious" Style="{StaticResource GlassPillBtn}" Padding="11,6" Margin="0,0,6,0" Click="PrevTrack_Click">
                                             <Path Data="M6,6H8V18H6M9.5,12L18,18V6" Fill="{DynamicResource ThemeTextBrush}" Width="12" Height="12" Stretch="Uniform"/>
                                         </Button>
-                                        <Button Style="{StaticResource GlassPillBtn}" Background="{DynamicResource ThemeAccentBrush}" Padding="15,6" Margin="0,0,6,0" Click="PlayPause_Click">
+                                        <Button x:Name="HomePlayerPlayPause" Style="{StaticResource GlassPillBtn}" Background="{DynamicResource ThemeAccentBrush}" Padding="15,6" Margin="0,0,6,0" Click="PlayPause_Click">
                                             <Path x:Name="PlayPauseVectorIcon" Data="M8,5.14V19.14L19,12.14L8,5.14Z" Fill="{DynamicResource ThemeOnAccentBrush}" Width="12" Height="12" Stretch="Uniform"/>
                                         </Button>
-                                        <Button Style="{StaticResource GlassPillBtn}" Padding="11,6" Click="NextTrack_Click">
+                                        <Button x:Name="HomePlayerNext" Style="{StaticResource GlassPillBtn}" Padding="11,6" Margin="0,0,6,0" Click="NextTrack_Click">
                                             <Path Data="M16,18H18V6H16M6,18L14.5,12L6,6V18Z" Fill="{DynamicResource ThemeTextBrush}" Width="12" Height="12" Stretch="Uniform"/>
+                                        </Button>
+                                        <Button x:Name="HomePlayerOutputButton" Style="{StaticResource GlassPillBtn}" Padding="10,5" Click="PlayerOutput_Click">
+                                            <Path Data="{StaticResource PlayerOutputGlyph}" Width="14" Height="14" Stretch="Uniform"
+                                                  StrokeThickness="1.2" StrokeLineJoin="Round" Stroke="{DynamicResource ThemeTextBrush}"/>
                                         </Button>
                                     </StackPanel>
                                     <Grid VerticalAlignment="Center">
@@ -859,38 +873,41 @@
                             </Grid.RowDefinitions>
                             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                             <StackPanel VerticalAlignment="Top">
-                                <Button x:Name="NavAppearanceBtn" Style="{StaticResource SidebarNavBtn}" Click="NavAppearance_Click">
-                                    <TextBlock x:Name="NavAppearanceText" Text="🎨  Appearance"/>
+                                <Button x:Name="NavAppearanceBtn" Style="{StaticResource SidebarNavBtn}" Click="NavAppearance_Click" Tag="&#xE790;">
+                                    <TextBlock x:Name="NavAppearanceText" Text="Appearance" TextTrimming="CharacterEllipsis"/>
                                 </Button>
-                                <Button x:Name="NavCharacterBtn" Style="{StaticResource SidebarNavBtn}" Click="NavCharacter_Click">
-                                    <TextBlock x:Name="NavCharacterText" Text="🧸  Character"/>
+                                <Button x:Name="NavCharacterBtn" Style="{StaticResource SidebarNavBtn}" Click="NavCharacter_Click" Tag="&#xE8FA;">
+                                    <TextBlock x:Name="NavCharacterText" Text="Character" TextTrimming="CharacterEllipsis"/>
                                 </Button>
-                                <Button x:Name="NavHomeBtn" Style="{StaticResource SidebarNavBtn}" Click="NavHome_Click">
-                                    <TextBlock x:Name="NavHomeText" Text="🏠  Home"/>
+                                <Button x:Name="NavHomeBtn" Style="{StaticResource SidebarNavBtn}" Click="NavHome_Click" Tag="&#xE80F;">
+                                    <TextBlock x:Name="NavHomeText" Text="Home" TextTrimming="CharacterEllipsis"/>
                                 </Button>
-                                <Button x:Name="NavWeatherBtn" Style="{StaticResource SidebarNavBtn}" Click="NavWeather_Click">
-                                    <TextBlock x:Name="NavWeatherText" Text="🌤  Weather"/>
+                                <Button x:Name="NavWeatherBtn" Style="{StaticResource SidebarNavBtn}" Click="NavWeather_Click" Tag="&#xE706;">
+                                    <TextBlock x:Name="NavWeatherText" Text="Weather" TextTrimming="CharacterEllipsis"/>
                                 </Button>
-                                <Button x:Name="NavBehaviorBtn" Style="{StaticResource SidebarNavBtn}" Click="NavBehavior_Click">
-                                    <TextBlock x:Name="NavBehaviorText" Text="⚙  Behavior"/>
+                                <Button x:Name="NavBehaviorBtn" Style="{StaticResource SidebarNavBtn}" Click="NavBehavior_Click" Tag="&#xE713;">
+                                    <TextBlock x:Name="NavBehaviorText" Text="Behavior" TextTrimming="CharacterEllipsis"/>
                                 </Button>
-                                <Button x:Name="NavActionsBtn" Style="{StaticResource SidebarNavBtn}" Click="NavActions_Click">
-                                    <TextBlock x:Name="NavActionsText" Text="⚡  Actions"/>
+                                <Button x:Name="NavActionsBtn" Style="{StaticResource SidebarNavBtn}" Click="NavActions_Click" Tag="&#xE945;">
+                                    <TextBlock x:Name="NavActionsText" Text="Actions" TextTrimming="CharacterEllipsis"/>
                                 </Button>
-                                <Button x:Name="NavAiBtn" Style="{StaticResource SidebarNavBtn}" Click="NavAi_Click">
-                                    <TextBlock x:Name="NavAiText" Text="🤖  AI Agents"/>
+                                <Button x:Name="NavAiBtn" Style="{StaticResource SidebarNavBtn}" Click="NavAi_Click" Tag="&#xE99A;">
+                                    <TextBlock x:Name="NavAiText" Text="AI Agents" TextTrimming="CharacterEllipsis"/>
                                 </Button>
-                                <Button x:Name="BtnSettingsLayout" Style="{StaticResource SidebarNavBtn}" Click="OpenLayout_Click">
-                                    <TextBlock x:Name="SettingsLayoutText" Text="▦  Раскладка"/>
+                                <Button x:Name="BtnSettingsLayout" Style="{StaticResource SidebarNavBtn}" Click="OpenLayout_Click" Tag="&#xE8A9;">
+                                    <TextBlock x:Name="SettingsLayoutText" Text="Раскладка" TextTrimming="CharacterEllipsis"/>
                                 </Button>
-                                <Button x:Name="BtnSettingsThemes" Style="{StaticResource SidebarNavBtn}" Click="OpenThemes_Click">
-                                    <TextBlock x:Name="SettingsThemesText" Text="◈  Своя тема"/>
+                                <Button x:Name="BtnSettingsTabs" Style="{StaticResource SidebarNavBtn}" Click="OpenTabs_Click" Tag="&#xE8A5;">
+                                    <TextBlock x:Name="SettingsTabsText" Text="Вкладки" TextTrimming="CharacterEllipsis"/>
                                 </Button>
-                                <Button x:Name="BtnSettingsUpdates" Style="{StaticResource SidebarNavBtn}" Click="OpenUpdates_Click">
-                                    <TextBlock x:Name="SettingsUpdatesText" Text="↓  Обновления"/>
+                                <Button x:Name="BtnSettingsThemes" Style="{StaticResource SidebarNavBtn}" Click="OpenThemes_Click" Tag="&#xE771;">
+                                    <TextBlock x:Name="SettingsThemesText" Text="Своя тема" TextTrimming="CharacterEllipsis"/>
                                 </Button>
-                                <Button x:Name="BtnSettingsDiagnostics" Style="{StaticResource SidebarNavBtn}" Click="OpenDiagnostics_Click">
-                                    <TextBlock x:Name="SettingsDiagnosticsText" Text="✓  Диагностика"/>
+                                <Button x:Name="BtnSettingsUpdates" Style="{StaticResource SidebarNavBtn}" Click="OpenUpdates_Click" Tag="&#xE896;">
+                                    <TextBlock x:Name="SettingsUpdatesText" Text="Обновления" TextTrimming="CharacterEllipsis"/>
+                                </Button>
+                                <Button x:Name="BtnSettingsDiagnostics" Style="{StaticResource SidebarNavBtn}" Click="OpenDiagnostics_Click" Tag="&#xE9D9;">
+                                    <TextBlock x:Name="SettingsDiagnosticsText" Text="Диагностика" TextTrimming="CharacterEllipsis"/>
                                 </Button>
                             </StackPanel>
                             </ScrollViewer>
@@ -1101,6 +1118,16 @@
                                                     <TextBlock x:Name="LblCloseOnLeaveSub" Text="Автоматически сворачивать остров, когда курсор уходит в сторону" Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11" TextWrapping="Wrap"/>
                                                 </StackPanel>
                                                 <CheckBox x:Name="TglCloseOnLeave" Style="{StaticResource IslandSwitch}" IsChecked="True" HorizontalAlignment="Right" VerticalAlignment="Center" Click="SaveSettings_Click"/>
+                                            </Grid>
+
+                                            <Grid Margin="0,0,0,12">
+                                                <TextBlock x:Name="LblRememberDashboardTab" Text="Запоминать последнюю вкладку"
+                                                           Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" VerticalAlignment="Center"
+                                                           Margin="0,0,60,0" TextWrapping="Wrap"/>
+                                                <CheckBox x:Name="TglRememberDashboardTab" Style="{StaticResource IslandSwitch}"
+                                                          HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                          AutomationProperties.LabeledBy="{Binding ElementName=LblRememberDashboardTab}"
+                                                          Click="TglRememberDashboardTab_Click"/>
                                             </Grid>
 
                                             <Grid Margin="0,0,0,12">

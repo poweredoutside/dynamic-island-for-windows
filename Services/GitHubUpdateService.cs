@@ -9,7 +9,8 @@ namespace DynamicIslandWin.Services;
 
 internal static class GitHubUpdateService
 {
-    internal const string DefaultRepository = "poweredoutside/dynamic-island-for-windows";
+    internal const string RepositoryName = "poweredoutside/dynamic-island-for-windows";
+    internal static readonly Uri ReleasesPage = new("https://github.com/" + RepositoryName + "/releases");
     internal const string InstallerFileName = "ocdynamicisland.exe";
     internal static Version CurrentVersion => typeof(GitHubUpdateService).Assembly.GetName().Version ?? new Version(0, 0, 0, 0);
     internal static bool IsNewerVersion(Version available, Version installed)
@@ -24,17 +25,8 @@ internal static class GitHubUpdateService
         var client = new HttpClient { Timeout = TimeSpan.FromMinutes(5) };
         client.DefaultRequestHeaders.UserAgent.ParseAdd("DynamicIslandWin/" + CurrentVersion.ToString(3)); return client;
     }
-    internal static string Repository(string value)
+    internal static Release Parse(string json)
     {
-        value = value.Trim().TrimEnd('/');
-        if (value.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase)) value = value[19..];
-        if (!Regex.IsMatch(value, @"^[a-zA-Z0-9][a-zA-Z0-9-]{0,38}/[a-zA-Z0-9_.-]{1,100}$", RegexOptions.CultureInvariant))
-            throw new FormatException("Укажите owner/repository или ссылку https://github.com/owner/repository.");
-        return value;
-    }
-    internal static Release Parse(string repository, string json)
-    {
-        string repo = Repository(repository);
         if (json.Length > 2_000_000) throw new FormatException("Ответ сервера слишком большой.");
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
@@ -48,23 +40,24 @@ internal static class GitHubUpdateService
         var hashes = assets.FirstOrDefault(a => a.Name.Equals("SHA256SUMS.txt", StringComparison.OrdinalIgnoreCase));
         if (string.IsNullOrEmpty(installer.Name)) throw new FormatException("В релизе нет установщика ocdynamicisland.exe.");
         if (string.IsNullOrEmpty(hashes.Name)) throw new FormatException("В релизе нет SHA256SUMS.txt. Обновление отклонено.");
-        string prefix = "https://github.com/" + repo + "/releases/download/";
-        Uri Asset(string url)
+        string assetPath = $"/{RepositoryName}/releases/download/{Uri.EscapeDataString(tag)}/";
+        Uri Asset((string Name, string Url) asset)
         {
-            if (!url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Host != "github.com" || !string.IsNullOrEmpty(uri.UserInfo))
+            if (!Uri.TryCreate(asset.Url, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps || uri.Host != "github.com"
+                || !uri.IsDefaultPort || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0
+                || !uri.AbsolutePath.Equals(assetPath + Uri.EscapeDataString(asset.Name), StringComparison.OrdinalIgnoreCase))
                 throw new FormatException("Файл обновления должен находиться в том же репозитории GitHub.");
             return uri;
         }
         return new(version, root.TryGetProperty("name", out var name) ? name.GetString() ?? tag : tag,
-            new Uri("https://github.com/" + repo + "/releases"), Asset(installer.Url), installer.Name, Asset(hashes.Url));
+            new Uri(ReleasesPage + "/tag/" + Uri.EscapeDataString(tag)), Asset(installer), installer.Name, Asset(hashes));
     }
-    internal static async Task<Release> CheckAsync(string repository, CancellationToken cancellation)
+    internal static async Task<Release> CheckAsync(CancellationToken cancellation)
     {
-        string repo = Repository(repository);
-        using var response = await Http.GetAsync("https://api.github.com/repos/" + repo + "/releases/latest", cancellation);
+        using var response = await Http.GetAsync("https://api.github.com/repos/" + RepositoryName + "/releases/latest", cancellation);
         response.EnsureSuccessStatusCode();
         if (response.Content.Headers.ContentLength > 2_000_000) throw new FormatException("Ответ GitHub слишком большой.");
-        return Parse(repo, await response.Content.ReadAsStringAsync(cancellation));
+        return Parse(await response.Content.ReadAsStringAsync(cancellation));
     }
     internal static string Digest(string sums, string name)
     {

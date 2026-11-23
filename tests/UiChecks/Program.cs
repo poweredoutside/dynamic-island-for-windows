@@ -60,6 +60,19 @@ internal static class Program
         Check(outputMenu.Items[1] is MenuItem { Header: "Test headphones", IsChecked: true }
             && outputMenu.Items[2] is MenuItem { Header: "Test speakers", IsChecked: false, InputGestureText: "In use" },
             "Discord audio menu distinguishes the selected output from the output in use");
+        var playerAudioType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.PlayerAudioService")!;
+        var playerDeviceType = playerAudioType.GetNestedType("Output", BindingFlags.NonPublic)!;
+        var playerDevices = Array.CreateInstance(playerDeviceType, 2);
+        playerDevices.SetValue(Activator.CreateInstance(playerDeviceType, "headset", "Test headphones", false), 0);
+        playerDevices.SetValue(Activator.CreateInstance(playerDeviceType, "speakers", "Test speakers", true), 1);
+        var playerOutputs = Activator.CreateInstance(playerAudioType.GetNestedType("Outputs", BindingFlags.NonPublic)!, playerDevices, "headset", true);
+        Call("FillPlayerOutputMenu", outputMenu, "player", playerOutputs);
+        Check(outputMenu.Items[0] is MenuItem { IsEnabled: true, IsChecked: false } defaultOutput
+            && Equals(defaultOutput.Header, Translate("Выход Windows по умолчанию"))
+            && outputMenu.Items[1] is MenuItem { Header: "Test headphones", IsChecked: true }
+            && outputMenu.Items[2] is MenuItem { Header: "Test speakers", IsChecked: false } inUseOutput
+            && inUseOutput.InputGestureText == Translate("Сейчас используется"),
+            "The player menu offers default routing and distinguishes the selected output from the output in use");
         Element<Border>("IslandBorder").Visibility = Visibility.Collapsed;
         Call("UpdateDiscordCallState");
         Check(discordCapsule.Visibility == Visibility.Collapsed, "Hiding the island also hides the Discord capsule");
@@ -110,7 +123,7 @@ internal static class Program
             && snowBefore.Zip(snowAfter).Where((_, i) => i % 3 == 0).All(pair =>
             {
                 double rise = pair.Second.StartPoint.Y - pair.First.StartPoint.Y;
-                double travel = 42 + pair.First.EndPoint.X - pair.First.StartPoint.X;
+                double travel = snowfall.ActualHeight + pair.First.EndPoint.X - pair.First.StartPoint.X;
                 double drop = rise >= 0 ? rise : rise + travel;
                 return drop >= 2.39 && drop <= 5.91;
             }), "Every snowflake moves down before wrapping back to the top");
@@ -149,7 +162,10 @@ internal static class Program
             "Player timeline displays elapsed and total time and allows one-second seek steps");
         Call("ApplyMediaState", false, "Next track", "Artist", "player");
         Check(seek.IsEnabled && Element<TextBlock>("MediaTitleText").Text == "Next track"
-            && Element<TextBlock>("HomePlayerElapsed").Text == "1:05", "Paused tracks retain the title and seek position");
+            && Element<TextBlock>("HomePlayerElapsed").Text == "1:05"
+            && Element<Grid>("HomePlayerTimelineRow").Visibility == Visibility.Visible
+            && Element<DockPanel>("HomePlayerControlsRow").Visibility == Visibility.Visible,
+            "Paused tracks retain the title, timeline, volume and transport controls");
         Call("UpdateHomePlayerTimeline", currentTrack, PlayerTimeline(119, 180, false));
         Check(!seek.IsEnabled && Element<TextBlock>("HomePlayerElapsed").Text == "1:59",
             "A read-only timeline displays time without offering seek");
@@ -197,6 +213,9 @@ internal static class Program
         Set("_isGameModeActive", false);
         Call("ApplyMediaState", false, "", "", "");
         Check(lyrics.Visibility == Visibility.Collapsed && lyrics.Text == "", "Pausing hides and clears the visible lyric");
+        Check(Element<Grid>("HomePlayerTimelineRow").Visibility == Visibility.Collapsed
+            && Element<DockPanel>("HomePlayerControlsRow").Visibility == Visibility.Collapsed,
+            "No media collapses the timeline, volume and transport controls on Home");
         settings.Karaoke = false;
         Check(track.Visibility == Visibility.Collapsed && track.Text == ""
             && Element<TextBlock>("CompactClockText").Visibility == Visibility.Visible
@@ -274,13 +293,14 @@ internal static class Program
         Check(menuItems.All(item => !Equals(item.Header, Translate("Новые возможности"))), "The old hub entry is removed");
         var updateItem = menuItems.Single(item => item.Name == "CtxCheckUpdates");
         Check(Equals(updateItem.Header, "Check for updates"), "Check for updates is localized in the island menu");
-        string savedRepo = settings.UpdateRepository;
-        settings.UpdateRepository = "?";
+        Set("_updateBusy", true); // Keep offscreen UI tests independent of GitHub.
         updateItem.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+        Set("_updateBusy", false);
+        var updatesCard = (StackPanel)((Border)Element<StackPanel>("SettingsFeatureContent").Children[0]).Child;
         Check(Field<string>("_settingsFeaturePage") == "updates" && Element<Grid>("SettingsView").Visibility == Visibility.Visible
-            && Field<string>("_updateStatus").StartsWith("Укажите owner/repository"),
-            "Context menu opens updates in Settings and runs the manual check immediately");
-        settings.UpdateRepository = savedRepo;
+            && !updatesCard.Children.OfType<TextBox>().Any()
+            && updatesCard.Children.OfType<TextBlock>().Any(label => label.Text == "poweredoutside/dynamic-island-for-windows"),
+            "Context menu opens Updates and displays the fixed GitHub repository without an edit field");
         var dashboardNavigation = Element<StackPanel>("DashboardNavigation");
         string[] dashboardKeys = ["home", "music", "weather", "chat", "timers", "clipboard", "notes", "calendar", "system", "widgets"];
         settings.TabOrder.AddRange(["layout", "themes", "updates", "diagnostics", "news"]);
@@ -313,6 +333,43 @@ internal static class Program
                 key + ": opens directly and shows the selected label");
         }
         SelectDashboardTab("home");
+        Check(System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>("{}") is { RememberDashboardTab: false },
+            "Remembering the last tab is opt-in for existing settings");
+        var rememberTab = Element<CheckBox>("TglRememberDashboardTab");
+        Check(Equals(Element<TextBlock>("LblRememberDashboardTab").Text, Translate("Запоминать последнюю вкладку")),
+            "The remember tab switch is localized");
+        SelectDashboardTab("timers");
+        Call("OpenSettingsBtn_Click", window, new RoutedEventArgs(Button.ClickEvent));
+        rememberTab.IsChecked = true;
+        rememberTab.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(settings.RememberDashboardTab && settings.LastDashboardTab == "timers", "Enabling the switch remembers the tab visited before Settings");
+        Call("ToggleIslandDashboard");
+        Call("ToggleIslandDashboard");
+        SelectDashboardTab("notes");
+        SelectDashboardTab("calendar");
+        Call("ToggleIslandDashboard");
+        Call("ToggleIslandDashboard");
+        Check(Element<ScrollViewer>("DashboardSectionView").Visibility == Visibility.Visible && Field<string>("_featurePage") == "calendar"
+            && System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>(System.Text.Json.JsonSerializer.Serialize(settings)) is
+                { RememberDashboardTab: true, LastDashboardTab: "calendar" },
+            "Reopening the island restores the last selected tab, including navigation between two section pages");
+        Call("CtxHideUp_Click", window, new RoutedEventArgs(MenuItem.ClickEvent));
+        Call("HiddenIslandHandle_Click", window, new RoutedEventArgs(Button.ClickEvent));
+        Check(Element<ScrollViewer>("DashboardSectionView").Visibility == Visibility.Visible && Field<string>("_featurePage") == "calendar",
+            "The hidden-island handle also restores the last tab");
+        foreach (var (enabled, saved) in new[] { (true, "calendar"), (true, "missing"), (false, "calendar") })
+        {
+            Call("ToggleIslandDashboard");
+            settings.RememberDashboardTab = enabled;
+            settings.LastDashboardTab = saved;
+            if (enabled && saved == "calendar") settings.HiddenTabs.Add(saved);
+            Call("ToggleIslandDashboard");
+            Check(Element<FrameworkElement>("ExpandedView").Visibility == Visibility.Visible,
+                "Opening falls back to Home for a hidden or unknown tab, or when remembering is disabled");
+            settings.HiddenTabs.Clear();
+        }
+        settings.LastDashboardTab = "home";
+        rememberTab.IsChecked = false;
         var dashboardHeader = Element<Grid>("DashboardHeader");
         var dashboardFps = Element<TextBlock>("DashboardFpsText");
         dashboardFps.Visibility = Visibility.Visible;
@@ -339,6 +396,7 @@ internal static class Program
         var movedPages = new[]
         {
             (Button: "BtnSettingsLayout", Page: "layout", Title: "Размер и форма"),
+            (Button: "BtnSettingsTabs", Page: "tabs", Title: "Вкладки островка"),
             (Button: "BtnSettingsThemes", Page: "themes", Title: "Ваша палитра"),
             (Button: "BtnSettingsDiagnostics", Page: "diagnostics", Title: "Проверка системы"),
             (Button: "BtnSettingsUpdates", Page: "updates", Title: "Обновления через GitHub")
@@ -472,6 +530,25 @@ internal static class Program
             var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
             using var file = System.IO.File.Create(System.IO.Path.Combine(output, name + ".png")); png.Save(file);
         }
+        settings.TabOrder = ["system", "calendar", .. settings.TabOrder.Where(key => key != "system" && key != "calendar")];
+        Element<Button>("BtnSettingsTabs").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var tabsCard = (StackPanel)((Border)settingsContent.Children[0]).Child;
+        var tabVisibilities = tabsCard.Children.OfType<ListBox>().Single().Items.OfType<ListBoxItem>()
+            .Select(item => (CheckBox)item.Content).ToArray();
+        Check(Equals(tabVisibilities[0].Tag, "system") && Equals(tabVisibilities[1].Tag, "calendar")
+            && tabsCard.Children.OfType<CheckBox>().Single() is { IsChecked: true, IsEnabled: false },
+            "Tab settings honor the saved order and keep Home available");
+        tabVisibilities[1].IsChecked = false;
+        tabVisibilities[1].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(settings.HiddenTabs.Contains("calendar") && dashboardNavigation.Children.OfType<Button>().All(button => !Equals(button.Tag, "calendar")),
+            "Hiding Calendar immediately removes it from dashboard navigation");
+        var tabsScroll = Element<ScrollViewer>("SettingsFeatureScroll");
+        tabsScroll.BeginAnimation(UIElement.OpacityProperty, null);
+        tabsScroll.Opacity = 1;
+        Snapshot("settings-tabs", "SettingsView");
+        tabsCard.Children.OfType<Button>().Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(settings.HiddenTabs.Count == 0 && dashboardNavigation.Children.OfType<Button>().Select(button => (string)button.Tag).SequenceEqual(dashboardKeys),
+            "Resetting tabs restores the original order and visibility");
         foreach (string key in new[] { "Midnight", "Snow" })
         {
             var theme = themes.Single(t => t.Key == key);
@@ -490,9 +567,11 @@ internal static class Program
             Call("UpdateHomePlayerVolume", Activator.CreateInstance(playerVolumeSnapshot, .58f, false));
             Snapshot(key + "-home-player", "ExpandedView", height: 278, width: 720);
             var volume = Element<Slider>("HomePlayerVolume");
+            var outputButton = Element<Button>("HomePlayerOutputButton");
             var seekTrack = (System.Windows.Controls.Primitives.Track)seek.Template.FindName("PART_Track", seek);
             Check(seekTrack.ActualWidth > 100 && seekTrack.Thumb.ActualWidth > 0 && volume.ActualWidth > 70
-                && volume.IsEnabled && volume.Value == 58 && seek.Value == 65 && ((string)volume.ToolTip).StartsWith("Player volume"),
+                && volume.IsEnabled && volume.Value == 58 && seek.Value == 65 && ((string)volume.ToolTip).StartsWith("Player volume")
+                && outputButton.ActualWidth > 20 && Equals(outputButton.ToolTip, Translate("Выход звука плеера")),
                 key + ": home player controls fit and reflect player audio state");
             Call("UpdateHomePlayerVolume", new object?[] { null });
             Check(!volume.IsEnabled && volume.Value == 0, "Missing player audio session disables the volume control");
@@ -617,13 +696,14 @@ internal static class Program
                 language + ": dashboard navigation is localized");
             Call("BuildCharactersGrid");
             Check((string)Call("GetLocalizedCharacterName", "Puppy")! == Translate("Щенок"), language + ": added character names translated");
-            Check(Element<TextBlock>("SettingsLayoutText").Text == Translate("▦  Раскладка")
-                && Element<TextBlock>("SettingsThemesText").Text == Translate("◈  Своя тема")
-                && Element<TextBlock>("SettingsUpdatesText").Text == Translate("↓  Обновления")
-                && Element<TextBlock>("SettingsDiagnosticsText").Text == Translate("✓  Диагностика"), language + ": Settings navigation is localized");
+            Check(Element<TextBlock>("SettingsLayoutText").Text == Translate("Раскладка")
+                && Element<TextBlock>("SettingsTabsText").Text == Translate("Вкладки")
+                && Element<TextBlock>("SettingsThemesText").Text == Translate("Своя тема")
+                && Element<TextBlock>("SettingsUpdatesText").Text == Translate("Обновления")
+                && Element<TextBlock>("SettingsDiagnosticsText").Text == Translate("Диагностика"), language + ": Settings navigation is localized");
             foreach (var (page, host) in new (string, StackPanel)[]
             {
-                ("BuildLayoutPage", settingsContent), ("BuildUserThemesPage", settingsContent), ("BuildUpdatesPage", settingsContent),
+                ("BuildLayoutPage", settingsContent), ("BuildTabsPage", settingsContent), ("BuildUserThemesPage", settingsContent), ("BuildUpdatesPage", settingsContent),
                 ("BuildTimersPage", Element<StackPanel>("DashboardSectionContent")), ("BuildMusicPage", Element<StackPanel>("DashboardSectionContent")),
                 ("BuildCalendarPage", Element<StackPanel>("DashboardSectionContent")), ("BuildNotesPage", Element<StackPanel>("DashboardSectionContent")),
                 ("BuildWidgetsPage", Element<StackPanel>("DashboardSectionContent")),
@@ -701,29 +781,103 @@ internal static class Program
         SelectDashboardTab("home");
         Check(historyRows.Children.Count == 0, "Leaving clipboard history releases its preview rows");
         var dashboardContent = Element<StackPanel>("DashboardSectionContent");
-        foreach (var (page, height, count) in new[] { ("timers", 350, 2), ("calendar", 490, 3), ("notes", 235, 4), ("system", 555, 6), ("widgets", 555, 3) })
+        foreach (var (page, height, count) in new[] { ("timers", 350, 2), ("calendar", 490, 3), ("notes", 525, 3), ("system", 555, 6), ("widgets", 555, 3) })
         {
             SelectDashboardTab(page);
             Check(dashboardContent.Children.Count >= count, page + ": renders its top-level controls");
             Snapshot("1.1.23-" + page, "DashboardSectionView", height: height);
         }
+        var notesFixture = System.IO.Directory.CreateTempSubdirectory("island-notes-");
+        string originalSettingsPath = Field<string>("_settingsPath");
+        object originalNotes = Field<object>("_notes");
+        string notesPath = System.IO.Path.Combine(notesFixture.FullName, "notes.json");
+        try
+        {
+            Set("_settingsPath", System.IO.Path.Combine(notesFixture.FullName, "settings.json"));
+            Guid legacyId = Guid.NewGuid();
+            System.IO.File.WriteAllText(notesPath, System.Text.Json.JsonSerializer.Serialize(new[]
+            {
+                new { Id = legacyId, Text = "Legacy note", Updated = DateTimeOffset.Now },
+                new { Id = Guid.NewGuid(), Text = "Second note", Updated = DateTimeOffset.Now.AddMinutes(-1) }
+            }));
+            Call("LoadNotes");
+            SelectDashboardTab("notes");
+            var form = (StackPanel)((Border)dashboardContent.Children[0]).Child;
+            var fields = form.Children.OfType<TextBox>().ToArray();
+            var notesFilter = (ComboBox)dashboardContent.Children[1];
+            var noteList = (StackPanel)dashboardContent.Children[2];
+            var noteButtons = form.Children.OfType<WrapPanel>().Single().Children.OfType<Button>().ToArray();
+            Check(noteList.Children.OfType<TextBlock>().Single().Text == Translate("Без тематики"), "Older notes load without a topic");
+            var legacyCard = (StackPanel)noteList.Children.OfType<Border>().First().Child;
+            legacyCard.Children.OfType<WrapPanel>().Single().Children.OfType<Button>().First().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(fields[0].Text == "Legacy note" && Equals(noteButtons[0].Content, Translate("Сохранить изменения")), "Editing fills the form and changes the save action");
+            fields[0].Text = "Edited note\nSecond line";
+            fields[1].Text = "  Work  ";
+            noteButtons[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            using var writtenNotes = System.Text.Json.JsonDocument.Parse(System.IO.File.ReadAllText(notesPath));
+            var stored = writtenNotes.RootElement[0];
+            Check(writtenNotes.RootElement.GetArrayLength() == 2 && stored.GetProperty("Id").GetGuid() == legacyId
+                && stored.GetProperty("Text").GetString() == "Edited note\nSecond line" && stored.GetProperty("Topic").GetString() == "Work",
+                "Editing preserves the note ID and writes the new text and topic to storage");
+            fields[0].Text = "Another work note";
+            fields[1].Text = "work";
+            noteButtons[0].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(noteList.Children.OfType<TextBlock>().Select(label => label.Text).SequenceEqual(new[] { "Work", Translate("Без тематики") })
+                && notesFilter.Items.Count == 3, "Topics group notes without case-sensitive duplicates and keep legacy notes visible");
+            Snapshot("notes-by-topic", "DashboardSectionView", height: 525);
+            notesFilter.SelectedIndex = 1;
+            Check(noteList.Children.OfType<Border>().Count() == 2 && noteList.Children.OfType<Border>()
+                .All(card => ((StackPanel)card.Child).Children.OfType<TextBlock>().All(label => label.Text != "Second note")),
+                "Selecting a topic shows only its notes");
+        }
+        finally
+        {
+            Set("_settingsPath", originalSettingsPath);
+            Set("_notes", originalNotes);
+            System.IO.File.Delete(notesPath);
+            notesFixture.Delete();
+        }
         var peripheralType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.ConnectedDevices+Device")!;
         var deviceFixture = Array.CreateInstance(peripheralType, 2);
-        deviceFixture.SetValue(Activator.CreateInstance(peripheralType, "Test headphones", "Наушники", true, 72, true, false), 0);
-        deviceFixture.SetValue(Activator.CreateInstance(peripheralType, "Test display", "Дисплей", false, null, null, false), 1);
+        deviceFixture.SetValue(Activator.CreateInstance(peripheralType, "Test headphones", "Наушники", true, 72, true, false, 1UL, null), 0);
+        deviceFixture.SetValue(Activator.CreateInstance(peripheralType, "Test display", "Дисплей", false, null, null, false, null, null), 1);
         Set("_connectedDevices", deviceFixture);
         SelectDashboardTab("system");
         var systemCards = dashboardContent.Children.OfType<Border>().ToArray();
         Check(CardTitle(systemCards[1]).Text == "Connected devices" && CardTitle(systemCards[2]).Text == Translate("Громкость приложений"),
             "Connected devices are between Control Center and the mixer");
+        var connectivityType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.WindowsConnectivity")!;
+        var statusType = connectivityType.GetNestedType("VpnStatus", BindingFlags.NonPublic)!;
+        var connectivitySnapshot = connectivityType.GetNestedType("Snapshot", BindingFlags.NonPublic)!;
+        var vpnTile = ((StackPanel)systemCards[0].Child).Children.OfType<WrapPanel>().First().Children.OfType<Button>()
+            .Single(button => System.Windows.Automation.AutomationProperties.GetName(button) == "VPN");
+        void PaintVpn(string? name, bool proxy = false)
+        {
+            var vpn = Activator.CreateInstance(statusType, true, name, proxy);
+            Set("_connectivity", Activator.CreateInstance(connectivitySnapshot, null, null, null, false, vpn));
+            Call("PaintControlTiles");
+        }
+        PaintVpn("Work VPN");
+        Check(Equals(vpnTile.ToolTip, "Work VPN") && Equals(vpnTile.Tag, "ThemeAccentBrush"), "An active tunnel lights up the VPN tile with its name");
+        PaintVpn(null);
+        Check(Equals(vpnTile.ToolTip, Translate("Не подключено")) && Equals(vpnTile.Tag, "ThemeInputBrush"), "Disconnecting clears the VPN tile");
+        PaintVpn(null, proxy: true);
+        Check(Equals(vpnTile.ToolTip, Translate("Прокси Windows")) && Equals(vpnTile.Tag, "ThemeAccentBrush"), "Windows proxy mode has its own status in Control Center");
+        Set("_connectivity", null);
         var powerControls = ((StackPanel)systemCards[0].Child).Children.OfType<WrapPanel>().Last();
         Check(powerControls.Children.Count == 4 && powerControls.Children.OfType<Button>().All(button =>
             button.Content is StackPanel content && content.Children[0] is Border { Child: TextBlock symbol } && symbol.Text.Length == 1),
             "The four power actions have individual icons");
         var deviceRows = Field<StackPanel>("_connectedDeviceRows");
-        Check(((TextBlock)((DockPanel)((Border)deviceRows.Children[0]).Child).Children[0]).Text == "72% · Charging"
-            && ((TextBlock)((DockPanel)((Border)deviceRows.Children[1]).Child).Children[0]).Text == "Battery level unavailable",
+        var headphoneRow = (DockPanel)((Border)deviceRows.Children[0]).Child;
+        var displayRow = (DockPanel)((Border)deviceRows.Children[1]).Child;
+        Check(((TextBlock)headphoneRow.Children[0]).Text == "72% · Charging"
+            && ((TextBlock)displayRow.Children[0]).Text == "Battery level unavailable",
             "Device rows distinguish reported charge and unknown battery status");
+        Check(headphoneRow.Children[1] is Button { Content: "Disconnect", IsEnabled: true } disconnectButton
+            && DockPanel.GetDock(disconnectButton) == Dock.Right && DockPanel.GetDock(headphoneRow.Children[0]) == Dock.Right
+            && displayRow.Children[1] is Button { Content: "Disconnect", IsEnabled: false },
+            "The disconnect button sits before the charge and is enabled only for a known target");
         Snapshot("system-connected-devices", "DashboardSectionView", height: 555, width: 720);
         Set("_connectedDevices", null);
 
@@ -742,7 +896,54 @@ internal static class Program
             "Music page honors the same lyric line count as the compact island");
         Snapshot("music-player-and-lyrics", "DashboardSectionView", height: 525, width: 720);
         settings.Karaoke = false; settings.LyricsLineCount = 1;
+        Call("ApplyMediaState", false, "Next track", "Artist", "player");
+        var musicTransport = Field<Panel>("_musicTransportRow");
+        Check(musicTransport.Visibility == Visibility.Visible && musicTransport.Children.OfType<Button>()
+            .Any(button => Equals(button.ToolTip, Translate("Выход звука плеера"))),
+            "Paused media keeps transport and output controls available in Music");
+        var musicPanel = Field<Panel>("_musicPlayerCard");
+        var equalizer = musicPanel.Children.OfType<Expander>().Single();
+        Check(Equals(equalizer.Header, Translate("Эквалайзер"))
+            && musicPanel.Children.IndexOf(equalizer) == musicPanel.Children.IndexOf(Field<Panel>("_musicVolumeRow")) + 1,
+            "The equalizer sits directly below the two volume controls");
+        equalizer.IsExpanded = true;
+        var equalizerPanel = (StackPanel)equalizer.Content;
+        var eqPreset = equalizerPanel.Children.OfType<ComboBox>().Single();
+        var eqSliders = equalizerPanel.Children.OfType<System.Windows.Controls.Primitives.UniformGrid>().Single().Children.OfType<StackPanel>()
+            .Select(column => column.Children.OfType<Slider>().Single()).ToArray();
+        eqPreset.SelectedIndex = 2;
+        Check(eqSliders.Select(slider => slider.Value).SequenceEqual(new double[] { 6, 3, 0, 0, 0 }), "The bass preset fills the five equalizer bands");
+        eqSliders[1].Value = -2;
+        Check(eqPreset.SelectedIndex == 0, "Adjusting an equalizer band selects the custom curve");
+        Snapshot("music-equalizer", "DashboardSectionView", height: 525, width: 720);
         Call("ApplyMediaState", false, "", "", "");
+        Check(Field<Panel>("_musicTimelineRow").Visibility == Visibility.Collapsed
+            && Field<Panel>("_musicVolumeRow").Visibility == Visibility.Collapsed
+            && Field<Panel>("_musicTransportRow").Visibility == Visibility.Collapsed,
+            "No media collapses both volume controls, the timeline and transport controls in Music");
+        SelectDashboardTab("chat");
+        var chat = (StackPanel)((Border)dashboardContent.Children[0]).Child;
+        var voices = chat.Children.OfType<ComboBox>().Single();
+        Check(voices.Items.Count == 30 && ((ComboBoxItem)voices.SelectedItem).Tag is "Kore", "Chat lists 30 built-in voices and remembers the default");
+        var addVoice = chat.Children.OfType<Expander>().Single();
+        addVoice.IsExpanded = true;
+        var voiceForm = (StackPanel)addVoice.Content;
+        var voiceInputs = voiceForm.Children.OfType<TextBox>().ToArray();
+        Check(voiceInputs[1].Text == "Kore", "The add-voice form starts with the selected Gemini voice");
+        voiceInputs[0].Text = "Narrator";
+        voiceInputs[1].Text = "achernar";
+        voiceInputs[2].Text = "Speak steadily";
+        voiceForm.Children.OfType<Button>().Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var storedPreferences = System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>(System.Text.Json.JsonSerializer.Serialize(settings))!;
+        Check(voices.Items.Count == 31 && ((ComboBoxItem)voices.SelectedItem).Content is "Narrator · Achernar"
+            && storedPreferences.GeminiVoicePresets.Single() is { Voice: "Achernar", Style: "Speak steadily" } preset
+            && storedPreferences.GeminiVoicePresetId == preset.Id,
+            "Adding a voice selects it and persists the label, name and speaking style");
+        Snapshot("chat-custom-voice", "DashboardSectionView", height: 485, width: 720);
+        chat.Children.OfType<Button>().Single(button => Equals(button.Content, Translate("Удалить свой голос")))
+            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(voices.Items.Count == 30 && settings.GeminiVoicePresetId == null && ((ComboBoxItem)voices.SelectedItem).Tag is "Kore",
+            "Removing a custom voice restores the previous built-in voice");
         Call("NavAi_Click", Element<Button>("NavAiBtn"), new RoutedEventArgs(Button.ClickEvent));
         Snapshot("1.1.23-ai-agents", "SettingsView", "PageAi");
         SelectDashboardTab("home");
@@ -820,7 +1021,7 @@ internal static class Program
             Check(thumbnail.PixelWidth == 240 && thumbnail.PixelHeight == 480, "Tall clipboard previews are bounded on both axes");
         }
         finally { System.IO.File.Delete(photoPath); }
-        history[0] = screenshot with { CopiedAt = DateTime.Now.AddHours(-25) }; Call("PruneExpiredClipboardItems", true);
+        history[0] = screenshot with { CopiedAt = DateTime.Now.AddHours(-25) }; Call("PruneExpiredClipboardItems", true, false);
         Check(history.Count == 1 && !System.IO.File.Exists(System.IO.Path.Combine(images, imageFile)), "Expired screenshot removes both entry and image file");
 
         settings.LiquidGlass = true; settings.IslandShadow = true;
@@ -842,6 +1043,24 @@ internal static class Program
         ((FrameworkElement)window.Content).UpdateLayout();
         SaveVisual((FrameworkElement)window.Content, "progress-right-capsule", 1360, 700);
         Field<DispatcherTimer>("_toastHideTimer").Stop();
+        Element<Button>("BtnSettingsDiagnostics").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var measurementFrame = new DispatcherFrame();
+        var measurementDeadline = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
+        measurementDeadline.Tick += (_, _) => measurementFrame.Continue = false;
+        Dispatcher.CurrentDispatcher.BeginInvoke(new Action(async () =>
+        {
+            await (Task)Call("RunPerformanceDiagnosticsAsync")!;
+            measurementFrame.Continue = false;
+        }));
+        measurementDeadline.Start();
+        Dispatcher.PushFrame(measurementFrame);
+        measurementDeadline.Stop();
+        var measurementLines = ((IEnumerable<string>)Call("PerformanceResultLines")!).ToArray();
+        Check(measurementLines.Length == 3 && measurementLines.All(line => line.Length > 0),
+            "The diagnostics test measures UI responsiveness, CPU and memory");
+        Element<ScrollViewer>("SettingsFeatureScroll").BeginAnimation(UIElement.OpacityProperty, null);
+        Element<ScrollViewer>("SettingsFeatureScroll").Opacity = 1;
+        Snapshot("settings-diagnostics-performance", "SettingsView");
         Console.WriteLine($"PASS: {checks} WPF checks; offscreen previews in {output}");
         // Not closing the unloaded product window avoids invoking real shutdown integrations.
         app.Shutdown();

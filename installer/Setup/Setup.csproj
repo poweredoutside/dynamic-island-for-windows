@@ -16,6 +16,9 @@
     <DebugType>none</DebugType>
     <ApplicationManifest>setup.manifest</ApplicationManifest>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\Services\EqualizerApoInstaller.cs" Link="EqualizerApoInstaller.cs" />
+  </ItemGroup>
   <ItemGroup Condition="'$(InstallerPayloadDirectory)' != ''">
     <EmbeddedResource Include="$(InstallerPayloadDirectory)\DynamicIsland.msix" LogicalName="Payload.DynamicIsland.msix" />
     <EmbeddedResource Include="$(InstallerPayloadDirectory)\DynamicIsland.cer" LogicalName="Payload.DynamicIsland.cer" />

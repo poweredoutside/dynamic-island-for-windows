@@ -38,15 +38,17 @@ public partial class MainWindow
         ["widgets"] = ("Виджеты", "M2,2 H6 V6 H2 Z M8,2 H14 V6 H8 Z M2,8 H6 V14 H2 Z M8,8 H14 V14 H8 Z")
     };
     private string? _settingsFeaturePage;
+    private string? _lastVisitedDashboardTab;
     private TextBlock FeatureText(string text, double size = 12, string color = "ThemeTextBrush")
     {
         var block = new TextBlock { Text = L(text), FontSize = size, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8) };
         block.SetResourceReference(TextBlock.ForegroundProperty, color); return block;
     }
-    private Button FeatureButton(string text, Action action)
+    private Button FeatureButton(string text, Action? action = null)
     {
         var button = new Button { Content = L(text), Style = (Style)FindResource("GlassPillBtn"), HorizontalAlignment = System.Windows.HorizontalAlignment.Left, Margin = new Thickness(0, 0, 8, 8), Padding = new Thickness(12, 8, 12, 8) };
-        button.Click += (_, e) => { e.Handled = true; try { action(); } catch (Exception ex) { AppLog.Error("Feature action", ex); FeatureNotice("Не удалось выполнить действие. Подробности — в диагностике.", () => OpenSettingsFeaturePage("diagnostics")); } };
+        if (action != null)
+            button.Click += (_, e) => { e.Handled = true; try { action(); } catch (Exception ex) { AppLog.Error("Feature action", ex); FeatureNotice("Не удалось выполнить действие. Подробности — в диагностике.", () => OpenSettingsFeaturePage("diagnostics")); } };
         return button;
     }
     private StackPanel FeatureCard(string title, string? subtitle = null, Panel? parent = null)
@@ -81,7 +83,7 @@ public partial class MainWindow
         text = L(text);
         var label = FeatureText($"{text} · {value:0.##}", 12); parent.Children.Add(label);
         var slider = new Slider { Minimum = min, Maximum = max, Value = Math.Clamp(value, min, max), TickFrequency = 1, IsSnapToTickEnabled = integer, Margin = new Thickness(0, 0, 0, 12) };
-        slider.ValueChanged += (_, _) => { label.Text = $"{text} · {slider.Value:0.##}"; changed(slider.Value); ApplyFeatureAppearance(); SaveSettings(); };
+        slider.ValueChanged += (_, _) => { label.Text = $"{text} · {slider.Value:0.##}"; changed(slider.Value); ApplyFeatureAppearance(); QueueSettingsSave(); };
         parent.Children.Add(slider);
     }
     private void FeatureChoice(Panel parent, string label, (string Key, string Label)[] options, string current, Action<string> changed)
@@ -92,6 +94,7 @@ public partial class MainWindow
         parent.Children.Add(combo);
     }
     private void OpenLayout_Click(object sender, RoutedEventArgs e) { e.Handled = true; OpenSettingsFeaturePage("layout"); }
+    private void OpenTabs_Click(object sender, RoutedEventArgs e) { e.Handled = true; OpenSettingsFeaturePage("tabs"); }
     private void OpenDiagnostics_Click(object sender, RoutedEventArgs e) { e.Handled = true; OpenSettingsFeaturePage("diagnostics"); }
     private void OpenThemes_Click(object sender, RoutedEventArgs e) { e.Handled = true; OpenSettingsFeaturePage("themes"); }
     private void OpenUpdates_Click(object sender, RoutedEventArgs e) { e.Handled = true; OpenSettingsFeaturePage("updates"); }
@@ -105,6 +108,7 @@ public partial class MainWindow
         SwitchSettingsPage(SettingsFeatureScroll, page switch
         {
             "layout" => BtnSettingsLayout,
+            "tabs" => BtnSettingsTabs,
             "themes" => BtnSettingsThemes,
             "diagnostics" => BtnSettingsDiagnostics,
             _ => BtnSettingsUpdates
@@ -118,6 +122,7 @@ public partial class MainWindow
         switch (page)
         {
             case "layout": BuildLayoutPage(); break;
+            case "tabs": BuildTabsPage(); break;
             case "themes": BuildUserThemesPage(); break;
             case "diagnostics": BuildDiagnosticsPage(); break;
             case "updates": BuildUpdatesPage(); break;
@@ -130,19 +135,60 @@ public partial class MainWindow
             BuildSettingsFeaturePage("updates");
     }
 
+    private string? CurrentDashboardTab() => _currentState switch
+    {
+        IslandState.Expanded => "home",
+        IslandState.Weather => "weather",
+        IslandState.Clipboard => "clipboard",
+        IslandState.Section when DashboardSections.ContainsKey(_featurePage) => _featurePage,
+        _ => null
+    };
+
+    private void RememberDashboardTab()
+    {
+        if (CurrentDashboardTab() is not { } tab) return;
+        _lastVisitedDashboardTab = tab;
+        if (!_settings.RememberDashboardTab || _settings.LastDashboardTab == tab) return;
+        _settings.LastDashboardTab = tab;
+        SaveSettings();
+    }
+
+    private void TglRememberDashboardTab_Click(object sender, RoutedEventArgs e)
+    {
+        _settings.RememberDashboardTab = TglRememberDashboardTab.IsChecked == true;
+        if (_settings.RememberDashboardTab && _lastVisitedDashboardTab != null)
+            _settings.LastDashboardTab = _lastVisitedDashboardTab;
+        SaveSettings();
+    }
+
+    private void OpenDashboard()
+    {
+        string tab = _settings.RememberDashboardTab
+            && _settings.LastDashboardTab is { } saved && DashboardSections.ContainsKey(saved)
+            && !_settings.HiddenTabs.Contains(saved) ? saved : "home";
+        OpenDashboardTab(tab);
+    }
+
+    private void OpenDashboardTab(string tab)
+    {
+        switch (tab)
+        {
+            case "home": MorphToState(IslandState.Expanded); break;
+            case "weather": MorphToState(IslandState.Weather); break;
+            case "clipboard": MorphToState(IslandState.Clipboard); break;
+            default:
+                if (_currentState != IslandState.Section || _featurePage != tab) OpenFeaturePage(tab);
+                break;
+        }
+    }
+
     private void BuildDashboardNavigation()
     {
-        string active = _currentState switch
-        {
-            IslandState.Weather => "weather",
-            IslandState.Clipboard => "clipboard",
-            IslandState.Section => _featurePage,
-            _ => "home"
-        };
+        string active = CurrentDashboardTab() ?? (_currentState == IslandState.Section ? _featurePage : "home");
         string? focused = DashboardNavigation.Children.OfType<Button>().FirstOrDefault(button => button.IsKeyboardFocused)?.Tag as string;
         DashboardNavigation.Children.Clear();
         var order = DashboardSectionOrder();
-        foreach (string key in order.Where(key => key == "home" || key == active || !_settings.HiddenTabs.Contains(key)))
+        foreach (string key in order.Where(key => key == "home" || !_settings.HiddenTabs.Contains(key)))
         {
             var section = DashboardSections[key];
             string label = L(section.Label);
@@ -171,15 +217,7 @@ public partial class MainWindow
             button.Click += (_, e) =>
             {
                 e.Handled = true;
-                switch (key)
-                {
-                    case "home": MorphToState(IslandState.Expanded); break;
-                    case "weather": MorphToState(IslandState.Weather); break;
-                    case "clipboard": MorphToState(IslandState.Clipboard); break;
-                    default:
-                        if (_currentState != IslandState.Section || _featurePage != key) OpenFeaturePage(key);
-                        break;
-                }
+                OpenDashboardTab(key);
             };
             DashboardNavigation.Children.Add(button);
             if (key == focused) button.Focus();
@@ -199,6 +237,7 @@ public partial class MainWindow
             _targetH = DashboardPageHeight;
             StartIslandFrames();
             BuildDashboardNavigation();
+            RememberDashboardTab();
         }
         DashboardSectionContent.Children.Clear(); DashboardSectionView.ScrollToTop();
         switch (page)
@@ -212,14 +251,14 @@ public partial class MainWindow
             case "widgets": BuildWidgetsPage(); break;
             case "welcome": BuildWelcomePage(); break;
         }
+        UpdateDeviceObservation();
     }
 
     private double DashboardPageHeight => _featurePage switch
     {
         "timers" => 350,
-        "notes" when _notes.Count == 0 => 235,
         "calendar" => 490,
-        "music" => 525,
+        "music" or "notes" => 525,
         "system" or "widgets" => 555,
         _ => 485
     };
@@ -249,17 +288,38 @@ public partial class MainWindow
         FeatureToggle(behavior, "Следовать за курсором на другой монитор", _settings.FollowCursorMonitor, v => _settings.FollowCursorMonitor = v);
         FeatureToggle(behavior, "Счётчик непрочитанных без доступа к уведомлениям", _settings.TitleUnreadFallback, v => _settings.TitleUnreadFallback = v);
         FeatureToggle(behavior, "Прогресс других программ", _settings.ExternalProgress, SetExternalProgress);
-        var tabs = FeatureCard("Разделы", "Перетащите строку для изменения порядка. Галочка показывает или скрывает раздел.", parent: SettingsFeatureContent);
-        _settings.TabOrder = DashboardSectionOrder().ToList();
-        BuildReorderList(tabs, _settings.TabOrder, DashboardSections.Keys.Where(key => key != "home"),
-            key => DashboardSections[key].Label, key => !_settings.HiddenTabs.Contains(key),
-            (key, visible) => { if (visible) _settings.HiddenTabs.Remove(key); else if (!_settings.HiddenTabs.Contains(key)) _settings.HiddenTabs.Add(key); BuildDashboardNavigation(); });
         var actions = FeatureCard("Кнопки главной", "Перетаскивайте строки. Скрытые кнопки можно вернуть в настройках главной.", parent: SettingsFeatureContent);
         BuildReorderList(actions, _settings.ActionOrder, new[] { "Region", "Full", "Translate", "Record", "Command", "Dnd" },
             key => key switch { "Region" => "Область экрана", "Full" => "Скриншот", "Translate" => "Перевод", "Record" => "Запись", "Command" => "Команда", _ => "Не беспокоить" },
             key => FindName("ChkAct" + key) is System.Windows.Controls.Primitives.ToggleButton b && b.IsChecked == true,
             (key, visible) => { if (FindName("ChkAct" + key) is System.Windows.Controls.Primitives.ToggleButton b) b.IsChecked = visible; ApplyHomeWidgetVisibility(); });
     }
+
+    private void BuildTabsPage()
+    {
+        var tabs = FeatureCard("Вкладки островка", "Перетащите строку для изменения порядка. Галочка показывает или скрывает раздел.", parent: SettingsFeatureContent);
+        var home = new CheckBox { Content = L(DashboardSections["home"].Label), IsChecked = true, IsEnabled = false,
+            Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(4, 2, 4, 2), VerticalContentAlignment = VerticalAlignment.Center };
+        home.SetResourceReference(Control.ForegroundProperty, "ThemeMutedBrush");
+        tabs.Children.Add(home);
+        _settings.TabOrder = DashboardSectionOrder().Where(key => key != "home").ToList();
+        BuildReorderList(tabs, _settings.TabOrder, DashboardSections.Keys.Where(key => key != "home"),
+            key => DashboardSections[key].Label, key => !_settings.HiddenTabs.Contains(key), (key, visible) =>
+            {
+                if (visible) _settings.HiddenTabs.RemoveAll(hidden => hidden == key);
+                else if (!_settings.HiddenTabs.Contains(key)) _settings.HiddenTabs.Add(key);
+                BuildDashboardNavigation();
+            });
+        tabs.Children.Add(FeatureButton("Восстановить вкладки", () =>
+        {
+            _settings.TabOrder.Clear();
+            _settings.HiddenTabs.Clear();
+            BuildDashboardNavigation();
+            SaveSettings();
+            BuildSettingsFeaturePage("tabs");
+        }));
+    }
+
     private void BuildReorderList(Panel parent, List<string> order, IEnumerable<string> known, Func<string, string> label, Func<string, bool> shown, Action<string, bool> toggle)
     {
         foreach (string key in known) if (!order.Contains(key)) order.Add(key);
@@ -269,7 +329,8 @@ public partial class MainWindow
             list.Items.Clear();
             foreach (string key in order.Where(k => known.Contains(k)))
             {
-                var check = new CheckBox { Content = "⠿   " + L(label(key)), IsChecked = shown(key), Tag = key, Padding = new Thickness(8), Margin = new Thickness(2) };
+                var check = new CheckBox { Content = "⠿   " + L(label(key)), IsChecked = shown(key), Tag = key,
+                    Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(2, 0, 2, 0), VerticalContentAlignment = VerticalAlignment.Center };
                 check.SetResourceReference(Control.ForegroundProperty, "ThemeTextBrush");
                 check.Click += (_, _) => { toggle(key, check.IsChecked == true); SaveSettings(); };
                 list.Items.Add(new ListBoxItem { Content = check, Tag = key, HorizontalContentAlignment = System.Windows.HorizontalAlignment.Stretch });
@@ -288,7 +349,10 @@ public partial class MainWindow
             if (e.Data.GetData("IslandLayoutItem") is not string source || !order.Contains(source)) return;
             var target = FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject)?.Tag as string;
             if (target == null || target == source || !order.Contains(target)) return;
-            order.Remove(source); order.Insert(order.IndexOf(target), source); ApplyFeatureAppearance(); BuildDashboardNavigation(); SaveSettings(); Fill(); e.Handled = true;
+            int targetIndex = order.IndexOf(target);
+            order.Remove(source);
+            order.Insert(targetIndex, source);
+            ApplyFeatureAppearance(); BuildDashboardNavigation(); SaveSettings(); Fill(); e.Handled = true;
         };
         Fill(); parent.Children.Add(list);
     }
@@ -469,19 +533,31 @@ public partial class MainWindow
         var keyButtons = new WrapPanel(); keyButtons.Children.Add(FeatureButton("Сохранить ключ", () => { GeminiKeyStore.Save(key.Password); key.Clear(); OpenFeaturePage("chat"); })); keyButtons.Children.Add(FeatureButton("Удалить ключ", () => { GeminiKeyStore.Save(""); OpenFeaturePage("chat"); })); card.Children.Add(keyButtons);
         var model = FeatureInput(card, "Модель Live API", _settings.GeminiModel);
         model.LostKeyboardFocus += (_, _) => { _settings.GeminiModel = model.Text.Trim(); SaveSettings(); };
-        FeatureChoice(card, "Голос", [("Kore", "Kore"), ("Puck", "Puck"), ("Charon", "Charon"), ("Fenrir", "Fenrir"), ("Aoede", "Aoede")], _settings.GeminiVoice, v => _settings.GeminiVoice = v);
+        BuildChatVoiceControls(card);
         FeatureSlider(card, "Громкость голоса", 0, 1, _settings.GeminiGain, v => { _settings.GeminiGain = v; if (_voice != null) _voice.Gain = (float)v; });
         _voiceStatusText = FeatureText(_voice?.Connected == true ? "Микрофон включён" : "Микрофон выключен", 12, "ThemeAccentBrush"); card.Children.Add(_voiceStatusText);
         card.Children.Add(FeatureButton(_voice == null ? "● Голос" : "■ Остановить голос", async () =>
         {
             if (_voice != null) { var previous = _voice; _voice = null; await previous.DisposeAsync(); OpenFeaturePage("chat"); return; }
             _settings.GeminiModel = model.Text.Trim(); SaveSettings();
+            var selected = SelectedGeminiVoice();
             var voice = new GeminiVoiceService { Gain = (float)_settings.GeminiGain }; _voice = voice;
             voice.Status += message => Dispatcher.BeginInvoke(() => { if (ReferenceEquals(_voice, voice) && _voiceStatusText != null) _voiceStatusText.Text = L(message); });
             voice.Transcript += text => Dispatcher.BeginInvoke(() => { if (!ReferenceEquals(_voice, voice) || _voiceTranscript == null) return; _voiceTranscript.Text = (_voiceTranscript.Text + "\n" + text).Trim(); if (_voiceTranscript.Text.Length > 8000) _voiceTranscript.Text = _voiceTranscript.Text[^8000..]; });
             OpenFeaturePage("chat");
-            try { await voice.StartAsync(GeminiKeyStore.Read(), _settings.GeminiModel, _settings.GeminiVoice); }
-            catch (Exception ex) { AppLog.Error("Start Gemini voice", ex); bool current = ReferenceEquals(_voice, voice); if (current) _voice = null; await voice.DisposeAsync(); if (current && _voiceStatusText != null) _voiceStatusText.Text = L("Не удалось начать разговор. Проверьте ключ, модель, сеть и разрешение микрофона."); }
+            try { await voice.StartAsync(GeminiKeyStore.Read(), _settings.GeminiModel, selected.Voice, selected.Style); }
+            catch (Exception ex)
+            {
+                AppLog.Error("Start Gemini voice", ex);
+                bool current = ReferenceEquals(_voice, voice);
+                if (current) _voice = null;
+                await voice.DisposeAsync();
+                if (current && !_windowClosed && _voice == null && CurrentDashboardTab() == "chat")
+                {
+                    OpenFeaturePage("chat");
+                    _voiceStatusText!.Text = L("Не удалось начать разговор. Проверьте ключ, модель, голос, сеть и разрешение микрофона.");
+                }
+            }
         }));
         var message = FeatureInput(card, "Сообщение во время голосового сеанса", "");
         card.Children.Add(FeatureButton("Отправить в сеанс", async () => { if (_voice?.Connected == true && !string.IsNullOrWhiteSpace(message.Text)) { try { await _voice.SendTextAsync(message.Text); message.Clear(); } catch (Exception ex) { AppLog.Error("Send Gemini text", ex); } } }));
@@ -496,7 +572,7 @@ public partial class MainWindow
         ("FPS", L("Интерфейс отрисовывается по необходимости.") + " " + L(_gameFps?.Status ?? "Игровой режим включает HUD, FPS и температуру CPU. Windows может запросить права администратора."), null),
         ("Стекло", _settings.LiquidGlass ? "Включено. Видимость при захвате настраивается отдельно." : "Выключено в настройках внешнего вида.", null),
         ("Автозапуск", _settings.RunOnStartup ? "Запрошен в настройках; Windows может ограничить запуск." : "Выключен.", "ms-settings:startupapps"),
-        ("Обновления", string.IsNullOrWhiteSpace(_settings.UpdateRepository) ? "Укажите репозиторий GitHub в разделе обновлений." : "Источник задан. Доступность новой версии проверяется в разделе обновлений.", null),
+        ("Обновления", GitHubUpdateService.RepositoryName, null),
         ("Календарь", File.Exists(CalendarPath) ? string.Format(L("Подключён .ics, событий на 30 дней: {0}."), _meetings.Count) : "Импортируйте файл .ics на странице календаря.", null),
         ("Яркость", _lastBrightness.HasValue ? "Экран поддерживает системную регулировку." : "Экран не публикует яркость через Windows WMI.", null),
         ("Gemini", string.IsNullOrWhiteSpace(GeminiKeyStore.Read()) ? "Нужен ваш API-ключ." : _voice?.Connected == true ? "Голосовой сеанс активен." : "Ключ найден; соединение проверяется при запуске голоса.", "ms-settings:privacy-microphone")
@@ -504,8 +580,10 @@ public partial class MainWindow
     private void BuildDiagnosticsPage()
     {
         var header = FeatureCard("Проверка системы", "Отчёт содержит технические статусы, без сообщений, имён собеседников и API-ключей.", parent: SettingsFeatureContent);
-        header.Children.Add(FeatureButton("Копировать отчёт", () => Clipboard.SetText($"OC - Dynamic Island {ProductVersion}\nWindows " + Environment.OSVersion.Version + "\n" + string.Join("\n", DiagnosticRows().Select(r => L(r.Name) + ": " + L(r.Status))))));
+        header.Children.Add(FeatureButton("Копировать отчёт", () => Clipboard.SetText($"OC - Dynamic Island {ProductVersion}\nWindows " + Environment.OSVersion.Version + "\n"
+            + string.Join("\n", DiagnosticRows().Select(r => L(r.Name) + ": " + L(r.Status)).Concat(PerformanceResultLines())))));
         header.Children.Add(FeatureButton("Повторить проверку", () => OpenSettingsFeaturePage("diagnostics")));
+        BuildPerformanceDiagnostics();
         foreach (var row in DiagnosticRows())
         {
             var card = FeatureCard(row.Name, row.Status, parent: SettingsFeatureContent);
@@ -514,7 +592,7 @@ public partial class MainWindow
             else if (row.Name == "Погода") card.Children.Add(FeatureButton("Указать город", () => { MorphToState(IslandState.Settings); SwitchSettingsPage(PageWeather, NavWeatherBtn); }));
             else if (row.Name == "Музыка") card.Children.Add(FeatureButton("Переподключить", () => _ = InitializeMediaManagerAsync()));
             else if (row.Name == "FPS") card.Children.Add(FeatureButton("Открыть игровой центр", () => OpenFeaturePage("system")));
-            else if (row.Name == "Обновления") card.Children.Add(FeatureButton("Настроить", () => OpenSettingsFeaturePage("updates")));
+            else if (row.Name == "Обновления") card.Children.Add(FeatureButton("Обновления", () => OpenSettingsFeaturePage("updates")));
         }
     }
     private static void OpenWebSettings(string uri) => Process.Start(new ProcessStartInfo(uri) { UseShellExecute = true });
@@ -527,7 +605,7 @@ public partial class MainWindow
     private DateTime _nextUpdateCheck = DateTime.MaxValue;
     private readonly HashSet<(Uri Installer, Version Version)> _notifiedUpdates = [];
 
-    private async Task CheckForUpdatesAsync(string repository, bool automatic)
+    private async Task CheckForUpdatesAsync(bool automatic)
     {
         if (_updateBusy || _windowClosed) return;
         _updateBusy = _checkingUpdates = true;
@@ -537,15 +615,7 @@ public partial class MainWindow
         try
         {
             if (!automatic) RefreshUpdatesPage();
-            string normalized = GitHubUpdateService.Repository(repository);
-            if (!automatic && !string.Equals(normalized, _settings.UpdateRepository, StringComparison.OrdinalIgnoreCase))
-            {
-                _settings.UpdateRepository = normalized;
-                _availableUpdate = null;
-                _downloadedUpdate = null;
-                SaveSettings();
-            }
-            var release = await GitHubUpdateService.CheckAsync(normalized, cancellation.Token);
+            var release = await GitHubUpdateService.CheckAsync(cancellation.Token);
             if (_windowClosed || automatic && !_settings.AutoCheckUpdates) return;
             _nextUpdateCheck = DateTime.UtcNow.AddHours(6);
             var available = GitHubUpdateService.IsNewerVersion(release.Version, GitHubUpdateService.CurrentVersion) ? release : null;
@@ -560,7 +630,7 @@ public partial class MainWindow
         catch (Exception ex)
         {
             if (!_windowClosed && !cancellation.IsCancellationRequested) AppLog.Error("Check GitHub update", ex);
-            if (!automatic) _updateStatus = "Не удалось проверить релиз. Проверьте адрес публичного репозитория и интернет.";
+            if (!automatic) _updateStatus = "Не удалось проверить релиз. Проверьте подключение к интернету.";
         }
         finally
         {
@@ -573,7 +643,7 @@ public partial class MainWindow
     private void BuildUpdatesPage()
     {
         var card = FeatureCard("Обновления через GitHub", "Обновления OC - Dynamic Island загружаются из GitHub. Дополнительные программы не нужны. Проверяются контрольная сумма и подпись установщика ocdynamicisland.exe.", parent: SettingsFeatureContent);
-        var repo = FeatureInput(card, "Репозиторий owner/repository", _settings.UpdateRepository);
+        card.Children.Add(FeatureText(GitHubUpdateService.RepositoryName, 11, "ThemeMutedBrush"));
         FeatureToggle(card, "Проверять обновления автоматически", _settings.AutoCheckUpdates, enabled =>
         {
             _settings.AutoCheckUpdates = enabled;
@@ -582,7 +652,8 @@ public partial class MainWindow
         card.Children.Add(FeatureText("Проверка выполняется при запуске и периодически. Загрузка и установка — только вручную.", 11, "ThemeMutedBrush"));
         var status = FeatureText(_checkingUpdates ? "Проверяю опубликованные релизы…" : _updateStatus, 12, "ThemeMutedBrush"); card.Children.Add(status);
         var actions = new WrapPanel();
-        actions.Children.Add(FeatureButton("Проверить", async () => await CheckForUpdatesAsync(repo.Text, automatic: false)));
+        actions.Children.Add(FeatureButton("Проверить", async () => await CheckForUpdatesAsync(automatic: false)));
+        actions.Children.Add(FeatureButton("Релизы на GitHub", () => OpenWeb(GitHubUpdateService.ReleasesPage)));
         card.Children.Add(actions);
         if (_availableUpdate is { } release)
         {
@@ -623,15 +694,39 @@ public partial class MainWindow
     private void BuildWhatsNewSection()
     {
         var card = FeatureCard("Что нового", parent: SettingsFeatureContent);
-        foreach (string line in new[]
-        {
+        AddChanges("В версии 1.1.26",
+            "Вкладки можно скрывать, менять местами и восстанавливать. Островок может открывать последнюю вкладку.",
+            "В меню настроек выровнены иконки и названия разделов.",
+            "Заметки можно редактировать, группировать и фильтровать по тематикам.",
+            "Плеер отдаёт приоритет играющему источнику и поддерживает больше браузеров. На главной и в «Музыке» можно выбрать выход звука.",
+            "Кнопки управления, громкость и перемотка скрываются без активного медиа. Доступность команд зависит от плеера.",
+            "Под громкостью в «Музыке» появился пятиполосный эквалайзер с пресетами и прямым скачиванием Equalizer APO.",
+            "Пункт управления показывает VPN-туннели и системный прокси Windows.",
+            "Подключённые устройства обновляются по событиям Windows. Для совместимых устройств есть кнопка «Отключить».",
+            "Виджеты обновляют сеть, батарею, музыку, погоду, календарь, буфер обмена и режим «Не беспокоить» при изменении данных.",
+            "В чате доступны 30 голосов Gemini Live и свои пресеты с манерой речи.",
+            "Уведомления и установщики обновлений берутся из официального репозитория проекта.",
+            "Диагностика измеряет задержку интерфейса, загрузку CPU и расход оперативной памяти.",
+            "Установщик получил тёмный мастер и отдельную галочку для Equalizer APO.",
+            "История буфера обмена проверяет файлы при открытии и изменении, а в фоне удаляет записи по сроку хранения.",
+            "Громкость плеера проверяется реже, а поиск фонового прогресса читает имя процесса один раз за обход.",
+            "Настройки ползунков записываются после паузы в изменениях. Виджеты с событиями обновляются отдельно.");
+        AddChanges("В версии 1.1.25",
             "В плеере появились перемотка по секундам и отдельная громкость приложения.",
             "Текст песни выводится в 1–3 строки с анимацией. Поиск учитывает варианты названия и исполнителя.",
             "В разделе «Система» видны подключённые устройства и доступные данные об их заряде.",
-            "Падение снега включается в настройках оформления."
-        })
-            card.Children.Add(FeatureText("• " + L(line), 13));
+            "Для блокировки, сна, перезагрузки и выключения добавлены цветные иконки.",
+            "Падение снега включается в настройках оформления.");
         card.Children.Add(FeatureButton("Канал проекта", () => OpenWeb(new Uri("https://t.me/outsidecompany"))));
+
+        void AddChanges(string label, params string[] changes)
+        {
+            var title = FeatureText(label, 13);
+            title.FontWeight = FontWeights.SemiBold;
+            title.Margin = new Thickness(0, 8, 0, 8);
+            card.Children.Add(title);
+            foreach (string change in changes) card.Children.Add(FeatureText("• " + L(change), 12));
+        }
     }
     private void BuildWelcomePage()
     {

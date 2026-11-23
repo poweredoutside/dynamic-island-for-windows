@@ -1,0 +1,127 @@
+<Window x:Class="DynamicIslandSetup.SetupWindow" x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Установка — OC - Dynamic Island" ResizeMode="CanMinimize" SizeToContent="WidthAndHeight"
+        WindowStartupLocation="CenterScreen" Background="#282828" Foreground="#FAFAFA" FontFamily="Segoe UI" FontSize="13"
+        UseLayoutRounding="True" SnapsToDevicePixels="True">
+    <Window.Icon>
+        <DrawingImage>
+            <DrawingImage.Drawing>
+                <DrawingGroup>
+                    <GeometryDrawing Brush="#24363B" Geometry="M0,0 H32 V32 H0 Z"/>
+                    <GeometryDrawing Brush="#42E8C2" Geometry="M15,16 A4,4 0 1 0 7,16 A4,4 0 1 0 15,16 M25,16 A4,4 0 1 0 17,16 A4,4 0 1 0 25,16"/>
+                </DrawingGroup>
+            </DrawingImage.Drawing>
+        </DrawingImage>
+    </Window.Icon>
+    <Window.Resources>
+        <SolidColorBrush x:Key="MutedText" Color="#CBCBCC"/>
+        <Style TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="WizardButton" TargetType="Button">
+            <Setter Property="MinWidth" Value="84"/>
+            <Setter Property="MinHeight" Value="26"/>
+            <Setter Property="Padding" Value="15,4"/>
+            <Setter Property="Background" Value="#353535"/>
+            <Setter Property="Foreground" Value="#FAFAFA"/>
+            <Setter Property="BorderBrush" Value="#494949"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Surface" CornerRadius="3" BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}" Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter RecognizesAccessKey="True" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="#3E4B51"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="#26353B"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True">
+                                <Setter TargetName="Surface" Property="BorderBrush" Value="#71C5E5"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Surface" Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{StaticResource WizardButton}">
+            <Setter Property="Background" Value="#304650"/>
+            <Setter Property="BorderBrush" Value="#4299BA"/>
+        </Style>
+    </Window.Resources>
+    <Grid x:Name="Client" Background="#282828">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="50"/>
+        </Grid.RowDefinitions>
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="216"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Border Background="#2C393E">
+                <Viewbox Width="166" Height="166" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
+                    <Canvas Width="180" Height="180">
+                        <Path Fill="#36484F" Stroke="#31A6D4" StrokeThickness="5" StrokeLineJoin="Round"
+                              Data="M 28,49 L 110,38 L 146,52 L 146,144 L 111,157 L 28,126 Z"/>
+                        <Path Fill="#3E5158" Stroke="#31A6D4" StrokeThickness="5" StrokeLineJoin="Round"
+                              Data="M 9,26 L 92,13 L 110,38 L 28,49 Z M 110,38 L 131,16 L 163,34 L 146,52 Z"/>
+                        <Path Stroke="#31A6D4" StrokeThickness="5" Data="M 110,38 L 111,157"/>
+                        <Ellipse Canvas.Left="6" Canvas.Top="71" Width="101" Height="101" Fill="#2C393E"/>
+                        <Ellipse Canvas.Left="12" Canvas.Top="77" Width="89" Height="89" Fill="#414B4F" Stroke="#B0B8BA" StrokeThickness="5"/>
+                        <Ellipse Canvas.Left="46" Canvas.Top="111" Width="21" Height="21" Fill="#2C393E" Stroke="#B0B8BA" StrokeThickness="5"/>
+                        <Path Stroke="#B0B8BA" StrokeThickness="4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Data="M 66,91 A 31,31 0 0 1 86,111 M 64,100 A 22,22 0 0 1 77,113 M 27,132 A 31,31 0 0 0 46,151 M 36,129 A 22,22 0 0 0 48,142"/>
+                        <Path Fill="#55ECCB" Data="M 119,87 A 3.3,3.3 0 1 0 125.6,87 A 3.3,3.3 0 1 0 119,87 M 130,84 A 3.3,3.3 0 1 0 136.6,84 A 3.3,3.3 0 1 0 130,84"/>
+                    </Canvas>
+                </Viewbox>
+            </Border>
+            <StackPanel Grid.Column="1" Margin="14,18,24,18">
+                <TextBlock x:Name="PageHeading" FontWeight="Bold" FontSize="19" LineHeight="24" LineStackingStrategy="BlockLineHeight"
+                           AutomationProperties.HeadingLevel="Level1"/>
+                <TextBlock x:Name="PageIntro" Margin="0,26,0,0" LineHeight="18" LineStackingStrategy="BlockLineHeight"/>
+                <StackPanel x:Name="Options" Margin="0,20,0,0">
+                    <CheckBox x:Name="TemperatureDriver" Foreground="#FAFAFA" VerticalContentAlignment="Center">
+                        <TextBlock Text="Установить PawnIO для датчиков температуры процессора"/>
+                    </CheckBox>
+                    <TextBlock Foreground="{StaticResource MutedText}" Margin="21,5,0,0"
+                               Text="Дополнительный драйвер. Windows запросит права администратора."/>
+                    <CheckBox x:Name="EqualizerApo" Foreground="#FAFAFA" VerticalContentAlignment="Center" Margin="0,14,0,0">
+                        <TextBlock Text="Установить Equalizer APO для эквалайзера"/>
+                    </CheckBox>
+                    <TextBlock Foreground="{StaticResource MutedText}" Margin="21,5,0,0"
+                               Text="Скачивание с SourceForge, 12 МБ. Устройство вывода выбирается в установщике Equalizer APO."/>
+                </StackPanel>
+                <ProgressBar x:Name="InstallProgress" Height="13" Margin="0,14,0,0" Foreground="#3DA9D3" Background="#3B3B3B"
+                             AutomationProperties.Name="Ход установки"/>
+                <StackPanel x:Name="Completion" Margin="0,20,0,0">
+                    <CheckBox x:Name="LaunchApp" IsChecked="True" Foreground="#FAFAFA" VerticalContentAlignment="Center">
+                        <TextBlock Text="Запустить OC - Dynamic Island"/>
+                    </CheckBox>
+                </StackPanel>
+                <TextBlock x:Name="PageNote" Foreground="{StaticResource MutedText}" Margin="0,16,0,0" LineHeight="18" LineStackingStrategy="BlockLineHeight"/>
+                <Button x:Name="LogButton" Content="Открыть журнал…" Style="{StaticResource WizardButton}" HorizontalAlignment="Left"
+                        Margin="0,17,0,0" Click="OpenLog_Click"/>
+            </StackPanel>
+        </Grid>
+        <Border Grid.Row="1" BorderBrush="#4A4A4A" BorderThickness="0,1,0,0" Padding="10,0">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                <Button x:Name="BackButton" Content="_Назад" Style="{StaticResource WizardButton}" Margin="0,0,10,0" Click="Back_Click"/>
+                <Button x:Name="Primary" Style="{StaticResource PrimaryButton}" Margin="0,0,10,0" IsDefault="True" Click="Primary_Click"/>
+                <Button x:Name="CancelButton" Content="Отмена" Style="{StaticResource WizardButton}" Click="Cancel_Click"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

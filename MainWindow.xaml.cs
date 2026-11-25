@@ -347,8 +347,13 @@ public partial class MainWindow : Window
             if (ShowNextNotification()) return;
             ClearNotificationInteraction();
             var dur = TimeSpan.FromMilliseconds(180);
-            SideToastBorder.BeginAnimation(OpacityProperty, new DoubleAnimation(0, dur));
-            SideToastSlide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-12, dur));
+            var fade = new DoubleAnimation(0, dur);
+            fade.Completed += (_, _) =>
+            {
+                if (!_toastHideTimer.IsEnabled) SideToastBorder.Visibility = Visibility.Collapsed;
+            };
+            SideToastBorder.BeginAnimation(OpacityProperty, fade);
+            SideToastSlide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-8, dur));
         };
 
         _mouseLeaveTimer.Interval = TimeSpan.FromMilliseconds(220);
@@ -724,7 +729,7 @@ public partial class MainWindow : Window
         {
             case ToastCategory.CapsLock:
                 SideToastIconCircle.Background = new SolidColorBrush(Color.FromRgb(0xFF, 0x9F, 0x1C));
-                SideToastBadgeShortText.Text = "•••";
+                SideToastBadgeShortText.Text = "⇪";
                 SideToastBadgeShortText.Visibility = Visibility.Visible;
                 SideToastVectorIcon.Visibility = Visibility.Collapsed;
                 break;
@@ -771,7 +776,7 @@ public partial class MainWindow : Window
         var dur = TimeSpan.FromMilliseconds(220);
         var ease = new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = 0.35 };
         SideToastBorder.BeginAnimation(OpacityProperty, new DoubleAnimation(1.0, dur));
-        SideToastSlide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-14, 0, dur) { EasingFunction = ease });
+        SideToastSlide.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(-8, 0, dur) { EasingFunction = ease });
 
         _toastHideTimer.Stop();
         _toastHideTimer.Interval = TimeSpan.FromSeconds(NotificationPolicy.ClampDuration(_settings.NotificationDurationSeconds));
@@ -1330,6 +1335,7 @@ public partial class MainWindow : Window
 
     private void ApplyScaleForCurrentState()
     {
+        UpdateDiscordCapsuleSize();
         double userScale = Math.Clamp(_settings.IslandScalePercent, 50, 130) / 100.0;
 
         // Ползунок масштаба меняет размер ТОЛЬКО у обычного свёрнутого островка (Compact без игрового режима).
@@ -1341,9 +1347,6 @@ public partial class MainWindow : Window
         var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
         IslandScaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(targetScale, dur) { EasingFunction = ease });
         IslandScaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(targetScale, dur) { EasingFunction = ease });
-
-        SideToastScale.ScaleX = 0.90;
-        SideToastScale.ScaleY = 0.90;
     }
 
     private static void FadeInElement(UIElement el)

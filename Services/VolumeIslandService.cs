@@ -25,7 +25,7 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
     internal bool Enabled { get => _enabled; set => _enabled = value; }
     internal bool ObserveVolume { get => _observeVolume; set => _observeVolume = value; }
 
-    internal bool RequestSnapshot() => !_disposed && _available && _commands.TryAdd(2);
+    internal bool RequestSnapshot() => !_disposed && _commands.TryAdd(2);
     internal bool ToggleMute() => !_disposed && _commands.TryAdd(3);
     internal bool SetVolume(double percent)
     {
@@ -89,6 +89,7 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
                     if (command == 0) { Interlocked.Exchange(ref _rebindPending, 0); Rebind(enumerator); continue; }
                     if (command == 1) Interlocked.Exchange(ref _setPending, 0);
                     bool manual = command is 1 or 2 or 3;
+                    if (manual && !_available) Rebind(enumerator, publish: false);
                     if ((!_enabled && !manual) || _device == null) continue;
                     try
                     {
@@ -112,7 +113,7 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
         catch (Exception ex) { _available = false; AppLog.Error("Volume event service", ex); }
     }
 
-    private void Rebind(MMDeviceEnumerator enumerator)
+    private void Rebind(MMDeviceEnumerator enumerator, bool publish = true)
     {
         _available = false; Detach();
         if (_disposed) return;
@@ -122,7 +123,7 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
             _device.AudioEndpointVolume.OnVolumeNotification += OnVolume;
             _ = _device.AudioEndpointVolume.MasterVolumeLevelScalar;
             _available = true;
-            if (_observeVolume) Publish(new(_device.AudioEndpointVolume.MasterVolumeLevelScalar, _device.AudioEndpointVolume.Mute));
+            if (publish && _observeVolume) Publish(new(_device.AudioEndpointVolume.MasterVolumeLevelScalar, _device.AudioEndpointVolume.Mute));
         }
         catch { Detach(); } // No endpoint is normal while unplugging a headset.
     }

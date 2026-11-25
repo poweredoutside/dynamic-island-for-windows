@@ -110,7 +110,7 @@ public partial class MainWindow
         if (surface.Image.Height != height) surface.Image.Height = height;
         double radius = Math.Max(0, surface.Border.CornerRadius.BottomLeft - surface.Border.BorderThickness.Left);
         radius = Math.Min(radius, Math.Min(width, height) / 2);
-        double above = surface.Border == IslandBorder && _settings.DockIslandAtTop ? radius : 0;
+        double above = surface.Border.CornerRadius.TopLeft == 0 && surface.Border.CornerRadius.TopRight == 0 ? radius : 0;
         surface.Clip.Rect = new Rect(0, -above, width, height + above);
         surface.Clip.RadiusX = surface.Clip.RadiusY = radius;
         if (surface.Effect != null && width > 0 && height > 0)

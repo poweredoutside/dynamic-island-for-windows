@@ -72,13 +72,15 @@ public partial class MainWindow
     private readonly DispatcherTimer _hoverDelay = new();
     private GeminiVoiceService? _voice;
     private Task? _featureScan;
+    private Task? _reminderSoundPlayback;
     private DateTime _nextFeatureScan, _nextCalendarRead;
     private VolumeIslandService? _volumeIsland;
+    private Slider? _systemMaster;
     private readonly object _volumeGate = new();
     private VolumeIslandService.Snapshot _pendingVolume;
     private VolumeIslandService.Snapshot _displayedVolume;
     private bool _volumeDispatchPending;
-    private bool _updatingVolumeSlider, _manualVolumeOpen;
+    private bool _updatingVolumeSlider, _updatingWindowsVolume, _manualVolumeOpen;
     private int? _lastBrightness;
     private DateTime _nextBrightnessRead, _nextReminderCheck;
     private IReadOnlyList<CalendarMeeting> _meetings = [];
@@ -111,6 +113,7 @@ public partial class MainWindow
         _settings.VolumeIslandHud ??= _settings.LevelHud;
         _volumeIsland = new VolumeIslandService(_settings.VolumeIslandHud == true);
         _volumeIsland.Changed += VolumeChanged;
+        VolumeHudSlider.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler((_, _) => _volumeIsland?.RequestSnapshot()));
         UpdateVolumeObservation();
         _hoverDelay.Tick += (_, _) => { _hoverDelay.Stop(); if (IslandBorder.IsMouseOver && !_isClickCandidate && !_bodyDragging && _currentState == IslandState.Compact && !_manualResize && !_isGameModeActive) MorphToState(IslandState.Hover); };
         _featureTimer.Tick += (_, _) => FeatureTick(); _featureTimer.Start();
@@ -172,6 +175,7 @@ public partial class MainWindow
         _settings.CompactWidth = Math.Clamp(_settings.CompactWidth, 160, 650);
         _settings.CompactHeight = Math.Clamp(_settings.CompactHeight, 32, 100);
         _settings.CornerRounding = Math.Clamp(_settings.CornerRounding, 0, 1);
+        UpdateDiscordCapsuleSize();
         string font = _settings.IslandFont is "Segoe UI" or "Consolas" or "Calibri" or "Verdana" ? _settings.IslandFont : "Segoe UI";
         if (System.Windows.Documents.TextElement.GetFontFamily(IslandBorder).Source != font)
             System.Windows.Documents.TextElement.SetFontFamily(IslandBorder, new FontFamily(font));
@@ -225,7 +229,7 @@ public partial class MainWindow
         {
             _settings.Timers.Remove(timer); SaveSettings();
             FeatureNotice(timer.Label, () => OpenFeaturePage("calendar"));
-            if (_settings.ReminderSound && !_isDndActive) System.Media.SystemSounds.Exclamation.Play();
+            PlayReminderSound();
             refreshReminders = true;
         }
         if (refreshReminders) RefreshCalendarAgenda();
@@ -240,9 +244,15 @@ public partial class MainWindow
                 _settings.DeliveredReminders.Add(marker);
                 _settings.DeliveredReminders = _settings.DeliveredReminders.TakeLast(512).ToList(); SaveSettings();
                 FeatureNotice($"{meeting.Title} · {L(minutes == 0 ? "начинается сейчас" : "через 10 минут")}", () => OpenWeb(meeting.Join!));
-                if (_settings.ReminderSound && !_isDndActive) System.Media.SystemSounds.Asterisk.Play();
+                PlayReminderSound(meeting: true);
             }
         }
+    }
+
+    private void PlayReminderSound(bool meeting = false)
+    {
+        if (_windowClosed || !_settings.ReminderSound || _isDndActive || _reminderSoundPlayback is { IsCompleted: false }) return;
+        _reminderSoundPlayback = ReminderAudio.PlayAsync(meeting);
     }
 
     private void UpdateIdleContent()
@@ -424,12 +434,44 @@ public partial class MainWindow
             VolumeIslandService.Snapshot latest;
             lock (_volumeGate) { latest = _pendingVolume; _volumeDispatchPending = false; }
             _widgetVolume = latest;
-            RefreshWidget("volume");
             if (_windowClosed) return;
-            if (_musicMaster?.IsVisible == true) UpdateMusicMasterVolume(latest);
-            if (_manualVolumeOpen || (_settings.VolumeIslandHud == true && _musicMaster?.IsVisible != true))
+            if (_musicMaster?.IsVisible == true) UpdateWindowsVolumeSlider(_musicMaster, latest);
+            if (_systemMaster?.IsVisible == true) UpdateWindowsVolumeSlider(_systemMaster, latest);
+            if (_manualVolumeOpen || (_settings.VolumeIslandHud == true && !HasVisibleWindowsVolumeSlider))
                 ShowVolumeSnapshot(latest);
+            RefreshWidget("volume");
         }));
+    }
+
+    private bool HasVisibleWindowsVolumeSlider => _musicMaster?.IsVisible == true || _systemMaster?.IsVisible == true;
+
+    private void ConnectWindowsVolumeSlider(Slider slider)
+    {
+        slider.IsEnabled = false;
+        slider.IsVisibleChanged += (_, _) => UpdateVolumeObservation();
+        slider.ValueChanged += (_, e) =>
+        {
+            if (!_updatingWindowsVolume && slider.IsVisible && slider.IsEnabled) _volumeIsland?.SetVolume(e.NewValue);
+        };
+        slider.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler((_, _) => _volumeIsland?.RequestSnapshot()));
+        UpdateVolumeObservation();
+    }
+
+    private void UpdateVolumeObservation()
+    {
+        if (_windowClosed || _volumeIsland is not { } audio) return;
+        audio.ObserveVolume = WidgetIsVisible("volume") || HasVisibleWindowsVolumeSlider;
+        if (audio.ObserveVolume) audio.RequestSnapshot();
+    }
+
+    private void UpdateWindowsVolumeSlider(Slider slider, VolumeIslandService.Snapshot snapshot)
+    {
+        slider.IsEnabled = true;
+        if (slider.IsMouseCaptureWithin) return;
+        _updatingWindowsVolume = true;
+        try { slider.Value = Math.Round(snapshot.Volume * 100); }
+        finally { _updatingWindowsVolume = false; }
+        slider.ToolTip = $"{L("Громкость Windows")} · {snapshot.Volume:P0}";
     }
 
     private void SetVolumeIslandHud(bool enabled)
@@ -447,7 +489,7 @@ public partial class MainWindow
     {
         _displayedVolume = snapshot;
         _updatingVolumeSlider = true;
-        try { VolumeHudSlider.Value = Math.Clamp(snapshot.Volume * 100, 0, 100); }
+        try { if (!VolumeHudSlider.IsMouseCaptureWithin) VolumeHudSlider.Value = Math.Clamp(snapshot.Volume * 100, 0, 100); }
         finally { _updatingVolumeSlider = false; }
         VolumeMuteButton.Content = snapshot.Muted ? "\uE74F" : "\uE767";
         VolumeMuteButton.ToolTip = L(snapshot.Muted ? "Включить звук" : "Выключить звук");
@@ -457,6 +499,7 @@ public partial class MainWindow
     private void OpenVolume_Click(object sender, RoutedEventArgs e)
     {
         _manualVolumeOpen = true;
+        _featureNoticeUntil = DateTime.UtcNow.AddSeconds(3);
         if (_volumeIsland?.RequestSnapshot() != true)
         { _manualVolumeOpen = false; OpenFeaturePage("system"); }
     }

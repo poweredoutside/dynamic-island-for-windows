@@ -121,7 +121,7 @@ public partial class MainWindow
         {
             string message = _dashboardTimer.Kind != DashboardTimer.Mode.Pomodoro ? "Таймер завершён" : _dashboardTimer.Break ? "Время отдохнуть" : "За работу";
             FeatureNotice(L(message), () => OpenFeaturePage("timers"));
-            if (_settings.ReminderSound && !_isDndActive) System.Media.SystemSounds.Exclamation.Play();
+            PlayReminderSound();
         }
         if (_currentState == IslandState.Section && _featurePage == "timers") RenderDashboardTimer();
     }

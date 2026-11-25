@@ -16,11 +16,6 @@ internal sealed class DesktopAudioService : IDisposable
         using var device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
         return (device.AudioEndpointVolume.MasterVolumeLevelScalar, device.AudioEndpointVolume.Mute);
     }
-    internal void SetMaster(float volume)
-    {
-        using var device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-        device.AudioEndpointVolume.MasterVolumeLevelScalar = Math.Clamp(volume, 0, 1);
-    }
     internal IReadOnlyList<AppVolume> Apps()
     {
         string? defaultId = null;

@@ -18,7 +18,7 @@
         <ResourceDictionary>
         <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="ThemeResources.xaml"/><ResourceDictionary Source="IslandControls.xaml"/></ResourceDictionary.MergedDictionaries>
         <StreamGeometry x:Key="PlayerOutputGlyph">M2,9 V8 A6,6 0 0 1 14,8 V9 M2,9 H5 V14 H3 Q2,14 2,13 Z M14,9 H11 V14 H13 Q14,14 14,13 Z</StreamGeometry>
-        <local:DiscordCapsuleMarginConverter x:Key="DiscordCapsuleMargin"/>
+        <local:RightCapsuleOffsetConverter x:Key="RightCapsuleOffset"/>
         <Style x:Key="DiscordCapsule" TargetType="Border">
             <Setter Property="Width" Value="140"/>
             <Setter Property="Height" Value="38"/>
@@ -26,18 +26,7 @@
             <Setter Property="Margin" Value="0,0,8,0"/>
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Visibility, ElementName=CompactView}" Value="Visible">
-                    <Setter Property="Width" Value="{Binding Width, ElementName=IslandBorder}"/>
-                    <Setter Property="Height" Value="{Binding Height, ElementName=IslandBorder}"/>
-                    <Setter Property="CornerRadius" Value="{Binding CornerRadius, ElementName=IslandBorder}"/>
                     <Setter Property="LayoutTransform" Value="{Binding ElementName=IslandScaleTransform}"/>
-                    <Setter Property="Margin">
-                        <Setter.Value>
-                            <MultiBinding Converter="{StaticResource DiscordCapsuleMargin}">
-                                <Binding Path="Width" ElementName="IslandBorder"/>
-                                <Binding Path="ScaleX" ElementName="IslandScaleTransform"/>
-                            </MultiBinding>
-                        </Setter.Value>
-                    </Setter>
                 </DataTrigger>
             </Style.Triggers>
         </Style>
@@ -303,7 +292,10 @@
                 MouseLeftButtonUp="IslandBorder_MouseLeftButtonUp">
 
             <Border.RenderTransform>
-                <ScaleTransform x:Name="IslandScaleTransform" ScaleX="1.0" ScaleY="1.0"/>
+                <TransformGroup>
+                    <ScaleTransform x:Name="IslandScaleTransform" ScaleX="1.0" ScaleY="1.0"/>
+                    <TranslateTransform x:Name="IslandAttraction"/>
+                </TransformGroup>
             </Border.RenderTransform>
 
             <Border.Background>
@@ -1405,9 +1397,18 @@
             </Button.Template>
         </Button>
 
-        <!-- ПРАВАЯ КОЛОНКА (Col 2): ОТДЕЛЬНЫЙ ОСТРОВОК ЗВОНКА DISCORD + БОКОВАЯ КАПСУЛА УВЕДОМЛЕНИЙ -->
-        <StackPanel x:Name="RightCapsuleStack" Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Top"
-                    UseLayoutRounding="True" Margin="10,10,0,0">
+        <!-- Звонок Discord, прогресс, громкость и уведомления справа от островка. -->
+        <Canvas x:Name="RightCapsuleAnchor" Grid.Column="1" Width="0"
+                HorizontalAlignment="Center" VerticalAlignment="Top" UseLayoutRounding="True"
+                Margin="{Binding Margin, ElementName=IslandBorder}"
+                RenderTransform="{Binding ElementName=IslandAttraction}">
+        <StackPanel x:Name="RightCapsuleStack" Canvas.Top="0" Orientation="Horizontal" UseLayoutRounding="True">
+            <Canvas.Left>
+                <MultiBinding Converter="{StaticResource RightCapsuleOffset}">
+                    <Binding Path="ActualWidth" ElementName="IslandBorder"/>
+                    <Binding Path="ScaleX" ElementName="IslandScaleTransform"/>
+                </MultiBinding>
+            </Canvas.Left>
             <Border x:Name="DiscordCallBorder" Style="{StaticResource DiscordCapsule}" VerticalAlignment="Top"
                     Background="{DynamicResource ThemeCapsuleBrush}" BorderThickness="1" BorderBrush="{DynamicResource GlassEdgeBrush}"
                     UseLayoutRounding="True" SnapsToDevicePixels="True" Visibility="Collapsed">
@@ -1460,9 +1461,8 @@
                 </StackPanel>
             </Border>
 
-            <Border x:Name="SideToastBorder"
-                    Height="38"
-                    CornerRadius="19"
+            <Border x:Name="SideToastBorder" VerticalAlignment="Top"
+                    LayoutTransform="{Binding ElementName=IslandScaleTransform}"
                     Background="{DynamicResource ThemeCapsuleBrush}"
                     BorderThickness="1" BorderBrush="{DynamicResource GlassEdgeBrush}"
                     UseLayoutRounding="True"
@@ -1473,16 +1473,29 @@
                     MouseLeftButtonUp="SideToastBorder_MouseLeftButtonUp"
                     RenderTransformOrigin="0,0">
 
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Height" Value="38"/>
+                        <Setter Property="CornerRadius" Value="19"/>
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding Visibility, ElementName=CompactView}" Value="Visible">
+                                <Setter Property="Height" Value="{Binding Height, ElementName=IslandBorder}"/>
+                                <Setter Property="CornerRadius" Value="{Binding CornerRadius, ElementName=IslandBorder}"/>
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
                 <Border.RenderTransform>
-                    <TransformGroup>
-                        <ScaleTransform x:Name="SideToastScale" ScaleX="1.0" ScaleY="1.0"/>
-                        <TranslateTransform x:Name="SideToastSlide" X="-14"/>
-                    </TransformGroup>
+                    <TranslateTransform x:Name="SideToastSlide"/>
                 </Border.RenderTransform>
 
                 <Grid>
-                    <Border x:Name="SideToastGlassOverlay" CornerRadius="19" Background="{DynamicResource GlassSheenBrush}" IsHitTestVisible="False"/>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="7,0,15,0">
+                    <Border x:Name="SideToastGlassOverlay" CornerRadius="{Binding CornerRadius, ElementName=SideToastBorder}" Background="{DynamicResource GlassSheenBrush}" IsHitTestVisible="False"/>
+                    <Grid VerticalAlignment="Center" Margin="10,0,12,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
                     <Border x:Name="SideToastIconCircle" Width="24" Height="24" CornerRadius="12" Background="#FF9F1C" Margin="0,0,9,0" VerticalAlignment="Center">
                         <Grid>
                             <Path x:Name="SideToastVectorIcon"
@@ -1495,7 +1508,7 @@
                         </Grid>
                     </Border>
 
-                    <TextBlock x:Name="SideToastText"
+                    <TextBlock x:Name="SideToastText" Grid.Column="1"
                                Text="Caps Lock включён"
                                Foreground="{DynamicResource ThemeTextBrush}"
                                FontSize="12.5"
@@ -1503,9 +1516,10 @@
                                MaxWidth="270"
                                TextTrimming="CharacterEllipsis"
                                VerticalAlignment="Center"/>
-                </StackPanel>
+                    </Grid>
                 </Grid>
             </Border>
         </StackPanel>
+        </Canvas>
     </Grid>
 </Window>

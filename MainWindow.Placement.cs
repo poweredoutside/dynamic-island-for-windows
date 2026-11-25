@@ -6,6 +6,15 @@ using Forms = System.Windows.Forms;
 
 namespace DynamicIslandWin;
 
+public sealed class RightCapsuleOffsetConverter : System.Windows.Data.IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, System.Globalization.CultureInfo culture) =>
+        values is [double width, double scale] ? width * scale / 2 + 10 : 10d;
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, System.Globalization.CultureInfo culture) =>
+        throw new NotSupportedException();
+}
+
 public partial class MainWindow
 {
     private bool CanDragIsland => !_settings.PinPosition && !_settings.DockIslandAtTop;
@@ -15,9 +24,9 @@ public partial class MainWindow
         double inset = _settings.DockIslandAtTop ? 0 : 10;
         IslandBorder.Margin = new Thickness(0, inset, 0, 0);
         IslandShadow.Margin = new Thickness(-28, inset - 28, -28, -28);
-        RightCapsuleStack.Margin = new Thickness(10, inset, 0, 0);
         var corners = IslandCorners(_curR);
         IslandBorder.CornerRadius = LiquidGlassOverlay.CornerRadius = CustomBgBorder.CornerRadius = corners;
+        UpdateDiscordCapsuleSize();
         UpdateGlassGeometry();
         UpdateGlassShadow();
     }

@@ -38,7 +38,14 @@ internal static class Program
             "Discord shows the actual time since connection in the right capsule");
         var mainCapsule = Element<Border>("IslandBorder");
         var islandScale = Element<ScaleTransform>("IslandScaleTransform");
+        var attraction = Element<TranslateTransform>("IslandAttraction");
+        var sideToast = Element<Border>("SideToastBorder");
+        Element<TextBlock>("SideToastText").Text = "Caps Lock enabled";
+        sideToast.Opacity = 1;
+        sideToast.Visibility = Visibility.Visible;
         var layoutRoot = (FrameworkElement)window.Content;
+        var progress = Element<Border>("CompactProgressPanel");
+        progress.Visibility = Visibility.Visible;
         var neighboringHud = Element<Border>("LevelHudBorder");
         neighboringHud.Height = 66;
         neighboringHud.Visibility = Visibility.Visible;
@@ -51,12 +58,17 @@ internal static class Program
             {
                 mainCapsule.Width = width;
                 mainCapsule.Height = height;
+                mainCapsule.CornerRadius = (CornerRadius)Call("IslandCorners", height / 2)!;
+                settings.CompactWidth = width;
+                settings.CompactHeight = height;
+                Call("ApplyFeatureAppearance");
                 islandScale.ScaleX = islandScale.ScaleY = scale;
                 layoutRoot.Measure(new Size(1360, 700));
                 layoutRoot.Arrange(new Rect(0, 0, 1360, 700));
                 layoutRoot.UpdateLayout();
                 var mainBounds = mainCapsule.TransformToVisual(layoutRoot).TransformBounds(new Rect(mainCapsule.RenderSize));
                 var discordBounds = discordCapsule.TransformToVisual(layoutRoot).TransformBounds(new Rect(discordCapsule.RenderSize));
+                var progressBounds = progress.TransformToVisual(layoutRoot).TransformBounds(new Rect(progress.RenderSize));
                 Check(Math.Abs(discordBounds.Top - mainBounds.Top) < .01
                     && Math.Abs(discordBounds.Width - mainBounds.Width) < .01
                     && Math.Abs(discordBounds.Height - mainBounds.Height) < .01
@@ -64,15 +76,43 @@ internal static class Program
                     && discordBounds.Right <= layoutRoot.ActualWidth
                     && discordCapsule.CornerRadius == mainCapsule.CornerRadius,
                     $"Discord matches the compact island at {scale:P0} in {(docked ? "docked" : "floating")} mode (main {mainBounds}, Discord {discordBounds})");
+                Check(progressBounds.Left > discordBounds.Right, "Progress stays outside both the island and the Discord call");
+                attraction.X = 4;
+                attraction.Y = 2;
+                mainBounds = mainCapsule.TransformToVisual(layoutRoot).TransformBounds(new Rect(mainCapsule.RenderSize));
+                var toastBounds = sideToast.TransformToVisual(layoutRoot).TransformBounds(new Rect(sideToast.RenderSize));
+                Check(Math.Abs(toastBounds.Top - mainBounds.Top) < .6
+                    && Math.Abs(toastBounds.Height - mainBounds.Height) < .6
+                    && toastBounds.Left > discordBounds.Right
+                    && sideToast.CornerRadius == mainCapsule.CornerRadius,
+                    $"Keyboard hints match the compact island at {scale:P0} (main {mainBounds}, hint {toastBounds})");
+                var toastCenter = new Point(toastBounds.Left + toastBounds.Width / 2, toastBounds.Top + toastBounds.Height / 2);
+                var hit = VisualTreeHelper.HitTest(layoutRoot, toastCenter)?.VisualHit;
+                if (toastCenter.X < layoutRoot.ActualWidth)
+                    Check(hit == sideToast || (hit != null && sideToast.IsAncestorOf(hit)),
+                        "An actionable toast can be clicked outside its position-only canvas");
+                discordCapsule.Visibility = neighboringHud.Visibility = progress.Visibility = Visibility.Collapsed;
+                layoutRoot.UpdateLayout();
+                toastBounds = sideToast.TransformToVisual(layoutRoot).TransformBounds(new Rect(sideToast.RenderSize));
+                Check(Math.Abs(toastBounds.Left - mainBounds.Right - 10) < 1,
+                    "An unaccompanied toast is aligned to the right edge of the island");
+                discordCapsule.Visibility = neighboringHud.Visibility = progress.Visibility = Visibility.Visible;
+                attraction.X = attraction.Y = 0;
             }
         }
         mainCapsule.Width = 210;
         mainCapsule.Height = 38;
+        settings.CompactWidth = 210;
+        settings.CompactHeight = 38;
+        Call("ApplyFeatureAppearance");
         islandScale.ScaleX = islandScale.ScaleY = 1;
         settings.DockIslandAtTop = savedDocked;
         Call("ApplyIslandPlacementStyle");
+        progress.Visibility = Visibility.Collapsed;
         neighboringHud.Visibility = Visibility.Collapsed;
         neighboringHud.ClearValue(FrameworkElement.HeightProperty);
+        sideToast.Visibility = Visibility.Collapsed;
+        sideToast.Opacity = 0;
         var audioType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.DiscordCallAudio")!;
         var micButton = Element<Button>("DiscordMicButton");
         Set("_discordMicrophoneMuted", true);
@@ -239,6 +279,26 @@ internal static class Program
             && System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>(
                 System.Text.Json.JsonSerializer.Serialize(settings))?.LyricsLineCount == 3,
             "Three lyric lines expand the island and persist the preference");
+        Set("_discordCall", discordCall);
+        Call("UpdateDiscordCallState");
+        mainCapsule.Width = Field<double>("_targetW");
+        mainCapsule.Height = Field<double>("_targetH");
+        mainCapsule.CornerRadius = (CornerRadius)Call("IslandCorners", mainCapsule.Height / 2)!;
+        layoutRoot.Measure(new Size(1360, 700));
+        layoutRoot.Arrange(new Rect(0, 0, 1360, 700));
+        layoutRoot.UpdateLayout();
+        var musicBounds = mainCapsule.TransformToVisual(layoutRoot).TransformBounds(new Rect(mainCapsule.RenderSize));
+        var callBounds = discordCapsule.TransformToVisual(layoutRoot).TransformBounds(new Rect(discordCapsule.RenderSize));
+        Check(discordCapsule.Visibility == Visibility.Visible && callBounds.Width < musicBounds.Width
+            && callBounds.Height < musicBounds.Height && callBounds.Left > musicBounds.Right
+            && discordCapsule.Width == settings.CompactWidth && discordCapsule.Height == settings.CompactHeight
+            && discordCapsule.CornerRadius == (CornerRadius)Call("IslandCorners", settings.CompactHeight / 2)!,
+            "Music and lyrics can enlarge the island while Discord keeps its configured compact size");
+        mainCapsule.Width = settings.CompactWidth;
+        mainCapsule.Height = settings.CompactHeight;
+        Call("ApplyIslandPlacementStyle");
+        Set("_discordCall", null);
+        Call("UpdateDiscordCallState");
         settings.LyricsLineCount = 1;
         Call("UpdateLyricsTrack", currentTrack, 0d, "", 180d);
         Call("UpdateCompactLyrics");
@@ -463,7 +523,7 @@ internal static class Program
         var versionNotes = ((StackPanel)updateCards[1].Child).Children.OfType<TextBlock>()
             .Where(label => label.FontWeight == FontWeights.SemiBold && label.FontSize == 13)
             .Select(label => label.Text).ToArray();
-        Check(versionNotes.SequenceEqual(new[] { "1.1.28", "1.1.27", "1.1.26", "1.1.25" }.Select(version => Translate("В версии " + version))),
+        Check(versionNotes.SequenceEqual(new[] { "1.1.29", "1.1.28", "1.1.27", "1.1.26", "1.1.25" }.Select(version => Translate("В версии " + version))),
             "What's new lists the current and previous releases in order");
         Element<Button>("NavAppearanceBtn").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Call("RefreshUpdatesPage");
@@ -774,9 +834,6 @@ internal static class Program
             }
         }
 
-        // Progress stays in the right column, leaving all compact content intact.
-        var progress = Element<Border>("CompactProgressPanel");
-        Check(Grid.GetColumn((UIElement)progress.Parent) == 2 && progress.Parent != Element<Grid>("CompactView"), "Progress capsule is outside the clock and weather");
         progress.Visibility = Visibility.Visible; Call("SetExternalProgress", false);
         Check(progress.Visibility == Visibility.Collapsed && !settings.ExternalProgress && Element<CheckBox>("TglExternalProgress").IsChecked == false, "Disabling progress hides it immediately");
         Call("SetExternalProgress", true);
@@ -939,7 +996,7 @@ internal static class Program
         Call("UpdateHomePlayerTimeline", currentTrack, PlayerTimeline(2, 180));
         var appLevel = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.PlayerAudioService+Snapshot")!;
         Call("UpdateHomePlayerVolume", Activator.CreateInstance(appLevel, .60f, false));
-        Call("UpdateMusicMasterVolume", Activator.CreateInstance(volumeSnapshotType, .26f, false));
+        Call("UpdateWindowsVolumeSlider", Field<Slider>("_musicMaster"), Activator.CreateInstance(volumeSnapshotType, .26f, false));
         Check(Field<Slider>("_musicSeek").Value == 2 && Field<Slider>("_musicVolume").Value == 60 && Field<Slider>("_musicMaster").Value == 26,
             "Music page shows independent player and Windows volume and the shared timeline");
         Call("UpdateMusicLyrics");

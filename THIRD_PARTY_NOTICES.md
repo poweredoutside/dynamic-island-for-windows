@@ -4,6 +4,8 @@ The installer includes these libraries and their transitive dependencies; no
 separate programs need to be installed.
 
 - NAudio 2.2.1 — MIT, https://github.com/naudio/NAudio
+- Interop.UIAutomationClient 10.19041.0 — MIT, https://github.com/Roemer/UIAutomation-Interop.
+  License included in licenses/UIAutomation-Interop.txt.
 - Liquid Glass lens math adapted from liquid_glass_easy — MIT, Ahmed Gamil.
   Upstream: https://github.com/AhmeedGamil/liquid_glass_easy/tree/ba732aa38927a05c2a8604f843fa4bb54b87fb14.
   WPF/HLSL adaptation: Services/GlassLensMap.cs and Shaders/LiquidGlass.hlsl.

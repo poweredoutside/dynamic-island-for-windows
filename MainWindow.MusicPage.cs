@@ -18,7 +18,6 @@ public partial class MainWindow
     private TextBlock? _musicElapsed, _musicDuration;
     private Path? _musicPlayPause;
     private Button? _musicPrevious, _musicPlayPauseButton, _musicNext;
-    private bool _updatingMusicMaster;
 
     private void BuildMusicPlayerControls(Panel card)
     {
@@ -68,13 +67,7 @@ public partial class MainWindow
         _musicVolume = AddLevel("Громкость плеера", new Thickness(0, 0, 12, 0));
         _musicVolume.ValueChanged += HomePlayerVolume_ValueChanged;
         _musicMaster = AddLevel("Громкость Windows", new Thickness(12, 0, 0, 0));
-        _musicMaster.IsVisibleChanged += (_, _) => UpdateVolumeObservation();
-        _musicMaster.ValueChanged += (_, e) =>
-        {
-            if (!_updatingMusicMaster && _musicMaster?.IsVisible == true)
-                _volumeIsland?.SetVolume(e.NewValue);
-        };
-        _musicMaster.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler((_, _) => _volumeIsland?.RequestSnapshot()));
+        ConnectWindowsVolumeSlider(_musicMaster);
         card.Children.Add(levels);
         BuildMusicEqualizer(card);
         UpdatePlayerControlVisibility();
@@ -126,23 +119,5 @@ public partial class MainWindow
     private void UpdateMusicPlayPause()
     {
         if (_musicPlayPause != null) _musicPlayPause.Data = PlayPauseVectorIcon.Data;
-    }
-
-    private void UpdateVolumeObservation()
-    {
-        if (_windowClosed || _volumeIsland is not { } audio) return;
-        audio.ObserveVolume = WidgetIsVisible("volume") || _musicMaster?.IsVisible == true;
-        if (audio.ObserveVolume) audio.RequestSnapshot();
-    }
-
-    private void UpdateMusicMasterVolume(VolumeIslandService.Snapshot snapshot)
-    {
-        if (_musicMaster is not { } slider) return;
-        slider.IsEnabled = true;
-        if (slider.IsMouseCaptureWithin) return;
-        _updatingMusicMaster = true;
-        try { slider.Value = Math.Round(snapshot.Volume * 100); }
-        finally { _updatingMusicMaster = false; }
-        slider.ToolTip = $"{L("Громкость Windows")} · {snapshot.Volume:P0}";
     }
 }

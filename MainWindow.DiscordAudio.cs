@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Globalization;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -11,17 +10,6 @@ using Separator = System.Windows.Controls.Separator;
 
 namespace DynamicIslandWin;
 
-public sealed class DiscordCapsuleMarginConverter : System.Windows.Data.IMultiValueConverter
-{
-    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture) =>
-        values is [double width, double scale]
-            ? new Thickness(Math.Max(0, width * (scale - 1) / 2), 0, 8, 0)
-            : new Thickness(0, 0, 8, 0);
-
-    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) =>
-        throw new NotSupportedException();
-}
-
 public partial class MainWindow
 {
     private bool? _discordMicrophoneMuted;
@@ -29,6 +17,21 @@ public partial class MainWindow
     private int _discordMicReadVersion;
     private bool _discordOutputBusy;
     private ContextMenu? _discordOutputMenu;
+
+    private void UpdateDiscordCapsuleSize()
+    {
+        // The call follows the configured compact size, even while music enlarges the island.
+        (double width, double height, CornerRadius corners) = _currentState switch
+        {
+            IslandState.Compact when _isGameModeActive => (GameHudWidth, GameHudHeight, IslandCorners(GameHudRadius)),
+            IslandState.Compact => (_settings.CompactWidth, _settings.CompactHeight,
+                IslandCorners(_settings.CompactHeight * .5 * _settings.CornerRounding)),
+            _ => (140, 38, new CornerRadius(19))
+        };
+        DiscordCallBorder.Width = width;
+        DiscordCallBorder.Height = height;
+        DiscordCallBorder.CornerRadius = corners;
+    }
 
     private void LocalizeDiscordCallControls()
     {

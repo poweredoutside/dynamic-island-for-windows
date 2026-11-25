@@ -474,19 +474,21 @@ public partial class MainWindow
         }
         RefreshGameMetricsControls();
         game.Children.Add(FeatureText("FPS измеряется по событиям отправки кадров активной игры. Если игра не передаёт такие события, показание недоступно.", 11, "ThemeMutedBrush"));
+        _systemMaster = FeatureSlider(card, "Общая громкость, %", 0, 100, 0, null, integer: true, setting: false);
+        System.Windows.Automation.AutomationProperties.SetName(_systemMaster, L("Громкость Windows"));
+        ConnectWindowsVolumeSlider(_systemMaster);
         var placeholder = FeatureText("Читаю аудиоустройства…", 12, "ThemeMutedBrush"); card.Children.Add(placeholder);
         try
         {
-            var result = await Task.Run(() => { using var audio = new DesktopAudioService(); return (Apps: audio.Apps(), Master: audio.Master(), Brightness: DesktopAudioService.Brightness()); });
+            var result = await Task.Run(() => { using var audio = new DesktopAudioService(); return (Apps: audio.Apps(), Brightness: DesktopAudioService.Brightness()); });
             if (_currentState != IslandState.Section || _featurePage != "system" || !DashboardSectionContent.Children.Contains(card.Parent as UIElement)) return;
             card.Children.Remove(placeholder);
-            FeatureSlider(card, "Общая громкость, %", 0, 100, result.Master.Volume * 100, v => { using var audio = new DesktopAudioService(); audio.SetMaster((float)v / 100); }, integer: true, setting: false);
             if (result.Brightness is { } brightness) FeatureSlider(card, "Яркость, %", 0, 100, brightness, v => _ = Task.Run(() => { try { DesktopAudioService.SetBrightness((int)v); } catch (Exception ex) { AppLog.Error("Set brightness", ex); } }), integer: true, setting: false);
             foreach (var session in result.Apps) AddAppMixerRow(card, session);
             if (result.Apps.Count == 0) card.Children.Add(FeatureText("Запустите воспроизведение в приложении, затем обновите список.", 11, "ThemeMutedBrush"));
             card.Children.Add(FeatureButton("Обновить список", () => OpenFeaturePage("system")));
         }
-        catch (Exception ex) { AppLog.Error("Read audio mixer", ex); placeholder.Text = L("Нет доступного устройства вывода. Откройте настройки звука Windows."); card.Children.Add(FeatureButton("Настройки звука", () => OpenWebSettings("ms-settings:sound"))); }
+        catch (Exception ex) { AppLog.Error("Read audio mixer", ex); placeholder.Text = L("Не удалось получить список приложений."); card.Children.Add(FeatureButton("Обновить список", () => OpenFeaturePage("system"))); }
     }
 
     private void AddAppMixerRow(StackPanel card, DesktopAudioService.AppVolume session)
@@ -753,6 +755,13 @@ public partial class MainWindow
     private void BuildWhatsNewSection()
     {
         var card = FeatureCard("Что нового", parent: SettingsFeatureContent);
+        AddChanges("В версии 1.1.29",
+            "Исправлено управление встроенной громкостью настольной Яндекс Музыки.",
+            "Громкость Windows в «Музыке», «Системе» и боковой капсуле синхронизируется с текущим устройством вывода.",
+            "Подсказки клавиатуры и буфера обмена снова появляются справа и повторяют высоту, скругление и масштаб компактного островка.",
+            "Капсула звонка Discord сохраняет компактные размеры при расширении островка из-за музыки и текста песни.",
+            "Сигналы таймеров, Pomodoro и календаря воспроизводятся в фоне через общий аудиовыход Windows.",
+            "Подписанный установщик Windows x64 поддерживает обновление с 1.1.28.");
         AddChanges("В версии 1.1.28",
             "Плеер обновляет трек и состояние по событиям Windows и повторяет подключение после сбоя.",
             "Кнопка воспроизведения выбирает прямую команду «Играть» или «Пауза».",

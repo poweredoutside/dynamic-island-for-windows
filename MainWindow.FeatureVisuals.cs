@@ -13,8 +13,6 @@ namespace DynamicIslandWin;
 public partial class MainWindow
 {
     private readonly List<WeakReference<FrameworkElement>> _animatedMascots = [];
-    private readonly TranslateTransform _attraction = new();
-    private bool _attractionInitialized;
     private double _attractionX, _attractionY, _attractionVx, _attractionVy;
     private double _attractionTargetX, _attractionTargetY;
 
@@ -134,10 +132,6 @@ public partial class MainWindow
             }
         }
         if (pointer != _lastCursor) { _lastCursorMovement = DateTime.UtcNow; _lastCursor = pointer; }
-        if (!_attractionInitialized)
-        {
-            var group = new TransformGroup(); group.Children.Add(IslandScaleTransform); group.Children.Add(_attraction); IslandBorder.RenderTransform = group; _attractionInitialized = true;
-        }
         if (_isClickCandidate || _bodyDragging) return; // Keep the hit target still throughout a gesture.
         var relative = IslandBorder.PointFromScreen(new Point(pointer.X, pointer.Y));
         double dx = relative.X - IslandBorder.ActualWidth / 2, dy = relative.Y - IslandBorder.ActualHeight / 2;
@@ -148,8 +142,8 @@ public partial class MainWindow
         StepSpring(ref _attractionX, tx, ref _attractionVx, 110, 20, dt); StepSpring(ref _attractionY, ty, ref _attractionVy, 110, 20, dt);
         if (Math.Abs(_attractionX - tx) < .01 && Math.Abs(_attractionVx) < .05) { _attractionX = tx; _attractionVx = 0; }
         if (Math.Abs(_attractionY - ty) < .01 && Math.Abs(_attractionVy) < .05) { _attractionY = ty; _attractionVy = 0; }
-        if (_attraction.X != _attractionX) _attraction.X = _attractionX;
-        if (_attraction.Y != _attractionY) _attraction.Y = _attractionY;
+        if (IslandAttraction.X != _attractionX) IslandAttraction.X = _attractionX;
+        if (IslandAttraction.Y != _attractionY) IslandAttraction.Y = _attractionY;
     }
     private System.Drawing.Point _lastCursor;
     private DateTime _lastCursorMovement = DateTime.UtcNow;

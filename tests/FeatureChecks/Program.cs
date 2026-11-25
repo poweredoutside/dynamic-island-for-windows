@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.ComponentModel;
 using System.IO.Pipes;
 using System.Security.AccessControl;
 using System.Security.Principal;
@@ -44,6 +45,8 @@ internal static class Program
             && !DeviceDisconnect.CanEjectUsb(@"SWD\PRINTENUM\TEST", 0x04, []),
             "Safe eject requires a removable physical USB device, never a hub, an interface or a virtual queue");
         if (args.Contains("--player-volume")) return CheckPlayerVolume();
+        if (args.Contains("--windows-volume-controls")) return CheckWindowsVolumeControls();
+        if (args.Contains("--reminder-audio")) return CheckReminderAudio();
         if (args.Contains("--yandex-player-volume")) return Task.Run(CheckYandexPlayerVolume).GetAwaiter().GetResult();
         if (args.Contains("--app-mixer")) return CheckAppMixer();
         if (args.Contains("--equalizer-download"))
@@ -627,6 +630,41 @@ internal static class Program
         }
     }
 
+    private static int CheckReminderAudio()
+    {
+        using var audio = new MMDeviceEnumerator();
+        using var device = audio.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        using var first = new WasapiOut(device, AudioClientShareMode.Shared, true, 100);
+        using var secondDevice = audio.GetDevice(device.ID);
+        using var second = new WasapiOut(secondDevice, AudioClientShareMode.Shared, true, 100);
+        var level = device.AudioEndpointVolume;
+        float master = level.MasterVolumeLevelScalar;
+        bool muted = level.Mute;
+        first.Init(new SilenceProvider(new WaveFormat(48000, 16, 2)));
+        second.Init(new SilenceProvider(new WaveFormat(16000, 16, 1)));
+        first.Play();
+        second.Play();
+        if (!SpinWait.SpinUntil(() => first.GetPosition() > 0 && second.GetPosition() > 0, 3000))
+            throw new InvalidOperationException("Concurrent test streams did not start.");
+
+        string path = System.IO.Path.GetTempFileName();
+        try
+        {
+            var format = new WaveFormat(22050, 16, 1);
+            var fixture = new byte[format.AverageBytesPerSecond / 2];
+            using (var writer = new WaveFileWriter(path, format))
+                writer.Write(fixture, 0, fixture.Length);
+            long beforeFirst = first.GetPosition(), beforeSecond = second.GetPosition();
+            Task.Run(() => ReminderAudio.PlayWaveAsync(path)).GetAwaiter().GetResult();
+            if (first.GetPosition() <= beforeFirst || second.GetPosition() <= beforeSecond
+                || master != level.MasterVolumeLevelScalar || muted != level.Mute)
+                throw new InvalidOperationException("Reminder playback interfered with a competing stream or master volume.");
+        }
+        finally { System.IO.File.Delete(path); }
+        Console.WriteLine("PASS: shared reminder playback finished alongside two active streams without changing master volume.");
+        return 0;
+    }
+
     private static int CheckPlayerVolume()
     {
         using var enumerator = new NAudio.CoreAudioApi.MMDeviceEnumerator();
@@ -729,6 +767,77 @@ internal static class Program
         }
         Console.WriteLine($"PASS: Yandex Music changed from {original.Volume:P0} to {target:P0} and back. The Windows mixer was unchanged.");
         return 0;
+    }
+
+    private static int CheckWindowsVolumeControls()
+    {
+        using var enumerator = new MMDeviceEnumerator();
+        using var device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        var endpoint = device.AudioEndpointVolume;
+        float original = endpoint.MasterVolumeLevelScalar;
+        bool originalMute = endpoint.Mute;
+        var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        var window = new MainWindow { ShowActivated = false, Left = -10000, Top = -10000 };
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        T Handler<T>(string name) where T : Delegate => typeof(MainWindow).GetMethod(name, flags)!.CreateDelegate<T>(window);
+        void Set(string name, object? value) => typeof(MainWindow).GetField(name, flags)!.SetValue(window, value);
+        T Field<T>(string name) => (T)typeof(MainWindow).GetField(name, flags)!.GetValue(window)!;
+        void Call(string name, params object?[] args) => typeof(MainWindow).GetMethod(name, flags)!.Invoke(window, args);
+        window.Loaded -= Handler<RoutedEventHandler>("Window_Loaded");
+        window.Closing -= Handler<CancelEventHandler>("Window_Closing");
+        window.Closed -= Handler<EventHandler>("Window_Closed");
+        using var service = new VolumeIslandService(false);
+        Set("_volumeIsland", service);
+        service.Changed += Handler<Action<VolumeIslandService.Snapshot>>("VolumeChanged");
+
+        void WaitFor(Func<bool> condition, string failure)
+        {
+            var frame = new DispatcherFrame();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(20) };
+            timer.Tick += (_, _) => frame.Continue = !condition() && clock.Elapsed < TimeSpan.FromSeconds(4);
+            timer.Start();
+            Dispatcher.PushFrame(frame);
+            timer.Stop();
+            if (!condition()) throw new InvalidOperationException(failure);
+        }
+
+        void Move(Slider slider, string label)
+        {
+            WaitFor(() => slider.IsVisible && slider.IsEnabled && Math.Abs(slider.Value - endpoint.MasterVolumeLevelScalar * 100) <= .51,
+                $"{label} did not display the live endpoint volume.");
+            double before = slider.Value;
+            double target = before < 96 ? before + 4 : before - 4;
+            slider.Value = target;
+            WaitFor(() => Math.Abs(endpoint.MasterVolumeLevelScalar - target / 100) < .001,
+                $"{label} did not change the Windows endpoint volume.");
+            slider.Value = before;
+            WaitFor(() => Math.Abs(endpoint.MasterVolumeLevelScalar - before / 100) < .001,
+                $"{label} did not restore the test level.");
+        }
+
+        try
+        {
+            window.Show();
+            Call("OpenFeaturePage", "music");
+            Set("_hasPlayerMedia", true);
+            Call("UpdatePlayerControlVisibility");
+            Move(Field<Slider>("_musicMaster"), "Music page slider");
+            Call("OpenFeaturePage", "system");
+            Move(Field<Slider>("_systemMaster"), "System page slider");
+            Call("OpenVolume_Click", window, new RoutedEventArgs());
+            Move((Slider)window.FindName("VolumeHudSlider"), "Volume capsule slider");
+            Console.WriteLine($"PASS: Music, System, and the volume capsule changed the Windows output ({device.FriendlyName}).");
+            return 0;
+        }
+        finally
+        {
+            service.Dispose();
+            endpoint.MasterVolumeLevelScalar = original;
+            endpoint.Mute = originalMute;
+            window.Close();
+            app.Shutdown();
+        }
     }
 
     private static int CheckVolumeEvents()

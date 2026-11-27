@@ -66,7 +66,7 @@ public partial class MainWindow
         public string LastSeenVersion { get; set; } = "";
         public bool OnboardingComplete { get; set; }
         public bool AutoGameHud { get; set; }
-        public bool ContextAssistant { get; set; }
+        public bool GeminiContextAssistant { get; set; }
     }
 
     private readonly DispatcherTimer _featureTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
@@ -126,7 +126,7 @@ public partial class MainWindow
         {
             _hoverDelay.Stop();
             if (IslandBorder.IsMouseOver && !_isClickCandidate && !_bodyDragging && _currentState == IslandState.Compact
-                && !_manualResize && !_isGameModeActive && !AssistantShortcut.IsMouseOver && !AssistantShortcut.IsKeyboardFocusWithin)
+                && !_manualResize && !_isGameModeActive)
                 MorphToState(IslandState.Hover);
         };
         _featureTimer.Tick += (_, _) => FeatureTick(); _featureTimer.Start();
@@ -294,9 +294,8 @@ public partial class MainWindow
         ShowLyricLine(CompactNextLyric, lyric.Item2, animate: false);
         ShowLyricLine(CompactLastLyric, lyric.Item3, animate: false);
         CompactClockText.Visibility = showTrack ? Visibility.Collapsed : Visibility.Visible;
-        bool showIdleRight = !UpdateAssistantShortcut() && !showTrack;
-        CompactWeatherPanel.Visibility = showIdleRight && _settings.IdleRight == "weather" ? Visibility.Visible : Visibility.Collapsed;
-        CompactBatteryText.Visibility = showIdleRight && _settings.IdleRight == "battery" ? Visibility.Visible : Visibility.Collapsed;
+        CompactWeatherPanel.Visibility = !showTrack && _settings.IdleRight == "weather" ? Visibility.Visible : Visibility.Collapsed;
+        CompactBatteryText.Visibility = !showTrack && _settings.IdleRight == "battery" ? Visibility.Visible : Visibility.Collapsed;
         CompactCharacterHost.Visibility = _settings.SelectedCharacter == "None" ? Visibility.Collapsed : Visibility.Visible;
         if (_currentState == IslandState.Compact && !_isGameModeActive)
         {

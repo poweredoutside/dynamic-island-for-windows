@@ -9,7 +9,7 @@ using System.Security.Cryptography;
 
 namespace DynamicIslandWin.Services;
 
-// A short-lived GUI host included with the app. Desktop COM registrations are
+// A GUI host included with the app. Desktop COM registrations are
 // isolated from MSIX callers, so the callback must run outside the package context.
 // Context travels only over a current-user pipe; command lines contain a random nonce.
 internal static class NotificationActivationBroker
@@ -21,48 +21,144 @@ internal static class NotificationActivationBroker
         catch (Exception ex) { AppLog.Error("Prepare notification activation host", ex); return null; }
     }));
 
-    internal static void PrepareInBackground() => _ = PreparedHost.Value;
+    internal sealed class DesktopSession
+    {
+        private readonly SemaphoreSlim _gate = new(1);
+        private readonly CancellationTokenSource _shutdown = new();
+        private Connection? _connection;
+
+        internal Task WarmUpAsync(string? executable = null) => RunAsync(null, executable);
+
+        internal async Task<bool> RunAsync(NotificationActivationService.Target? target, string? executable = null,
+            CancellationToken cancellation = default)
+        {
+            using var request = CancellationTokenSource.CreateLinkedTokenSource(cancellation, _shutdown.Token);
+            try
+            {
+                await _gate.WaitAsync(request.Token).ConfigureAwait(false);
+                try
+                {
+                    if (_connection == null || _connection.Process.HasExited)
+                    {
+                        _connection?.Dispose();
+                        _connection = null;
+                        // File verification and process startup can take seconds on some PCs.
+                        _connection = await Task.Run(() => ConnectAsync(null, executable, keepAlive: true,
+                            request.Token), request.Token).ConfigureAwait(false);
+                    }
+                    if (_connection == null || target == null) return _connection != null;
+                    request.Token.ThrowIfCancellationRequested();
+                    try
+                    {
+                        return await _connection.SendAsync(target, probe: false, request.Token).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                        // A late response belongs to this request. Start a clean session on retry.
+                        _connection.Dispose();
+                        _connection = null;
+                        throw;
+                    }
+                }
+                finally { _gate.Release(); }
+            }
+            catch (OperationCanceledException) when (request.IsCancellationRequested) { return false; }
+            catch (Exception ex) { AppLog.Error("Desktop notification activation session", ex); return false; }
+        }
+
+        internal async Task CloseAsync()
+        {
+            _shutdown.Cancel();
+            await _gate.WaitAsync().ConfigureAwait(false);
+            try { _connection?.Dispose(); _connection = null; }
+            finally { _gate.Release(); }
+        }
+    }
 
     internal static async Task<bool> RunAsync(NotificationActivationService.Target target, bool probe = false,
         string? executable = null, CancellationToken cancellation = default)
     {
-        if (target.Activator == Guid.Empty) return false;
-        string nonce = Guid.NewGuid().ToString("N");
-        string helper;
+        if (target.Activator == Guid.Empty || cancellation.IsCancellationRequested) return false;
         try
         {
-            helper = executable ?? await PreparedHost.Value.ConfigureAwait(false)
-                ?? await Task.Run(() => PrepareHost(), cancellation).ConfigureAwait(false);
-            if (executable == null && !File.Exists(helper))
-                helper = await Task.Run(() => PrepareHost(), cancellation).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return false; }
-        catch (Exception ex) { AppLog.Error("Prepare notification activation host", ex); return false; }
-        if (cancellation.IsCancellationRequested) return false;
-        using var pipe = new NamedPipeServerStream("DynamicIsland.Activation." + nonce, PipeDirection.InOut, 1,
-            PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-        using var process = target.AppId.Contains('!')
-            ? StartInSourcePackage(target.AppId, helper, nonce) : StartOutsidePackage(helper, nonce);
-        if (process == null) return false;
-        AllowSetForegroundWindow((uint)process.Id);
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
-        timeout.CancelAfter(TimeSpan.FromSeconds(8));
-        try
-        {
-            await pipe.WaitForConnectionAsync(timeout.Token).ConfigureAwait(false);
-            if (!GetNamedPipeClientProcessId(pipe.SafePipeHandle, out uint clientId) || clientId != process.Id)
-                return false;
-            using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 1024, leaveOpen: true) { AutoFlush = true };
-            using var reader = new StreamReader(pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
-            await writer.WriteLineAsync(JsonSerializer.Serialize(new Request(target.AppId, target.Arguments, target.Activator, probe))
-                .AsMemory(), timeout.Token).ConfigureAwait(false);
-            return await reader.ReadLineAsync(timeout.Token).ConfigureAwait(false) == "ok";
+            using var connection = await ConnectAsync(target.AppId, executable, keepAlive: false, cancellation).ConfigureAwait(false);
+            return connection != null && await connection.SendAsync(target, probe, cancellation).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return false; }
         catch (Exception ex) { AppLog.Error("Notification activation broker", ex); return false; }
+    }
+
+    private static async Task<Connection?> ConnectAsync(string? appId, string? executable, bool keepAlive,
+        CancellationToken cancellation)
+    {
+        string helper = executable ?? await PreparedHost.Value.WaitAsync(cancellation).ConfigureAwait(false)
+            ?? await Task.Run(() => PrepareHost(), cancellation).ConfigureAwait(false);
+        if (executable == null && !File.Exists(helper))
+            helper = await Task.Run(() => PrepareHost(), cancellation).ConfigureAwait(false);
+        cancellation.ThrowIfCancellationRequested();
+        string nonce = Guid.NewGuid().ToString("N");
+        var pipe = new NamedPipeServerStream("DynamicIsland.Activation." + nonce, PipeDirection.InOut, 1,
+            PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+        Process? process = null;
+        bool connected = false;
+        try
+        {
+            process = appId != null && appId.Contains('!')
+                ? StartInSourcePackage(appId, helper, nonce) : StartOutsidePackage(helper, nonce, keepAlive);
+            if (process == null) return null;
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            timeout.CancelAfter(TimeSpan.FromSeconds(8));
+            await pipe.WaitForConnectionAsync(timeout.Token).ConfigureAwait(false);
+            if (!GetNamedPipeClientProcessId(pipe.SafePipeHandle, out uint clientId) || clientId != process.Id)
+                return null;
+            var connection = new Connection(pipe, process);
+            connected = true;
+            return connection;
+        }
         finally
         {
-            // Only this one-shot child is owned here. No messenger process is stopped.
+            if (!connected)
+            {
+                pipe.Dispose();
+                StopHost(process);
+            }
+        }
+    }
+
+    private sealed class Connection(NamedPipeServerStream pipe, Process process) : IDisposable
+    {
+        private readonly StreamWriter _writer = new(pipe, new UTF8Encoding(false), 1024, leaveOpen: true) { AutoFlush = true };
+        private readonly StreamReader _reader = new(pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
+        internal Process Process { get; } = process;
+
+        internal async Task<bool> SendAsync(NotificationActivationService.Target target, bool probe, CancellationToken cancellation)
+        {
+            cancellation.ThrowIfCancellationRequested();
+            if (!probe) AllowSetForegroundWindow((uint)Process.Id);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+            timeout.CancelAfter(TimeSpan.FromSeconds(8));
+            var request = new Request(target.AppId, target.Arguments, target.Activator, probe);
+            await _writer.WriteLineAsync(JsonSerializer.Serialize(request).AsMemory(), timeout.Token).ConfigureAwait(false);
+            return (await _reader.ReadLineAsync(timeout.Token).ConfigureAwait(false)) switch
+            {
+                "ok" => true,
+                "unavailable" => false,
+                _ => throw new IOException("Notification activation host disconnected.")
+            };
+        }
+
+        public void Dispose()
+        {
+            pipe.Dispose();
+            StopHost(Process);
+        }
+    }
+
+    private static void StopHost(Process? process)
+    {
+        if (process == null) return;
+        using (process)
+        {
             try { if (!process.HasExited) process.Kill(); }
             catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { AppLog.Error("Close notification activation broker", ex); }
         }
@@ -98,7 +194,7 @@ internal static class NotificationActivationBroker
         return path.ToString();
     }
 
-    internal static async Task ServeAsync(string nonce)
+    internal static async Task ServeAsync(string nonce, bool keepAlive = false)
     {
         if (!Guid.TryParseExact(nonce, "N", out _)) return;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(6));
@@ -109,30 +205,34 @@ internal static class NotificationActivationBroker
             await pipe.ConnectAsync(timeout.Token).ConfigureAwait(false);
             using var reader = new StreamReader(pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
             using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 1024, leaveOpen: true) { AutoFlush = true };
-            // The JSON representation can escape each UTF-16 code unit to six characters.
+            // JSON can escape each UTF-16 code unit to six characters. Bound each request
+            // before parsing, even when the sender omits its newline.
             var buffer = new char[104 * 1024];
-            int count = 0;
-            // Bound input before JSON parsing, including when a peer omits the newline.
-            while (count < buffer.Length)
+            var readToken = keepAlive ? CancellationToken.None : timeout.Token;
+            do
             {
-                int read = await reader.ReadAsync(buffer.AsMemory(count, 1), timeout.Token).ConfigureAwait(false);
-                if (read == 0) return;
-                if (buffer[count++] == '\n') break;
-            }
-            if (count == buffer.Length) return;
-            var request = JsonSerializer.Deserialize<Request>(buffer.AsSpan(0, count), new JsonSerializerOptions { MaxDepth = 4 });
-            if (request == null || request.AppId is not { Length: > 0 and <= 512 } || request.Arguments is { Length: > 16384 } ||
-                request.Activator == Guid.Empty || request.Arguments?.Contains('\0') == true) return;
-            var target = new NotificationActivationService.Target(request.AppId, request.Arguments, request.Activator);
-            bool success = request.Probe
-                ? await NotificationActivationService.ProbeCallbackAsync(target).ConfigureAwait(false)
-                : await NotificationActivationService.ActivateAsync(target).ConfigureAwait(false);
-            await writer.WriteLineAsync(success ? "ok" : "unavailable").ConfigureAwait(false);
+                int count = 0;
+                while (count < buffer.Length)
+                {
+                    int read = await reader.ReadAsync(buffer.AsMemory(count, 1), readToken).ConfigureAwait(false);
+                    if (read == 0) return;
+                    if (buffer[count++] == '\n') break;
+                }
+                if (count == buffer.Length) return;
+                var request = JsonSerializer.Deserialize<Request>(buffer.AsSpan(0, count), new JsonSerializerOptions { MaxDepth = 4 });
+                if (request == null || request.AppId is not { Length: > 0 and <= 512 } || request.Arguments is { Length: > 16384 } ||
+                    request.Activator == Guid.Empty || request.Arguments?.Contains('\0') == true) return;
+                var target = new NotificationActivationService.Target(request.AppId, request.Arguments, request.Activator);
+                bool success = request.Probe
+                    ? await NotificationActivationService.ProbeCallbackAsync(target).ConfigureAwait(false)
+                    : await NotificationActivationService.ActivateAsync(target).ConfigureAwait(false);
+                await writer.WriteLineAsync(success ? "ok" : "unavailable").ConfigureAwait(false);
+            } while (keepAlive);
         }
         catch (Exception ex) { AppLog.Error("Serve notification activation", ex); }
     }
 
-    private static Process? StartOutsidePackage(string executable, string nonce)
+    private static Process? StartOutsidePackage(string executable, string nonce, bool keepAlive)
     {
         IntPtr size = IntPtr.Zero, attributes = IntPtr.Zero, policy = IntPtr.Zero;
         bool initialized = false;
@@ -148,6 +248,7 @@ internal static class NotificationActivationBroker
                 throw new Win32Exception();
             var startup = new StartupInfoEx { StartupInfo = new StartupInfo { Size = Marshal.SizeOf<StartupInfoEx>(), Flags = 1, ShowWindow = 0 }, Attributes = attributes };
             var command = new StringBuilder('"' + executable + "\" --notification-activation-broker " + nonce);
+            if (keepAlive) command.Append(" --keep-alive");
             if (!CreateProcess(executable, command, IntPtr.Zero, IntPtr.Zero, false, 0x80000 | 0x08000000,
                 IntPtr.Zero, Path.GetDirectoryName(executable), ref startup, out var info)) throw new Win32Exception();
             try { return Process.GetProcessById((int)info.ProcessId); }

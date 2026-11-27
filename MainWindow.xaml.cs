@@ -426,7 +426,9 @@ public partial class MainWindow : Window
     {
         _windowClosed = true;
         _notificationActivationClick?.Cancel();
+        _ = _notificationDesktopHost.CloseAsync();
         DetachMediaManager();
+        DisposeContextAssistant();
         DisposeFeatures();
         _screenRecording?.Dispose();
         _keyboardPollTimer.Stop();
@@ -1264,6 +1266,7 @@ public partial class MainWindow : Window
         if (_currentState == state) return;
         if (_currentState == IslandState.Clipboard) ClipboardHistoryListStack.Children.Clear();
         _currentState = state;
+        if (state != IslandState.Compact) SetAssistantView(null);
         StartIslandFrames();
 
         CompactView.Visibility            = Visibility.Collapsed;
@@ -1776,7 +1779,7 @@ public partial class MainWindow : Window
         RefreshAiAgentsPage();
 
         ApplyAdditionalLocalization();
-        UpdateAssistantShortcut();
+        UpdateAssistantStatus();
         UpdateDndVisuals();
         RenderWeatherUi();
     }
@@ -2111,6 +2114,7 @@ public partial class MainWindow : Window
 
     private void ShowIsland()
     {
+        ShowIslandOverAssistant();
         HiddenIslandHandle.Visibility = Visibility.Collapsed;
         IslandBorder.Visibility = Visibility.Visible;
         UpdateDiscordCallState();
@@ -2851,7 +2855,7 @@ public partial class MainWindow : Window
         LoadFeatureThemes();
         TglVolumeIsland.IsChecked = _settings.VolumeIslandHud ?? _settings.LevelHud;
         TglBrightnessIsland.IsChecked = _settings.BrightnessIslandHud ?? _settings.LevelHud;
-        TglContextAssistant.IsChecked = _settings.ContextAssistant;
+        ReloadAssistantKey();
 
         WeatherCityInput.Text         = _settings.WeatherCity;
         DashCityTextBox.Text          = _settings.WeatherCity;

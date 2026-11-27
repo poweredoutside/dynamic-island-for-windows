@@ -12,6 +12,7 @@ public static class ActivationRoundtrip
         var clsid = Guid.NewGuid();
         const string appId = "DynamicIsland.Tests.Chat";
         const string arguments = "action=open&session=test-account&peer=test-chat&msg=123&topic=456&unicode=Привет";
+        var desktop = new NotificationActivationBroker.DesktopSession();
         try
         {
             Marshal.ThrowExceptionForHR(CoRegisterClassObject(ref clsid, factory, 4, 1, out registration));
@@ -19,20 +20,26 @@ public static class ActivationRoundtrip
             var superseded = new NotificationActivationService.Target(appId, arguments, clsid);
             bool delivered = NotificationActivationBroker.RunAsync(superseded, executable: host,
                 cancellation: new CancellationToken(canceled: true)).GetAwaiter().GetResult();
-            lock (callback) return !delivered && callback.Calls == 2;
+            lock (callback) if (delivered || callback.Calls != 2) return false;
+
+            desktop.WarmUpAsync(host).GetAwaiter().GetResult();
+            lock (callback) if (callback.Calls != 2) return false;
+            return ActivateAndCheck(arguments, 3, desktop) && ActivateAndCheck(null, 4, desktop);
         }
         finally
         {
+            desktop.CloseAsync().GetAwaiter().GetResult();
             if (registration != 0) CoRevokeClassObject(registration);
             GC.KeepAlive(factory);
             GC.KeepAlive(callback);
             CoUninitialize();
         }
 
-        bool ActivateAndCheck(string? expectedArguments, int expectedCalls)
+        bool ActivateAndCheck(string? expectedArguments, int expectedCalls, NotificationActivationBroker.DesktopSession? session = null)
         {
             var target = new NotificationActivationService.Target(appId, expectedArguments, clsid);
-            bool completed = NotificationActivationBroker.RunAsync(target, executable: host).GetAwaiter().GetResult();
+            bool completed = (session?.RunAsync(target, executable: host) ??
+                NotificationActivationBroker.RunAsync(target, executable: host)).GetAwaiter().GetResult();
             lock (callback)
                 return completed && callback.Calls == expectedCalls && callback.AppId == appId &&
                     callback.Arguments == expectedArguments && callback.NoUserInput;

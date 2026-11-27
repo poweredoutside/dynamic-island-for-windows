@@ -462,66 +462,35 @@ internal static class Program
         settings.LastDashboardTab = "home";
         rememberTab.IsChecked = false;
 
-        Check(System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>("{}") is { ContextAssistant: false },
-            "Context assistant is opt-in for existing settings");
+        Check(System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>("{}") is { GeminiContextAssistant: false }
+            && System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>("""{"ContextAssistant":true}""") is { GeminiContextAssistant: false },
+            "The original assistant setting does not authorize sharing screen crops");
+        Check(Element<TextBlock>("LblContextAssistant").Text == Translate("Умный ассистент · Gemini"),
+            "The Gemini assistant switch is localized");
         var assistantToggle = Element<CheckBox>("TglContextAssistant");
-        var assistant = Element<Button>("AssistantShortcut");
-        var hoverAssistant = Element<Button>("HoverAssistantShortcut");
-        Check(Element<TextBlock>("LblContextAssistant").Text == Translate("Умный ассистент"),
-            "The context assistant switch is localized");
         bool wasLoading = Field<bool>("_isLoadingSettings");
         Set("_isLoadingSettings", true);
-        assistantToggle.IsChecked = true;
-        assistantToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        Check(System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>(
-                System.Text.Json.JsonSerializer.Serialize(settings)) is { ContextAssistant: true },
-            "Turning on the context assistant changes the persisted setting");
-        var forWindow = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.ForegroundIslandContext")!
-            .GetMethod("ForWindow", BindingFlags.Static | BindingFlags.NonPublic)!;
-        object Context(string process, string windowClass = "") => forWindow.Invoke(null, [process, windowClass])!;
         Call("CollapseBtn_Click", window, new RoutedEventArgs(Button.ClickEvent));
-        foreach (var (process, windowClass, tab, label) in new (string, string, string?, string?)[]
-        {
-            ("Code", "Chrome_WidgetWin_1", "notes", "Заметки"),
-            ("Spotify", "", "music", "Музыка"),
-            ("Telegram", "", "clipboard", "Буфер обмена"),
-            ("explorer", "CabinetWClass", "clipboard", "Буфер обмена"),
-            ("ms-teams", "", "calendar", "Календарь"),
-            ("javaw", "GLFW30", "system", "Система"),
-            ("javaw", "SunAwtFrame", null, null),
-            ("explorer", "Progman", null, null),
-            ("unknown", "", null, null)
-        })
-        {
-            Set("_assistantContext", Context(process, windowClass));
-            Call("UpdateCompactContent");
-            Check(Equals(assistant.Tag, tab) && assistant.Visibility == (tab != null ? Visibility.Visible : Visibility.Collapsed)
-                && (label == null || Equals(assistant.ToolTip, Translate(label))), $"Context assistant selects the right shortcut for {process}/{windowClass}");
-        }
-        var getTab = forWindow.ReturnType.GetMethod("GetTab", flags)!;
-        var browser = Context("chrome");
-        Check(Equals(getTab.Invoke(browser, ["Chrome.Default"]), "music")
-            && Equals(getTab.Invoke(browser, ["Spotify.exe"]), "clipboard")
-            && Equals(getTab.Invoke(browser, [null]), "clipboard"), "Only media from the active browser changes its shortcut to Music");
-        Set("_assistantContext", Context("code"));
-        Call("UpdateCompactContent");
-        Check(hoverAssistant.Visibility == Visibility.Visible && Equals(hoverAssistant.ToolTip, assistant.ToolTip),
-            "The hover view has the same shortcut as the compact view");
-        Check(Element<StackPanel>("CompactWeatherPanel").Visibility == Visibility.Collapsed,
-            "The suggestion occupies the right slot of the compact island");
-        settings.HiddenTabs.Add("notes");
-        Call("UpdateCompactContent");
-        Check(assistant.Visibility == Visibility.Collapsed && Element<StackPanel>("CompactWeatherPanel").Visibility == Visibility.Visible,
-            "A hidden destination restores the normal right slot");
-        settings.HiddenTabs.Clear();
-        Call("UpdateCompactContent");
-        assistant.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        Check(Field<string>("_featurePage") == "notes" && Element<ScrollViewer>("DashboardSectionView").Visibility == Visibility.Visible,
-            "Clicking the shortcut opens the suggested section");
+        Call("SetAssistantHidden", true);
+        Check(mainCapsule.Visibility == Visibility.Hidden && Element<Grid>("CompactView").Visibility == Visibility.Visible,
+            "Assistant hides only the main capsule and preserves its layout");
+        Call("SetAssistantHidden", false);
+        Check(mainCapsule.Visibility == Visibility.Visible, "Clearing obstruction restores the main capsule");
+        Call("SetAssistantHidden", true);
+        Call("ToggleIslandDashboard");
+        Check(mainCapsule.Visibility == Visibility.Visible && Element<Grid>("DashboardHeader").Visibility == Visibility.Visible,
+            "The island shortcut restores the capsule and opens the dashboard");
+        Call("CtxHideUp_Click", window, new RoutedEventArgs(MenuItem.ClickEvent));
+        Call("SetAssistantHidden", true);
+        Call("SetAssistantHidden", false);
+        Check(mainCapsule.Visibility == Visibility.Collapsed, "An assistant result preserves manual hiding");
+        Call("ShowIsland");
+        settings.GeminiContextAssistant = true;
+        Call("SetAssistantHidden", true);
         assistantToggle.IsChecked = false;
         assistantToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        Check(!settings.ContextAssistant && assistant.Visibility == Visibility.Collapsed && hoverAssistant.Visibility == Visibility.Collapsed,
-            "Turning off the assistant immediately removes both shortcuts");
+        Check(!settings.GeminiContextAssistant && mainCapsule.Visibility == Visibility.Visible,
+            "Disabling the assistant restores the capsule immediately");
         Set("_isLoadingSettings", wasLoading);
         SelectDashboardTab("home");
 
@@ -574,7 +543,7 @@ internal static class Program
         var versionNotes = ((StackPanel)updateCards[1].Child).Children.OfType<TextBlock>()
             .Where(label => label.FontWeight == FontWeights.SemiBold && label.FontSize == 13)
             .Select(label => label.Text).ToArray();
-        Check(versionNotes.SequenceEqual(new[] { "1.1.30", "1.1.29", "1.1.28", "1.1.27", "1.1.26", "1.1.25" }.Select(version => Translate("В версии " + version))),
+        Check(versionNotes.SequenceEqual(new[] { "1.1.31", "1.1.30", "1.1.29", "1.1.28", "1.1.27", "1.1.26", "1.1.25" }.Select(version => Translate("В версии " + version))),
             "What's new lists the current and previous releases in order");
         Element<Button>("NavAppearanceBtn").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Call("RefreshUpdatesPage");

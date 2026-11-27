@@ -659,7 +659,7 @@ public partial class MainWindow
         var key = new PasswordBox { Padding = new Thickness(10), Margin = new Thickness(0, 0, 0, 10) };
         key.SetResourceReference(Control.BackgroundProperty, "ThemeInputBrush"); key.SetResourceReference(Control.ForegroundProperty, "ThemeTextBrush"); card.Children.Add(key);
         card.Children.Add(FeatureText(string.IsNullOrWhiteSpace(GeminiKeyStore.Read()) ? "Ключ не задан. Введите API-ключ выше или используйте GEMINI_API_KEY." : "Ключ сохранён для текущего пользователя Windows.", 11, "ThemeMutedBrush"));
-        var keyButtons = new WrapPanel(); keyButtons.Children.Add(FeatureButton("Сохранить ключ", () => { GeminiKeyStore.Save(key.Password); key.Clear(); OpenFeaturePage("chat"); })); keyButtons.Children.Add(FeatureButton("Удалить ключ", () => { GeminiKeyStore.Save(""); OpenFeaturePage("chat"); })); card.Children.Add(keyButtons);
+        var keyButtons = new WrapPanel(); keyButtons.Children.Add(FeatureButton("Сохранить ключ", () => { GeminiKeyStore.Save(key.Password); ReloadAssistantKey(); key.Clear(); OpenFeaturePage("chat"); })); keyButtons.Children.Add(FeatureButton("Удалить ключ", () => { GeminiKeyStore.Save(""); ReloadAssistantKey(); OpenFeaturePage("chat"); })); card.Children.Add(keyButtons);
         var model = FeatureInput(card, "Модель Live API", _settings.GeminiModel);
         model.LostKeyboardFocus += (_, _) => { _settings.GeminiModel = model.Text.Trim(); SaveSettings(); };
         BuildChatVoiceControls(card);
@@ -826,6 +826,11 @@ public partial class MainWindow
     private void BuildWhatsNewSection()
     {
         var card = FeatureCard("Что нового", parent: SettingsFeatureContent);
+        AddChanges("В версии 1.1.31",
+            "Умный ассистент Gemini скрывает капсулу, если она перекрывает важные элементы активного окна.",
+            "Ассистент включается в настройках поведения и использует ваш API-ключ Gemini.",
+            "Исправлен переход в личный чат по уведомлению Telegram и Telega Desktop.",
+            "Заранее запущенный обработчик ускоряет передачу действия из уведомления.");
         AddChanges("В версии 1.1.30",
             RequiredSoundUpdate,
             "Восстановлено управление всеми аудиосессиями текущего выхода через громкость и отключение звука Windows.",

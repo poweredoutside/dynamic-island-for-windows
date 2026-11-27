@@ -87,6 +87,7 @@ public partial class MainWindow
         {
             GeminiKeyStore.Save(key);
             AiGeminiKeyBox.Clear();
+            ReloadAssistantKey();
             RefreshAiAgentsPage();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or CryptographicException)

@@ -51,6 +51,7 @@ internal static class Program
         if (args.Contains("--volume-output-change")) return CheckVolumeOutputChange();
         if (args.Contains("--audio-mute-recovery")) return CheckAudioMuteRecovery();
         if (args.Contains("--brightness-hud")) return CheckBrightnessHud();
+        if (args.Contains("--gemini-assistant")) return GeminiAssistantChecks.RunAsync().GetAwaiter().GetResult();
         if (args.Contains("--reminder-audio")) return CheckReminderAudio();
         if (args.Contains("--app-mixer")) return CheckAppMixer();
         if (args.Contains("--media-sessions")) return CheckMediaSessions(args);

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
@@ -17,10 +17,10 @@
     <ApplicationManifest>setup.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="..\..\Services\EqualizerApoInstaller.cs" Link="EqualizerApoInstaller.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(InstallerPayloadDirectory)' != ''">
     <EmbeddedResource Include="$(InstallerPayloadDirectory)\DynamicIsland.msix" LogicalName="Payload.DynamicIsland.msix" />
+    <EmbeddedResource Include="$(InstallerIdentityManifest)" LogicalName="Payload.AppxManifest.xml" />
     <EmbeddedResource Include="$(InstallerPayloadDirectory)\DynamicIsland.cer" LogicalName="Payload.DynamicIsland.cer" />
     <EmbeddedResource Include="$(InstallerPayloadDirectory)\PawnIO_setup.exe" LogicalName="Payload.PawnIO_setup.exe" />
     <EmbeddedResource Include="..\Install.ps1" LogicalName="Payload.Install.ps1" />

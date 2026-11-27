@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>1.1.29</Version>
+    <Version>1.1.30</Version>
     <Title>OC - Dynamic Island</Title>
     <Product>OC - Dynamic Island</Product>
     <Description>OC - Dynamic Island для Windows</Description>
@@ -26,7 +26,6 @@
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="Ical.Net" Version="4.3.1" />
-    <PackageReference Include="Interop.UIAutomationClient" Version="10.19041.0" />
     <PackageReference Include="System.Management" Version="10.0.2" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.1.21" />

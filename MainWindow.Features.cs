@@ -44,6 +44,7 @@ public partial class MainWindow
         public bool ReminderSound { get; set; } = true;
         public bool LevelHud { get; set; } = true;
         public bool? VolumeIslandHud { get; set; }
+        public bool? BrightnessIslandHud { get; set; }
         public bool FollowCursorMonitor { get; set; }
         public bool TitleUnreadFallback { get; set; } = true;
         public bool ExternalProgress { get; set; } = true;
@@ -75,6 +76,7 @@ public partial class MainWindow
     private Task? _reminderSoundPlayback;
     private DateTime _nextFeatureScan, _nextCalendarRead;
     private VolumeIslandService? _volumeIsland;
+    private BrightnessIslandService? _brightnessIsland;
     private Slider? _systemMaster;
     private readonly object _volumeGate = new();
     private VolumeIslandService.Snapshot _pendingVolume;
@@ -111,7 +113,11 @@ public partial class MainWindow
         InitializeLiveSystemStatus();
         IslandBorder.LostMouseCapture += (_, _) => { _isClickCandidate = false; if (_bodyDragging) { _bodyDragging = false; RememberIslandPlacement(); SaveSettings(); } };
         _settings.VolumeIslandHud ??= _settings.LevelHud;
-        _volumeIsland = new VolumeIslandService(_settings.VolumeIslandHud == true);
+        _brightnessIsland = new BrightnessIslandService(Dispatcher, ShowBrightnessSnapshot);
+        _brightnessIsland.SetEnabled(_settings.BrightnessIslandHud ?? _settings.LevelHud);
+        _brightnessIsland.SetVolumeEnabled(_settings.VolumeIslandHud == true);
+        _volumeIsland = new VolumeIslandService(_settings.VolumeIslandHud == true, _brightnessIsland.ObserveKey,
+            recoverPreviousMutes: true);
         _volumeIsland.Changed += VolumeChanged;
         VolumeHudSlider.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler((_, _) => _volumeIsland?.RequestSnapshot()));
         UpdateVolumeObservation();
@@ -129,7 +135,8 @@ public partial class MainWindow
         else if (_settings.LastSeenVersion != ProductVersion)
         {
             _settings.OnboardingComplete = true;
-            FeatureNotice($"OC - Dynamic Island {ProductVersion} · {L("Что нового")}", () => OpenSettingsFeaturePage("updates"));
+            string updateNotice = ProductVersion == "1.1.30" ? RequiredSoundUpdate : "Что нового";
+            FeatureNotice($"OC - Dynamic Island {ProductVersion} · {L(updateNotice)}", () => OpenSettingsFeaturePage("updates"));
             _settings.LastSeenVersion = ProductVersion; SaveSettings();
         }
     }
@@ -152,6 +159,7 @@ public partial class MainWindow
         _featureTimer.Stop(); _hoverDelay.Stop(); _watchdog?.Dispose();
         _settingsSaveTimer?.Stop();
         if (_volumeIsland != null) { _volumeIsland.Changed -= VolumeChanged; _volumeIsland.Dispose(); }
+        _brightnessIsland?.Dispose();
         StopGameMetrics();
         _updateCancellation?.Cancel();
         CancelLyricsSearch();
@@ -193,6 +201,7 @@ public partial class MainWindow
         _uiHeartbeat = DateTime.UtcNow;
         if (_windowClosed) return;
         var now = DateTimeOffset.Now;
+        _brightnessIsland?.RefreshShellHook();
         if (LevelHudBorder.IsMouseOver || VolumeHudSlider.IsKeyboardFocusWithin || VolumeHudSlider.IsMouseCaptureWithin)
             _featureNoticeUntil = DateTime.UtcNow.AddSeconds(3);
         else if (DateTime.UtcNow > _featureNoticeUntil)
@@ -342,7 +351,7 @@ public partial class MainWindow
     private async Task ScanFeaturesAsync()
     {
         bool readGpu = DesktopSystemWidgetVisible || _isGameModeActive || SystemPageVisible;
-        bool readBrightness = _settings.LevelHud && DateTime.UtcNow >= _nextBrightnessRead;
+        bool readBrightness = (_settings.BrightnessIslandHud ?? _settings.LevelHud) && DateTime.UtcNow >= _nextBrightnessRead;
         bool readWindows = _settings.ExternalProgress || (_settings.TitleUnreadFallback && NotificationsEnabled);
         if (readBrightness) _nextBrightnessRead = DateTime.UtcNow.AddSeconds(6);
         if (!readGpu && !readBrightness && !readWindows && _jobs.Count == 0 && _unreadCounts.Count == 0) return;
@@ -350,14 +359,19 @@ public partial class MainWindow
         {
             var snapshot = await Task.Run(() =>
             {
+                long brightnessSampleAt = Environment.TickCount64;
                 int? brightness = readBrightness ? DesktopAudioService.Brightness() : null;
                 int? gpu = readGpu ? DesktopAudioService.GpuUsage() : null;
-                return (Windows: readWindows ? ReadWindowSignals() : Array.Empty<WindowSignal>(), Brightness: brightness, Gpu: gpu);
+                return (Windows: readWindows ? ReadWindowSignals() : Array.Empty<WindowSignal>(), Brightness: brightness,
+                    BrightnessSampleAt: brightnessSampleAt, Gpu: gpu);
             });
             if (_windowClosed) return;
-            if (_settings.LevelHud && _lastBrightness.HasValue && snapshot.Brightness is { } brightness && brightness != _lastBrightness)
-                LevelNotice(L("Яркость") + $" · {brightness}%", brightness);
-            if (readBrightness) _lastBrightness = snapshot.Brightness;
+            if (readBrightness)
+            {
+                _lastBrightness = snapshot.Brightness;
+                if (snapshot.Brightness is { } brightness)
+                    _brightnessIsland?.UpdateBrightness(brightness, snapshot.BrightnessSampleAt);
+            }
             if (readGpu) _lastGpuUsage = snapshot.Gpu ?? -1;
             UpdateWindowSignals(snapshot.Windows);
         }
@@ -439,6 +453,8 @@ public partial class MainWindow
             if (_systemMaster?.IsVisible == true) UpdateWindowsVolumeSlider(_systemMaster, latest);
             if (_manualVolumeOpen || (_settings.VolumeIslandHud == true && !HasVisibleWindowsVolumeSlider))
                 ShowVolumeSnapshot(latest);
+            if (HasVisibleWindowsVolumeSlider || LevelHudBorder.IsVisible && VolumeHudSlider.IsVisible)
+                _brightnessIsland?.VolumeHudShown();
             RefreshWidget("volume");
         }));
     }
@@ -479,11 +495,35 @@ public partial class MainWindow
         _settings.VolumeIslandHud = enabled;
         TglVolumeIsland.IsChecked = enabled;
         if (_volumeIsland != null) _volumeIsland.Enabled = enabled;
-        if (!enabled && !_manualVolumeOpen) LevelHudBorder.Visibility = Visibility.Collapsed;
+        _brightnessIsland?.SetVolumeEnabled(enabled);
+        if (!enabled && !_manualVolumeOpen && VolumeHudSlider.Visibility == Visibility.Visible)
+            LevelHudBorder.Visibility = Visibility.Collapsed;
     }
 
     private void TglVolumeIsland_Click(object sender, RoutedEventArgs e)
     { SetVolumeIslandHud(TglVolumeIsland.IsChecked == true); SaveSettings(); }
+
+    private void SetBrightnessIslandHud(bool enabled)
+    {
+        _settings.BrightnessIslandHud = enabled;
+        TglBrightnessIsland.IsChecked = enabled;
+        _brightnessIsland?.SetEnabled(enabled);
+        _nextBrightnessRead = DateTime.MinValue;
+        if (!enabled && LevelHudBar.Visibility == Visibility.Visible)
+            LevelHudBorder.Visibility = Visibility.Collapsed;
+    }
+
+    private void TglBrightnessIsland_Click(object sender, RoutedEventArgs e)
+    { SetBrightnessIslandHud(TglBrightnessIsland.IsChecked == true); SaveSettings(); }
+
+    private bool ShowBrightnessSnapshot(int brightness)
+    {
+        _lastBrightness = brightness;
+        if (_windowClosed || !IsVisible || WindowState == WindowState.Minimized ||
+            IslandBorder.Visibility != Visibility.Visible || VolumeHudSlider.IsMouseCaptureWithin) return false;
+        LevelNotice(L("Яркость") + $" · {brightness}%", brightness);
+        return LevelHudBorder.IsVisible;
+    }
 
     private void ShowVolumeSnapshot(VolumeIslandService.Snapshot snapshot)
     {

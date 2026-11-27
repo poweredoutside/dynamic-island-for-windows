@@ -17,7 +17,7 @@ public partial class MainWindow
         string AppName, Windows.ApplicationModel.AppInfo? AppInfo, DateTimeOffset Created,
         Task<NotificationActivationService.Target?> Activation);
     private readonly record struct NotificationObservation(UserNotification Source, uint Id, DateTimeOffset Created,
-        string Text, int Elements);
+        string Text, int Elements, Task<NotificationActivationService.Target?>? Activation = null);
 
     private static NotificationObservation ReadNotificationObservation(UserNotification notification)
     {
@@ -28,6 +28,27 @@ public partial class MainWindow
         string text = elements == null ? "" : string.Join(" · ", elements.Select(t => t.Text).Where(t => !string.IsNullOrWhiteSpace(t)));
         return new(notification, notification.Id, notification.CreationTime, text, elements?.Count ?? 0);
     }
+
+    private static NotificationObservation PrefetchNotificationActivation(NotificationObservation observation,
+        bool wantMessengers, bool wantAllApps)
+    {
+        if (string.IsNullOrWhiteSpace(observation.Text)) return observation;
+        try
+        {
+            var app = observation.Source.AppInfo;
+            string appId = app?.AppUserModelId ?? "";
+            if (wantAllApps || (wantMessengers && NotificationPolicy.IsMessenger(app?.DisplayInfo?.DisplayName ?? "", appId)))
+                return observation with { Activation = CaptureNotificationActivation(observation, app, appId) };
+        }
+        catch (Exception ex) { AppLog.Error("Read notification activation source", ex); }
+        return observation;
+    }
+
+    private static Task<NotificationActivationService.Target?> CaptureNotificationActivation(NotificationObservation observation,
+        Windows.ApplicationModel.AppInfo? app, string appId)
+        => NotificationActivationService.CaptureAsync(observation.Id, appId, observation.Created,
+            NotificationActivationService.Fingerprint(observation.Text), GetNotificationPackageManifest(app));
+
     private readonly Dictionary<string, ImageSource> _notificationIcons = new();
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetCurrentPackageFullName(ref uint length, System.Text.StringBuilder? name);
@@ -97,9 +118,15 @@ public partial class MainWindow
         {
             // Capture a short-lived toast directly from its event, before a full
             // enumeration/UI backlog can let the sender withdraw it.
+            bool capture = _notificationBaseline;
+            bool wantMessengers = _settings.MessengerNotifications, wantAllApps = _settings.AllAppNotifications;
             var notification = args.ChangeKind == UserNotificationChangedKind.Added
-                ? await Task.Run<NotificationObservation?>(() => sender.GetNotification(args.UserNotificationId) is { } item
-                    ? ReadNotificationObservation(item) : null).WaitAsync(TimeSpan.FromSeconds(2))
+                ? await Task.Run<NotificationObservation?>(() =>
+                {
+                    if (sender.GetNotification(args.UserNotificationId) is not { } item) return null;
+                    var observation = ReadNotificationObservation(item);
+                    return capture ? PrefetchNotificationActivation(observation, wantMessengers, wantAllApps) : observation;
+                }).WaitAsync(TimeSpan.FromSeconds(2))
                 : null;
             if (_windowClosed || Dispatcher.HasShutdownStarted) return;
             await Dispatcher.InvokeAsync(() =>
@@ -154,6 +181,8 @@ public partial class MainWindow
             // Cancel stalled WinRT requests so one read cannot disable the bridge forever.
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
             long eventVersion = Interlocked.Read(ref _notificationEventVersion);
+            var seen = _notificationBaseline ? _notificationPolicy.Snapshot() : null;
+            bool wantMessengers = TglMessengerNotifs.IsChecked == true, wantAllApps = TglAllAppNotifs.IsChecked == true;
             // Shell enumeration must not occupy the WPF dispatcher.
             var notifications = await Task.Run(async () =>
             {
@@ -161,7 +190,14 @@ public partial class MainWindow
                 var observations = new List<NotificationObservation>(items.Count);
                 foreach (var item in items)
                 {
-                    try { observations.Add(ReadNotificationObservation(item)); }
+                    try
+                    {
+                        var observation = ReadNotificationObservation(item);
+                        if (seen != null && (!seen.TryGetValue(observation.Id, out var previous) ||
+                            previous != (observation.Created, observation.Text)))
+                            observation = PrefetchNotificationActivation(observation, wantMessengers, wantAllApps);
+                        observations.Add(observation);
+                    }
                     catch (Exception ex) { AppLog.Error("Read notification observation", ex); }
                 }
                 return observations;
@@ -218,8 +254,7 @@ public partial class MainWindow
                     TglAllAppNotifs.IsChecked ?? false, _isGameModeActive || _isDndActive || !_dndStateKnown)) return;
             var next = new IslandNotification(observation.Id, $"{appName}: {text}", messenger,
                 appId, appName, app, observation.Created,
-                NotificationActivationService.CaptureAsync(observation.Id, appId, observation.Created,
-                    NotificationActivationService.Fingerprint(text), GetNotificationPackageManifest(app)));
+                observation.Activation ?? CaptureNotificationActivation(observation, app, appId));
             // The newest item wins a burst; originals remain in Windows history.
             _pendingNotification = next;
         }
@@ -301,13 +336,23 @@ public partial class MainWindow
         try
         {
             var target = await notification.Activation;
-            bool activated = target != null && await NotificationActivationBroker.RunAsync(target);
-            AppLog.Notification($"activate id={notification.Id} context={target != null} native={activated}");
+            bool activated;
+            if (target?.Protocol is { } uri)
+            {
+                var options = new Windows.System.LauncherOptions();
+                if (target.ProtocolPackage is { } package) options.TargetApplicationPackageFamilyName = package;
+                activated = await Windows.System.Launcher.LaunchUriAsync(uri, options);
+            }
+            else activated = target != null && await NotificationActivationBroker.RunAsync(target);
+            AppLog.Notification($"activate id={notification.Id} context={target != null} protocol={target?.Protocol != null} handled={activated}");
             if (activated) return;
-            // The sender may have withdrawn its context, or provide no native callback.
-            var start = new ProcessStartInfo("explorer.exe") { UseShellExecute = false };
-            start.ArgumentList.Add("shell:AppsFolder\\" + notification.AppId);
-            Process.Start(start);
+        }
+        catch (Exception ex) { AppLog.Error("Invoke notification default action", ex); }
+
+        try
+        {
+            bool launched = NotificationActivationService.OpenSourceApp(notification.AppId);
+            AppLog.Notification($"open source id={notification.Id} handled={launched}");
         }
         catch (Exception ex) { AppLog.Error("Open notification app", ex); }
     }

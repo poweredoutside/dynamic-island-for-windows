@@ -37,7 +37,6 @@ public partial class MainWindow
         AutomationProperties.SetName(HomePlayerVolume, L("Громкость плеера"));
         UpdateHomePlayerVolume(_playerVolume);
         AutomationProperties.SetName(HomePlayerSeek, L("Перемотка трека"));
-        LocalizePlayerOutputButton(HomePlayerOutputButton);
         RenderHomePlayerTimeline();
     }
 
@@ -220,7 +219,6 @@ public partial class MainWindow
 
     private void UpdateHomePlayerTimeline(LyricsService.Track? track, PlayerTimeline? timeline)
     {
-        if (_playerTrack?.Source != track?.Source && _playerOutputMenu is { IsOpen: true } menu) menu.IsOpen = false;
         if (_playerTrack != track || timeline is not { CanSeek: true })
         {
             _playerSeekTimer?.Stop();

@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO.Pipes;
 using System.Security.AccessControl;
 using System.Security.Principal;
@@ -46,15 +47,12 @@ internal static class Program
             "Safe eject requires a removable physical USB device, never a hub, an interface or a virtual queue");
         if (args.Contains("--player-volume")) return CheckPlayerVolume();
         if (args.Contains("--windows-volume-controls")) return CheckWindowsVolumeControls();
+        if (args.Contains("--isolated-windows-volume")) return CheckIsolatedWindowsVolume();
+        if (args.Contains("--volume-output-change")) return CheckVolumeOutputChange();
+        if (args.Contains("--audio-mute-recovery")) return CheckAudioMuteRecovery();
+        if (args.Contains("--brightness-hud")) return CheckBrightnessHud();
         if (args.Contains("--reminder-audio")) return CheckReminderAudio();
-        if (args.Contains("--yandex-player-volume")) return Task.Run(CheckYandexPlayerVolume).GetAwaiter().GetResult();
         if (args.Contains("--app-mixer")) return CheckAppMixer();
-        if (args.Contains("--equalizer-download"))
-        {
-            using var download = EqualizerApoInstaller.DownloadAsync().GetAwaiter().GetResult();
-            Console.WriteLine("PASS: downloaded official Equalizer APO x64 and verified its SHA-256.");
-            return 0;
-        }
         if (args.Contains("--media-sessions")) return CheckMediaSessions(args);
         Check(MediaSources.MatchesDesktopPlayer("ru.yandex.desktop.music", "Яндекс Музыка")
             && MediaSources.MatchesDesktopPlayer("Spotify.exe", "Spotify")
@@ -210,39 +208,6 @@ internal static class Program
             && !WindowsConnectivity.IsVpnAddress(System.Net.IPAddress.Parse("fe80::2"))
             && !WindowsConnectivity.IsVpnAddress(System.Net.IPAddress.Loopback),
             "A tunnel requires a configured address, including IPv6-only VPNs");
-        var apoFixture = System.IO.Directory.CreateTempSubdirectory("island-equalizer-");
-        string mainConfig = System.IO.Path.Combine(apoFixture.FullName, "config.txt");
-        string managedConfig = System.IO.Path.Combine(apoFixture.FullName, MusicEqualizer.ConfigName);
-        try
-        {
-            var install = new EqualizerApoInstaller.Installation(apoFixture.FullName, null);
-            var encoding = new System.Text.UTF8Encoding(true);
-            const string existing = "# Audífonos\nPreamp: -2 dB\nInclude: example.txt\n";
-            System.IO.File.WriteAllText(mainConfig, existing, encoding);
-            MusicEqualizer.Apply(install, [3, -1], false);
-            Check(!System.IO.File.Exists(managedConfig) && System.IO.File.ReadAllText(mainConfig) == existing,
-                "An unused equalizer does not touch the existing APO configuration");
-            MusicEqualizer.Apply(install, [99, -2, 0, 1, -99], true);
-            string activeConfig = System.IO.File.ReadAllText(managedConfig);
-            string rootConfig = "Include: " + MusicEqualizer.ConfigName + "\n" + existing;
-            Check(System.IO.File.ReadAllBytes(mainConfig).SequenceEqual(encoding.GetPreamble().Concat(encoding.GetBytes(rootConfig)))
-                && activeConfig.Contains("If: stage == \"post-mix\"") && activeConfig.Contains("Preamp: -12 dB")
-                && activeConfig.Contains("GraphicEQ: 60 12; 250 -2; 1000 0; 4000 1; 12000 -12"),
-                "The EQ preserves existing config text and encoding and generates playback-only filters with headroom and bounded gains");
-            MusicEqualizer.Apply(install, [7], true);
-            Check(System.IO.File.ReadAllText(mainConfig) == rootConfig
-                && System.IO.File.ReadAllText(managedConfig).Contains("GraphicEQ: 60 7; 250 0; 1000 0; 4000 0; 12000 0"),
-                "Changing the curve updates only the included file and fills missing bands with zero");
-            MusicEqualizer.Apply(install, [7], false);
-            Check(System.IO.File.ReadAllText(mainConfig) == rootConfig && !System.IO.File.ReadAllText(managedConfig).Contains("GraphicEQ:"),
-                "Disabling the EQ leaves the rest of the APO setup active and removes the island's filters");
-        }
-        finally
-        {
-            System.IO.File.Delete(mainConfig);
-            System.IO.File.Delete(managedConfig);
-            apoFixture.Delete();
-        }
         var calculator = new WidgetCalculator();
         foreach (string key in new[] { "1", "2", "×", "3", "=", "÷", "4", "=" }) calculator.Press(key);
         Check(calculator.Display == "9", "Widget calculator evaluates chained operations");
@@ -405,18 +370,6 @@ internal static class Program
             client.WriteAsync(new byte[] { 37 }.AsMemory(), timeout.Token).AsTask().GetAwaiter().GetResult();
             Check(reading.GetAwaiter().GetResult() == 1 && buffer[0] == 37, "Account-scoped pipe supports the identification-only client");
         }
-        var keys = new VolumeKeyRouter();
-        var commands = new List<int>();
-        bool Queue(int key) { commands.Add(key); return true; }
-        Check(!keys.Handle(0x41, true, false, true, true, Queue) && commands.Count == 0, "Ordinary keys never enter the volume queue");
-        Check(!keys.Handle(0xAF, true, false, false, true, Queue), "Disabled mode passes volume to Windows");
-        Check(!keys.Handle(0xAF, true, false, true, false, Queue), "Missing endpoint fails open");
-        Check(!keys.Handle(0xAF, true, false, true, true, _ => false), "Busy worker fails open without swallowing input");
-        Check(keys.Handle(0xAF, true, false, true, true, Queue) && keys.Handle(0xAF, true, false, true, true, Queue) && commands.Count == 2, "Held volume keys preserve autorepeat");
-        Check(keys.Handle(0xAF, false, true, false, false, Queue), "Matched release is consumed after disabling");
-        Check(!keys.Handle(0xAF, false, true, true, true, Queue), "Unmatched release passes through");
-        Check(keys.Handle(0xAD, true, false, true, true, Queue) && commands.Last() == 0xAD, "Mute uses the same independent path");
-        Check(keys.Handle(0xAE, true, false, true, true, Queue) && commands.Last() == 0xAE, "Volume down uses the same independent path");
         var theme = new UserTheme("Морская волна 🌊", "#123456", "#234567", "#AbCdEf", false);
         Check(ThemeCode.Import(ThemeCode.Export(theme)) == theme, "Theme travels without loss of Unicode or colors");
         foreach (string bad in new[] { "", "DI2:AAAA", "DI1:***", "DI1:" + Convert.ToBase64String("{}"u8.ToArray()), new string('a', 3000) })
@@ -577,35 +530,41 @@ internal static class Program
         foreach (var device in devices.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
             using (device)
                 if (device.ID != defaultOutput.ID) alternateId ??= device.ID;
-        string targetId = alternateId ?? defaultOutput.ID;
-        using var targetOutput = devices.GetDevice(targetId);
-        using var targetPlayback = StartSilence(targetOutput);
-        using var defaultPlayback = alternateId == null ? null : StartSilence(defaultOutput);
+        string targetId = defaultOutput.ID;
+        using var secondary = alternateId == null ? null : devices.GetDevice(alternateId);
+        using var targetPlayback = StartSilence(defaultOutput);
+        using var secondaryPlayback = secondary == null ? null : StartSilence(secondary);
         using var mixer = new DesktopAudioService();
 
-        DesktopAudioService.AppVolume? other = null, target = null;
-        if (!SpinWait.SpinUntil(() => (target = FindSession(targetId)) != null &&
-            (alternateId == null || (other = FindSession(defaultOutput.ID)) != null), 3000) || target == null)
-            throw new InvalidOperationException("The mixer must list live sessions on the active render endpoints.");
+        DesktopAudioService.AppVolume? target = null;
+        if (!SpinWait.SpinUntil(() => (target = FindSession(targetId)) != null, 3000) || target == null)
+            throw new InvalidOperationException("The mixer must list live sessions on the default endpoint.");
+        if (mixer.Apps().Any(session => session.EndpointId != targetId))
+            throw new InvalidOperationException("The mixer must follow the default playback endpoint.");
         var master = mixer.Master();
 
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         var window = new MainWindow();
         var panel = new StackPanel();
-        typeof(MainWindow).GetMethod("AddAppMixerRow", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(window, [panel, target]);
+        var (_, refreshRow) = ((StackPanel, Action<DesktopAudioService.AppVolume, long>))typeof(MainWindow)
+            .GetMethod("AddAppMixerRow", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(window, [panel, target])!;
         var row = (StackPanel)panel.Children[0];
         var slider = row.Children.OfType<Slider>().Single();
         var mute = row.Children.OfType<Button>().Single();
         var sliderVolume = target.Volume > .5f ? 35 : 75;
         try
         {
-            slider.Value = sliderVolume;
+            mixer.SetApp(target, 0, true);
+            if (mixer.SetApp(target, sliderVolume / 100f, null) is not { Muted: true })
+                throw new InvalidOperationException("The slider must preserve a session's explicit mute.");
+            mixer.SetApp(target, null, false);
+            refreshRow(FindSession(targetId)!, Stopwatch.GetTimestamp());
+            slider.Value = sliderVolume + 1;
             mute.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            if (FindSession(targetId) is not { } actual || Math.Abs(actual.Volume - sliderVolume / 100f) > .001f
-                || actual.Muted == target.Muted)
+            if (FindSession(targetId) is not { } actual || Math.Abs(actual.Volume - slider.Value / 100) > .001
+                || !actual.Muted)
                 throw new InvalidOperationException("The mixer row must change volume and mute on its own endpoint.");
-            if ((other != null && FindSession(defaultOutput.ID) != other) || mixer.Master() != master)
+            if (mixer.Master() != master)
                 throw new InvalidOperationException("The mixer row changed the app on the other output or Windows master volume.");
         }
         finally
@@ -613,8 +572,7 @@ internal static class Program
             mixer.SetApp(target, target.Volume, target.Muted);
             app.Shutdown();
         }
-        Console.WriteLine("PASS: the mixer slider and mute button control a live WASAPI session."
-            + (alternateId != null ? " Verified on a non-default endpoint." : " Only one render endpoint is currently available."));
+        Console.WriteLine("PASS: the mixer controls the live session on the default output.");
         return 0;
 
         DesktopAudioService.AppVolume? FindSession(string endpointId) =>
@@ -701,26 +659,6 @@ internal static class Program
                 mixer.SetApp(session, previous.Volume, previous.Muted);
         }
         Console.WriteLine("PASS: live CoreAudio player session volume changed without changing the Windows output volume or mute state.");
-        string outputId = output.ID;
-        Task.Run(() =>
-        {
-            var available = PlayerAudioService.ReadOutputs(source);
-            if (!available.CanRoute || !available.Devices.Any(device => device.Id == outputId && device.InUse))
-                throw new Exception("The isolated player output is missing from its routing menu.");
-            using var routing = new AppAudioRouting();
-            var pid = (uint)Environment.ProcessId;
-            try
-            {
-                if (PlayerAudioService.ChangeOutput(source, outputId) != outputId
-                    || PlayerAudioService.ReadOutputs(source).PreferredId != outputId)
-                    throw new Exception("Windows did not retain the requested output for the isolated player.");
-                PlayerAudioService.ChangeOutput(source, null);
-                if (PlayerAudioService.ReadOutputs(source).PreferredId != null)
-                    throw new Exception("Windows did not clear the isolated player's output override.");
-            }
-            finally { routing.SetOutput(pid, available.PreferredId); }
-        }).GetAwaiter().GetResult();
-        Console.WriteLine("PASS: the isolated CoreAudio player's output override can be set and reset.");
         return 0;
     }
 
@@ -739,33 +677,34 @@ internal static class Program
         return 0;
     }).GetAwaiter().GetResult();
 
-    private static int CheckYandexPlayerVolume()
+    private static int CheckBrightnessHud()
     {
-        const string source = "ru.yandex.desktop.music";
-        using var audio = new DesktopAudioService();
-        var master = audio.Master();
-        var sessions = audio.Apps();
-        var original = YandexMusicVolume.ReadOrSet(source, null)
-            ?? throw new InvalidOperationException("Open Yandex Music with a loaded track before running this check.");
-        float target = original.Volume >= .15f ? original.Volume - .05f : original.Volume + .05f;
-        try
-        {
-            PlayerAudioService.ReadOrSet(source, target);
-            var actual = YandexMusicVolume.ReadOrSet(source, null);
-            if (actual == null || Math.Abs(actual.Value.Volume - target) > .005f)
-                throw new InvalidOperationException("The Yandex Music slider did not reflect the requested volume.");
-            var currentSessions = audio.Apps();
-            if (audio.Master() != master || sessions.Any(previous => currentSessions.Any(current =>
-                    current.Id == previous.Id && (current.Volume != previous.Volume || current.Muted != previous.Muted))))
-                throw new InvalidOperationException("Changing the Yandex Music slider affected the Windows mixer.");
-        }
-        finally
-        {
-            var restored = YandexMusicVolume.ReadOrSet(source, original.Volume);
-            if (restored == null || Math.Abs(restored.Value.Volume - original.Volume) > .005f)
-                throw new InvalidOperationException("Could not restore the original Yandex Music volume.");
-        }
-        Console.WriteLine($"PASS: Yandex Music changed from {original.Volume:P0} to {target:P0} and back. The Windows mixer was unchanged.");
+        void Check(bool passed, string reason) { if (!passed) throw new InvalidOperationException(reason); }
+        var oldSettings = JsonSerializer.Deserialize<MainWindow.AppSettings>("{\"LevelHud\":false}")!;
+        Check(!(oldSettings.BrightnessIslandHud ?? oldSettings.LevelHud), "Previously disabled brightness stays disabled");
+        var mixed = JsonSerializer.Deserialize<MainWindow.AppSettings>("{\"BrightnessIslandHud\":true,\"VolumeIslandHud\":false}")!;
+        Check(mixed is { BrightnessIslandHud: true, VolumeIslandHud: false }, "Volume and brightness preferences are independent");
+        const string shellWindow = "XamlExplorerHostIslandWindow_WASDK";
+        Check(BrightnessIslandService.IsFlyoutSize(shellWindow, 240, 48), "Modern shell indicator is accepted");
+        Check(!BrightnessIslandService.IsFlyoutSize(shellWindow, 0, 0) &&
+            !BrightnessIslandService.IsFlyoutSize(shellWindow, 460, 550) &&
+            !BrightnessIslandService.IsFlyoutSize("OtherWindow", 240, 48), "Idle Shell, Quick Settings and unrelated windows cannot be hidden");
+        Check(BrightnessIslandService.CanHideFlyout(1000, 850, 0) &&
+            !BrightnessIslandService.CanHideFlyout(1000, 850, 920) &&
+            !BrightnessIslandService.CanHideFlyout(1000, 300, 0), "Only recent brightness without a competing volume key can hide the indicator");
+        int shown = 0;
+        using var service = new BrightnessIslandService(Dispatcher.CurrentDispatcher, value => { shown = value; return true; });
+        service.SetEnabled(true);
+        long now = Environment.TickCount64;
+        service.UpdateBrightness(30, now);
+        Check(shown == 0, "Initial brightness is only a baseline");
+        service.UpdateBrightness(41, now + 2, fromEvent: true);
+        service.UpdateBrightness(34, now + 1);
+        Check(shown == 41, "New brightness appears immediately and an older poll cannot overwrite it");
+        service.SetEnabled(false);
+        service.UpdateBrightness(52, now + 3, fromEvent: true);
+        Check(shown == 41, "Disabling stops display updates and removes the Shell hooks");
+        Console.WriteLine("PASS: independent brightness setting, immediate updates and scoped flyout suppression.");
         return 0;
     }
 
@@ -840,6 +779,147 @@ internal static class Program
         }
     }
 
+    private static int CheckAudioMuteRecovery()
+    {
+        using var devices = new MMDeviceEnumerator();
+        using var device = devices.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        var originalMaster = (device.AudioEndpointVolume.MasterVolumeLevelScalar, device.AudioEndpointVolume.Mute);
+        string directory = System.IO.Directory.CreateTempSubdirectory("IslandAudioMute-").FullName;
+        string journal = System.IO.Path.Combine(directory, "audio-mute.json");
+        var seen = new HashSet<string>();
+
+        using var playing = StartStream(out var playingSession);
+        using var alreadyMuted = StartStream(out var mutedSession);
+        using (playingSession)
+        using (mutedSession)
+        try
+        {
+            playingSession.SimpleAudioVolume.Volume = .35f;
+            playingSession.SimpleAudioVolume.Mute = true;
+            mutedSession.SimpleAudioVolume.Mute = true;
+            var entry = new AudioMuteRecovery.MutedSession(device.ID, playingSession.GetSessionIdentifier,
+                playingSession.GetSessionInstanceIdentifier);
+            System.IO.File.WriteAllText(journal, JsonSerializer.Serialize(new[] { entry }));
+            using var recovery = new AudioMuteRecovery(journal);
+            recovery.Restore(devices);
+            if (recovery.HasPendingRestore || playingSession.SimpleAudioVolume.Mute ||
+                Math.Abs(playingSession.SimpleAudioVolume.Volume - .35f) > .001f ||
+                !mutedSession.SimpleAudioVolume.Mute || originalMaster !=
+                (device.AudioEndpointVolume.MasterVolumeLevelScalar, device.AudioEndpointVolume.Mute))
+                throw new InvalidOperationException("Recovery must clear only the previous version's recorded mute.");
+        }
+        finally
+        {
+            using (var recovery = new AudioMuteRecovery(journal)) recovery.Restore(devices);
+            foreach (string name in new[] { journal, journal + ".lock", journal + ".tmp" }) System.IO.File.Delete(name);
+            System.IO.Directory.Delete(directory);
+        }
+        Console.WriteLine($"PASS: recovered a journaled session on {device.FriendlyName}. An independently muted session and Windows volume retained their settings.");
+        return 0;
+
+        AudioClient StartStream(out AudioSessionControl session)
+        {
+            using var endpoint = devices.GetDevice(device.ID);
+            var stream = endpoint.AudioClient;
+            try
+            {
+                stream.Initialize(AudioClientShareMode.Shared, 0, 2_000_000, 0, stream.MixFormat, Guid.NewGuid());
+                stream.AudioRenderClient.GetBuffer(stream.BufferSize);
+                stream.AudioRenderClient.ReleaseBuffer(stream.BufferSize, AudioClientBufferFlags.Silent);
+                stream.Start();
+                var manager = device.AudioSessionManager;
+                long end = Environment.TickCount64 + 3000;
+                do
+                {
+                    manager.RefreshSessions();
+                    var sessions = manager.Sessions;
+                    for (int i = 0; i < sessions.Count; i++)
+                    {
+                        var candidate = sessions[i];
+                        if (!candidate.IsSystemSoundsSession && candidate.GetProcessID == Environment.ProcessId &&
+                            candidate.State == NAudio.CoreAudioApi.Interfaces.AudioSessionState.AudioSessionStateActive &&
+                            seen.Add(candidate.GetSessionInstanceIdentifier))
+                        {
+                            session = candidate;
+                            return stream;
+                        }
+                        candidate.Dispose();
+                    }
+                    Thread.Sleep(20);
+                } while (Environment.TickCount64 < end);
+                throw new InvalidOperationException("The temporary WASAPI session did not start.");
+            }
+            catch { stream.Dispose(); throw; }
+        }
+
+    }
+
+    private static int CheckIsolatedWindowsVolume()
+    {
+        using var devices = new MMDeviceEnumerator();
+        using var primary = devices.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        var outputs = devices.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active).ToArray();
+        var master = primary.AudioEndpointVolume;
+        var original = (master.MasterVolumeLevelScalar, master.Mute);
+        try
+        {
+            var secondary = outputs.FirstOrDefault(output => output.ID != primary.ID)
+                ?? throw new InvalidOperationException("Connect a second output for this check.");
+            var otherVolume = secondary.AudioEndpointVolume;
+            var other = (otherVolume.MasterVolumeLevelScalar, otherVolume.Mute);
+            using var service = new VolumeIslandService(false);
+            if (!SpinWait.SpinUntil(() => service.Available, 5000))
+                throw new InvalidOperationException("Volume service did not start.");
+            service.SetVolume(0);
+            Verify(level => level == 0, "The default endpoint did not reach 0%.");
+            service.SetVolume(20);
+            Verify(level => Math.Abs(level - .2f) <= .01f && !master.Mute, "The default endpoint did not recover from 0%.");
+            service.ToggleMute();
+            Verify(_ => master.Mute, "Mute did not activate on the default endpoint.");
+            service.ToggleMute();
+            Verify(_ => !master.Mute, "Mute did not clear on the default endpoint.");
+            Console.WriteLine($"PASS: {primary.FriendlyName} followed volume and mute. {secondary.FriendlyName} kept its settings.");
+
+            void Verify(Func<float, bool> ready, string failure)
+            {
+                if (!SpinWait.SpinUntil(() => ready(master.MasterVolumeLevelScalar), 4500))
+                    throw new InvalidOperationException(failure);
+                if (other != (otherVolume.MasterVolumeLevelScalar, otherVolume.Mute))
+                    throw new InvalidOperationException("A default-output command changed another device.");
+            }
+        }
+        finally
+        {
+            master.MasterVolumeLevelScalar = original.Item1;
+            master.Mute = original.Item2;
+            foreach (var output in outputs) output.Dispose();
+        }
+        return 0;
+    }
+
+
+    private static int CheckVolumeOutputChange()
+    {
+        using var devices = new MMDeviceEnumerator();
+        using var output = devices.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        var volume = output.AudioEndpointVolume;
+        var expected = new VolumeIslandService.Snapshot(volume.MasterVolumeLevelScalar, volume.Mute);
+        using var service = new VolumeIslandService(true);
+        if (!SpinWait.SpinUntil(() => service.Available, 5000))
+            throw new InvalidOperationException("The playback endpoint is unavailable.");
+
+        var previousOutput = typeof(VolumeIslandService).GetField("_masterEndpointId", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        previousOutput.SetValue(service, "previous-playback-output");
+        var received = new TaskCompletionSource<VolumeIslandService.Snapshot>();
+        service.Changed += snapshot => received.TrySetResult(snapshot);
+        service.OnDefaultDeviceChanged(DataFlow.Render, Role.Multimedia, output.ID);
+        if (!received.Task.Wait(TimeSpan.FromSeconds(4)) || received.Task.Result != expected ||
+            new VolumeIslandService.Snapshot(volume.MasterVolumeLevelScalar, volume.Mute) != expected)
+            throw new InvalidOperationException("A playback switch must show the existing volume and mute without changing them.");
+        Console.WriteLine($"PASS: switching to {output.FriendlyName} published its current level of {expected.Volume:P0}.");
+        return 0;
+    }
+
     private static int CheckVolumeEvents()
     {
         using var service = new VolumeIslandService(false);
@@ -864,7 +944,8 @@ internal static class Program
         }
         try
         {
-            endpoint.MasterVolumeLevelScalar = original < .98f ? original + .01f : original - .01f;
+            // A single percentage point may round to the same Bluetooth volume step.
+            endpoint.MasterVolumeLevelScalar = original < .95f ? original + .05f : original - .05f;
             if (received.WaitOne(150)) throw new Exception("Disabled service published a HUD event");
             service.Enabled = true;
             var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -881,11 +962,11 @@ internal static class Program
             if (!service.RequestSnapshot() || !WaitFor(snapshot => Math.Abs(snapshot.Volume - original) < .001))
                 throw new Exception("Manual volume control cannot open with automatic HUD disabled");
             if (service.SetVolume(double.NaN)) throw new Exception("Invalid volume accepted");
-            double target = original < .98f ? Math.Round(original * 100) + 1 : Math.Round(original * 100) - 1;
+            double target = original < .95f ? Math.Round(original * 100) + 5 : Math.Round(original * 100) - 5;
             for (int i = 0; i < 300; i++) service.SetVolume(i % 2 == 0 ? Math.Round(original * 100) : target);
             service.SetVolume(target);
-            if (!WaitFor(snapshot => Math.Abs(snapshot.Volume - target / 100) < .001 && !snapshot.Muted)
-                || Math.Abs(endpoint.MasterVolumeLevelScalar - target / 100) > .001)
+            if (!WaitFor(snapshot => Math.Abs(snapshot.Volume - target / 100) <= .01 && !snapshot.Muted)
+                || Math.Abs(endpoint.MasterVolumeLevelScalar - target / 100) > .01)
                 throw new Exception("Slider burst failed to apply the latest endpoint volume");
             service.ToggleMute();
             if (!WaitFor(snapshot => snapshot.Muted)) throw new Exception("Manual mute failed");

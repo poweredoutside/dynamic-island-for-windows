@@ -14,11 +14,12 @@ namespace DynamicIslandWin.Services;
 // Context travels only over a current-user pipe; command lines contain a random nonce.
 internal static class NotificationActivationBroker
 {
-    private sealed record Request(string AppId, string Arguments, Guid Activator, bool Probe);
+    private sealed record Request(string AppId, string? Arguments, Guid Activator, bool Probe);
 
     internal static async Task<bool> RunAsync(NotificationActivationService.Target target, bool probe = false,
         string? executable = null)
     {
+        if (target.Activator == Guid.Empty) return false;
         string nonce = Guid.NewGuid().ToString("N");
         string helper;
         try { helper = executable ?? await Task.Run(() => PrepareHost()).ConfigureAwait(false); }
@@ -45,7 +46,8 @@ internal static class NotificationActivationBroker
         finally
         {
             // Only this one-shot child is owned here. No messenger process is stopped.
-            try { if (!process.HasExited) process.Kill(); } catch (InvalidOperationException) { }
+            try { if (!process.HasExited) process.Kill(); }
+            catch (Exception ex) when (ex is InvalidOperationException or Win32Exception) { AppLog.Error("Close notification activation broker", ex); }
         }
     }
 
@@ -90,7 +92,8 @@ internal static class NotificationActivationBroker
             await pipe.ConnectAsync(timeout.Token).ConfigureAwait(false);
             using var reader = new StreamReader(pipe, Encoding.UTF8, false, 1024, leaveOpen: true);
             using var writer = new StreamWriter(pipe, new UTF8Encoding(false), 1024, leaveOpen: true) { AutoFlush = true };
-            var buffer = new char[32768];
+            // The JSON representation can escape each UTF-16 code unit to six characters.
+            var buffer = new char[104 * 1024];
             int count = 0;
             // Bound input before JSON parsing, including when a peer omits the newline.
             while (count < buffer.Length)
@@ -101,8 +104,8 @@ internal static class NotificationActivationBroker
             }
             if (count == buffer.Length) return;
             var request = JsonSerializer.Deserialize<Request>(buffer.AsSpan(0, count), new JsonSerializerOptions { MaxDepth = 4 });
-            if (request == null || request.AppId.Length is 0 or > 512 || request.Arguments.Length is 0 or > 16384 ||
-                request.Activator == Guid.Empty || request.Arguments.Contains('\0')) return;
+            if (request == null || request.AppId is not { Length: > 0 and <= 512 } || request.Arguments is { Length: > 16384 } ||
+                request.Activator == Guid.Empty || request.Arguments?.Contains('\0') == true) return;
             var target = new NotificationActivationService.Target(request.AppId, request.Arguments, request.Activator);
             NotificationActivationService.AllowForegroundActivation();
             bool success = request.Probe

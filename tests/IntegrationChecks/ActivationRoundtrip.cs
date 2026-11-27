@@ -15,10 +15,7 @@ public static class ActivationRoundtrip
         try
         {
             Marshal.ThrowExceptionForHR(CoRegisterClassObject(ref clsid, factory, 4, 1, out registration));
-            var target = new NotificationActivationService.Target(appId, arguments, clsid);
-            bool completed = NotificationActivationBroker.RunAsync(target, executable: host).GetAwaiter().GetResult();
-            lock (callback)
-                return completed && callback.Calls == 1 && callback.AppId == appId && callback.Arguments == arguments && callback.NoUserInput;
+            return ActivateAndCheck(arguments, 1) && ActivateAndCheck(null, 2);
         }
         finally
         {
@@ -27,13 +24,22 @@ public static class ActivationRoundtrip
             GC.KeepAlive(callback);
             CoUninitialize();
         }
+
+        bool ActivateAndCheck(string? expectedArguments, int expectedCalls)
+        {
+            var target = new NotificationActivationService.Target(appId, expectedArguments, clsid);
+            bool completed = NotificationActivationBroker.RunAsync(target, executable: host).GetAwaiter().GetResult();
+            lock (callback)
+                return completed && callback.Calls == expectedCalls && callback.AppId == appId &&
+                    callback.Arguments == expectedArguments && callback.NoUserInput;
+        }
     }).GetAwaiter().GetResult();
 
     [ComVisible(true), Guid("53E31837-6600-4A81-9395-75CFFE746F94"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface ICallback
     {
         [PreserveSig] int Activate([MarshalAs(UnmanagedType.LPWStr)] string appId,
-            [MarshalAs(UnmanagedType.LPWStr)] string arguments, IntPtr data, uint count);
+            [MarshalAs(UnmanagedType.LPWStr)] string? arguments, IntPtr data, uint count);
     }
 
     [ComVisible(true), ClassInterface(ClassInterfaceType.None)]
@@ -42,7 +48,7 @@ public static class ActivationRoundtrip
         internal int Calls;
         internal string? AppId, Arguments;
         internal bool NoUserInput;
-        public int Activate(string appId, string arguments, IntPtr data, uint count)
+        public int Activate(string appId, string? arguments, IntPtr data, uint count)
         {
             lock (this)
             {

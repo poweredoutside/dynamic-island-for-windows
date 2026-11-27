@@ -88,7 +88,7 @@ public partial class MainWindow : Window
     private long _notificationVisualGeneration;
     private bool _notificationBusy;
     private bool _notificationInitializing;
-    private bool _notificationBaseline;
+    private volatile bool _notificationBaseline;
     private bool _notificationEventSubscribed;
     private bool _notificationReadAgain;
     private long _notificationEventVersion;
@@ -188,8 +188,6 @@ public partial class MainWindow : Window
         public bool CloseOnMouseLeave { get; set; } = true;
         public bool RememberDashboardTab { get; set; }
         public string LastDashboardTab { get; set; } = "home";
-        public bool MusicEqualizerEnabled { get; set; }
-        public int[] MusicEqualizerGains { get; set; } = [];
         public bool PinPosition { get; set; } = false;
         public bool ShowCapsLock { get; set; } = true;
         public bool ShowNumLock { get; set; } = true;
@@ -2850,6 +2848,7 @@ public partial class MainWindow : Window
         _isLoadingSettings = true;
         LoadFeatureThemes();
         TglVolumeIsland.IsChecked = _settings.VolumeIslandHud ?? _settings.LevelHud;
+        TglBrightnessIsland.IsChecked = _settings.BrightnessIslandHud ?? _settings.LevelHud;
 
         WeatherCityInput.Text         = _settings.WeatherCity;
         DashCityTextBox.Text          = _settings.WeatherCity;

@@ -10,15 +10,21 @@ namespace DynamicIslandWin.Services;
 internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
 {
     internal readonly record struct Snapshot(float Volume, bool Muted);
+
     private readonly BlockingCollection<int> _commands = new(128);
     private readonly Thread _audioThread, _hookThread;
     private readonly HookProc _hookProc;
-    private readonly VolumeKeyRouter _keys = new();
+    private readonly Action<int, int, int>? _observeKey;
+    private readonly bool _recoverPreviousMutes;
     private volatile bool _enabled, _available, _disposed, _observeVolume;
     private uint _hookThreadId;
     private int _rebindPending;
+    private int _refreshPending;
     private int _setPending, _requestedPercent;
     private MMDevice? _device;
+    private string? _masterEndpointId;
+    private Snapshot? _master;
+    private AudioMuteRecovery? _muteRecovery;
     private IntPtr _hook;
     internal event Action<Snapshot>? Changed;
     internal bool Available => _available && _hook != IntPtr.Zero;
@@ -37,9 +43,11 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
         return false;
     }
 
-    internal VolumeIslandService(bool enabled)
+    internal VolumeIslandService(bool enabled, Action<int, int, int>? observeKey = null, bool recoverPreviousMutes = false)
     {
         _enabled = enabled;
+        _observeKey = observeKey;
+        _recoverPreviousMutes = recoverPreviousMutes;
         _hookProc = KeyboardHook;
         _audioThread = new Thread(AudioLoop) { IsBackground = true, Name = "Island CoreAudio" };
         _hookThread = new Thread(HookLoop) { IsBackground = true, Name = "Island volume keys" };
@@ -67,8 +75,11 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
         {
             int key = Marshal.ReadInt32(data);
             long kind = message.ToInt64();
-            if (_keys.Handle(key, kind is 0x100 or 0x104, kind is 0x101 or 0x105,
-                _enabled && !_disposed, _available, command => _commands.TryAdd(command))) return (IntPtr)1;
+            bool down = kind is 0x100 or 0x104;
+            // Windows owns volume keys and chooses the output. Observe the input
+            // only to distinguish the two flyouts on the shared Explorer host.
+            if (down && key is (0xAD or 0xAE or 0xAF or 0xFF))
+                _observeKey?.Invoke(key, Marshal.ReadInt32(data, 4), Marshal.ReadInt32(data, 8));
         }
         return CallNextHookEx(IntPtr.Zero, code, message, data);
     }
@@ -82,33 +93,47 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
             try
             {
                 Rebind(enumerator);
+                if (_recoverPreviousMutes) TryRestorePreviousMutes(enumerator);
                 while (!_disposed)
                 {
                     if (!_commands.TryTake(out int command, 2000))
-                    { if (!_available) Rebind(enumerator); continue; }
+                    {
+                        if (!_available) Rebind(enumerator);
+                        if (_recoverPreviousMutes) TryRestorePreviousMutes(enumerator);
+                        continue;
+                    }
+                    if (_disposed) break;
                     if (command == 0) { Interlocked.Exchange(ref _rebindPending, 0); Rebind(enumerator); continue; }
+                    if (command == 4) Interlocked.Exchange(ref _refreshPending, 0);
                     if (command == 1) Interlocked.Exchange(ref _setPending, 0);
-                    bool manual = command is 1 or 2 or 3;
-                    if (manual && !_available) Rebind(enumerator, publish: false);
-                    if ((!_enabled && !manual) || _device == null) continue;
+                    if (!_available) Rebind(enumerator, publish: false);
+                    if (_device == null) continue;
                     try
                     {
                         var volume = _device.AudioEndpointVolume;
-                        if (command is 0xAD or 3) volume.Mute = !volume.Mute;
-                        else if (command != 2)
+                        try
                         {
-                            volume.MasterVolumeLevelScalar = command == 1
-                                ? Volatile.Read(ref _requestedPercent) / 100f
-                                : Math.Clamp(volume.MasterVolumeLevelScalar + (command == 0xAF ? .02f : -.02f), 0, 1);
-                            if (volume.Mute) volume.Mute = false;
+                            if (command == 3) volume.Mute = !volume.Mute;
+                            else if (command == 1)
+                            {
+                                float requested = Volatile.Read(ref _requestedPercent) / 100f;
+                                volume.MasterVolumeLevelScalar = requested;
+                                if (volume.Mute) volume.Mute = false;
+                            }
                         }
-                        // Also acknowledge a key at 0/100%, where CoreAudio may emit no event.
-                        Publish(new(volume.MasterVolumeLevelScalar, volume.Mute), manual);
+                        catch (COMException ex) { AppLog.Error("Set Windows endpoint controls", ex); }
+                        RefreshVolume(ReadVolume(volume), manual: command != 4);
                     }
                     catch (Exception ex) { _available = false; AppLog.Error("Change endpoint volume", ex); }
                 }
             }
-            finally { _available = false; Detach(); enumerator.UnregisterEndpointNotificationCallback(this); }
+            finally
+            {
+                _available = false;
+                _muteRecovery?.Dispose();
+                Detach();
+                enumerator.UnregisterEndpointNotificationCallback(this);
+            }
         }
         catch (Exception ex) { _available = false; AppLog.Error("Volume event service", ex); }
     }
@@ -120,20 +145,56 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
         try
         {
             _device = enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-            _device.AudioEndpointVolume.OnVolumeNotification += OnVolume;
-            _ = _device.AudioEndpointVolume.MasterVolumeLevelScalar;
+            string endpointId = _device.ID;
+            var volume = _device.AudioEndpointVolume;
+            volume.OnVolumeNotification += OnVolume;
+            var current = ReadVolume(volume);
+            bool outputChanged = _masterEndpointId != null &&
+                !string.Equals(endpointId, _masterEndpointId, StringComparison.OrdinalIgnoreCase);
+            _masterEndpointId = endpointId;
+            _master = current;
             _available = true;
-            if (publish && _observeVolume) Publish(new(_device.AudioEndpointVolume.MasterVolumeLevelScalar, _device.AudioEndpointVolume.Mute));
+            if (publish && (_observeVolume || outputChanged)) Publish(current);
         }
         catch { Detach(); } // No endpoint is normal while unplugging a headset.
     }
-    private void OnVolume(AudioVolumeNotificationData data) => Publish(new(data.MasterVolume, data.Muted));
+
+    private void RefreshVolume(Snapshot current, bool manual = false)
+    {
+        bool changed = _master != current;
+        _master = current;
+        if (changed || manual) Publish(current, manual);
+    }
+
+    private static Snapshot ReadVolume(AudioEndpointVolume volume)
+        => new(volume.MasterVolumeLevelScalar, volume.Mute);
+
+    private void TryRestorePreviousMutes(MMDeviceEnumerator enumerator)
+    {
+        try
+        {
+            if (_muteRecovery == null && System.IO.File.Exists(AudioMuteRecovery.JournalPath))
+                _muteRecovery = new AudioMuteRecovery(AudioMuteRecovery.JournalPath);
+            _muteRecovery?.Restore(enumerator);
+        }
+        catch (Exception ex) { AppLog.Error("Restore previous audio session mutes", ex); }
+    }
+
+    private void OnVolume(AudioVolumeNotificationData data)
+    {
+        if (!_disposed && Interlocked.Exchange(ref _refreshPending, 1) == 0 && !_commands.TryAdd(4))
+            Interlocked.Exchange(ref _refreshPending, 0);
+    }
+
     private void Publish(Snapshot snapshot, bool manual = false) { if ((_enabled || _observeVolume || manual) && !_disposed) Changed?.Invoke(snapshot); }
     private void Detach()
     {
-        if (_device == null) return;
-        try { _device.AudioEndpointVolume.OnVolumeNotification -= OnVolume; _device.Dispose(); } catch { }
+        if (_device != null) ReleaseOutput(_device);
         _device = null;
+    }
+    private void ReleaseOutput(MMDevice device)
+    {
+        try { device.AudioEndpointVolume.OnVolumeNotification -= OnVolume; device.Dispose(); } catch { }
     }
     private void RequestRebind()
     {
@@ -166,18 +227,4 @@ internal sealed class VolumeIslandService : IDisposable, IMMNotificationClient
     [DllImport("user32.dll")] private static extern bool PostThreadMessage(uint thread, uint message, IntPtr wParam, IntPtr lParam);
     [DllImport("kernel32.dll")] private static extern uint GetCurrentThreadId();
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string? name);
-}
-
-internal sealed class VolumeKeyRouter
-{
-    private readonly HashSet<int> _pressed = [];
-    internal bool Handle(int key, bool down, bool up, bool enabled, bool available, Func<int, bool> enqueue)
-    {
-        if (key is not (0xAD or 0xAE or 0xAF)) return false;
-        if (up && _pressed.Remove(key)) return true;
-        // A matched key-up is consumed even if the setting changed during the press.
-        // Other inputs and a full/unavailable worker always pass back to Windows.
-        if (down && enabled && available && enqueue(key)) { _pressed.Add(key); return true; }
-        return false;
-    }
 }

@@ -43,12 +43,19 @@ internal static class Program
         }
         using var mutex = new Mutex(true, @"Local\DynamicIslandWin.Setup", out bool first);
         if (!first) { MessageBox.Show("Установщик OC - Dynamic Island уже открыт.", "OC - Dynamic Island", MessageBoxButton.OK, MessageBoxImage.Information); return 1; }
+        InstallerPayload.CleanStaleDirectories();
         return app.Run(window);
     }
 
     private static async Task VerifyAsync(string reportPath)
     {
-        using var payload = new InstallerPayload();
+        var payload = new InstallerPayload();
+        try { await VerifyPayloadAsync(payload, reportPath); }
+        finally { payload.CleanInBackground(); }
+    }
+
+    private static async Task VerifyPayloadAsync(InstallerPayload payload, string reportPath)
+    {
         var timing = Stopwatch.StartNew();
         await payload.ExtractAsync(includeTemperatureDriver: false);
         double extractionSeconds = timing.Elapsed.TotalSeconds;
@@ -81,6 +88,21 @@ internal static class Program
         string hash;
         await using (var package = File.OpenRead(Path.Combine(payload.DirectoryPath, "DynamicIsland.msix")))
             hash = Convert.ToHexString(await SHA256.HashDataAsync(package));
+        using (var archive = ZipFile.OpenRead(Path.Combine(payload.DirectoryPath, "DynamicIsland.msix")))
+        using (var manifest = archive.GetEntry("AppxManifest.xml")!.Open())
+            if (InstallerIdentity.Read(manifest) != PackageInstallation.ReadIdentity())
+                throw new Exception("The embedded identity does not match the signed app package.");
+        double? alreadyInstalledSeconds = null;
+        if (existingInstallFlowChecked)
+        {
+            using var quickPayload = new InstallerPayload();
+            timing.Restart();
+            var quick = await PackageInstallation.InstallAsync(quickPayload, installDriver: false, status: null);
+            alreadyInstalledSeconds = timing.Elapsed.TotalSeconds;
+            if (quick.ExitCode != 0 || !quick.Output.Contains("DI_STATUS:AlreadyInstalled", StringComparison.Ordinal) ||
+                Directory.Exists(quickPayload.DirectoryPath))
+                throw new Exception("The already installed version must not unpack the setup payload.");
+        }
         string driverHash;
         using (var driver = InstallerPayload.OpenResource("PawnIO_setup.exe"))
             driverHash = Convert.ToHexString(await SHA256.HashDataAsync(driver));
@@ -89,7 +111,7 @@ internal static class Program
         {
             success = true, standalone = true, subsystem = "WindowsGui", hiddenPowerShell = !console, existingInstallFlowChecked,
             packagedProcess = HasPackageIdentity(),
-            extractionSeconds, embeddedPackageSha256 = hash, embeddedDriverSha256 = driverHash, plan = plan.RootElement.Clone()
+            extractionSeconds, alreadyInstalledSeconds, embeddedPackageSha256 = hash, embeddedDriverSha256 = driverHash, plan = plan.RootElement.Clone()
         }, new JsonSerializerOptions { WriteIndented = true }));
     }
 
@@ -112,6 +134,14 @@ internal sealed class InstallerPayload : IDisposable
         foreach (string name in new[] { "DynamicIsland.msix", "DynamicIsland.cer", "Install.ps1" })
             await ExtractFileAsync(name);
         if (includeTemperatureDriver) await ExtractFileAsync("PawnIO_setup.exe");
+    }
+
+    internal async Task<string> ExtractPackageAsync()
+    {
+        Directory.CreateDirectory(DirectoryPath);
+        const string name = "DynamicIsland.msix";
+        await ExtractFileAsync(name).ConfigureAwait(false);
+        return Path.Combine(DirectoryPath, name);
     }
 
     internal static Stream OpenResource(string name) =>
@@ -158,11 +188,36 @@ internal sealed class InstallerPayload : IDisposable
         return (process.ExitCode, output.ToString());
     }
 
-    public void Dispose()
+    internal void CleanInBackground() => _ = Task.Run(Dispose);
+
+    internal static void CleanStaleDirectories() => _ = Task.Run(() =>
     {
-        string target = Path.GetFullPath(DirectoryPath);
+        try
+        {
+            if (!Directory.Exists(Root) || File.GetAttributes(Root).HasFlag(FileAttributes.ReparsePoint)) return;
+            foreach (var directory in new DirectoryInfo(Root).EnumerateDirectories())
+            {
+                if (Guid.TryParseExact(directory.Name, "N", out _) &&
+                    directory.LastWriteTimeUtc < DateTime.UtcNow.AddHours(-1))
+                    DeletePayloadDirectory(directory.FullName);
+            }
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    });
+
+    public void Dispose() => DeletePayloadDirectory(DirectoryPath);
+
+    private static void DeletePayloadDirectory(string path)
+    {
+        string target = Path.GetFullPath(path);
         if (!target.StartsWith(Root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return;
-        try { if (Directory.Exists(target)) Directory.Delete(target, recursive: true); }
+        try
+        {
+            if (Directory.Exists(target) && !File.GetAttributes(Root).HasFlag(FileAttributes.ReparsePoint) &&
+                !File.GetAttributes(target).HasFlag(FileAttributes.ReparsePoint))
+                Directory.Delete(target, recursive: true);
+        }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
     }

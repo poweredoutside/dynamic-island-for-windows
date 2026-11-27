@@ -17,7 +17,6 @@
     <Window.Resources>
         <ResourceDictionary>
         <ResourceDictionary.MergedDictionaries><ResourceDictionary Source="ThemeResources.xaml"/><ResourceDictionary Source="IslandControls.xaml"/></ResourceDictionary.MergedDictionaries>
-        <StreamGeometry x:Key="PlayerOutputGlyph">M2,9 V8 A6,6 0 0 1 14,8 V9 M2,9 H5 V14 H3 Q2,14 2,13 Z M14,9 H11 V14 H13 Q14,14 14,13 Z</StreamGeometry>
         <local:RightCapsuleOffsetConverter x:Key="RightCapsuleOffset"/>
         <Style x:Key="DiscordCapsule" TargetType="Border">
             <Setter Property="Width" Value="140"/>
@@ -545,10 +544,6 @@
                                         </Button>
                                         <Button x:Name="HomePlayerNext" Style="{StaticResource GlassPillBtn}" Padding="11,6" Margin="0,0,6,0" Click="NextTrack_Click">
                                             <Path Data="M16,18H18V6H16M6,18L14.5,12L6,6V18Z" Fill="{DynamicResource ThemeTextBrush}" Width="12" Height="12" Stretch="Uniform"/>
-                                        </Button>
-                                        <Button x:Name="HomePlayerOutputButton" Style="{StaticResource GlassPillBtn}" Padding="10,5" Click="PlayerOutput_Click">
-                                            <Path Data="{StaticResource PlayerOutputGlyph}" Width="14" Height="14" Stretch="Uniform"
-                                                  StrokeThickness="1.2" StrokeLineJoin="Round" Stroke="{DynamicResource ThemeTextBrush}"/>
                                         </Button>
                                     </StackPanel>
                                     <Grid VerticalAlignment="Center">
@@ -1128,6 +1123,15 @@
                                                     <TextBlock Text="Без ожидания опроса. Заменяет индикатор Windows для клавиш громкости." Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11" TextWrapping="Wrap"/>
                                                 </StackPanel>
                                                 <CheckBox x:Name="TglVolumeIsland" Style="{StaticResource IslandSwitch}" HorizontalAlignment="Right" VerticalAlignment="Center" Click="TglVolumeIsland_Click"/>
+                                            </Grid>
+
+                                            <Grid Margin="0,0,0,12">
+                                                <StackPanel Margin="0,0,60,0">
+                                                    <TextBlock x:Name="LblBrightnessIsland" Text="Показ яркости в динамическом острове" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="Заменяет индикатор яркости Windows на поддерживаемых экранах." Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                                <CheckBox x:Name="TglBrightnessIsland" Style="{StaticResource IslandSwitch}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                          AutomationProperties.LabeledBy="{Binding ElementName=LblBrightnessIsland}" Click="TglBrightnessIsland_Click"/>
                                             </Grid>
 
                                             <Grid Margin="0,0,0,12">

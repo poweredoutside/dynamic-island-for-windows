@@ -18,50 +18,27 @@ internal sealed class DesktopAudioService : IDisposable
     }
     internal IReadOnlyList<AppVolume> Apps()
     {
-        string? defaultId = null;
-        try
-        {
-            using var defaultOutput = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
-            defaultId = defaultOutput.ID;
-        }
-        catch (COMException) { }
-
+        using var device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        string endpointId = device.ID, outputName = device.FriendlyName;
+        var sessions = device.AudioSessionManager.Sessions;
         var result = new List<AppVolume>();
-        foreach (var device in _enumerator.EnumerateAudioEndPoints(DataFlow.Render, DeviceState.Active))
+        for (int i = 0; i < sessions.Count; i++)
         {
-            using (device)
+            try
             {
-                try
-                {
-                    string endpointId = device.ID, outputName = device.FriendlyName;
-                    var sessions = device.AudioSessionManager.Sessions;
-                    for (int i = 0; i < sessions.Count; i++)
-                    {
-                        try
-                        {
-                            using var session = sessions[i];
-                            var state = session.State;
-                            if (state == AudioSessionState.AudioSessionStateExpired) continue;
-                            bool systemSounds = session.IsSystemSoundsSession;
-                            int pid = systemSounds ? 0 : (int)session.GetProcessID;
-                            string name = systemSounds ? "Системные звуки" : SessionName(session, pid);
-                            var volume = session.SimpleAudioVolume;
-                            result.Add(new(session.GetSessionInstanceIdentifier, endpointId, outputName, name, pid,
-                                state == AudioSessionState.AudioSessionStateActive, volume.Volume, volume.Mute));
-                        }
-                        catch (COMException) { } // A session may close during enumeration.
-                    }
-                }
-                catch (COMException) { } // Ignore an output disconnected during enumeration.
+                using var session = sessions[i];
+                var state = session.State;
+                if (state == AudioSessionState.AudioSessionStateExpired) continue;
+                bool systemSounds = session.IsSystemSoundsSession;
+                int pid = systemSounds ? 0 : (int)session.GetProcessID;
+                string name = systemSounds ? "Системные звуки" : SessionName(session, pid);
+                var volume = session.SimpleAudioVolume;
+                result.Add(new(session.GetSessionInstanceIdentifier, endpointId, outputName, name, pid,
+                    state == AudioSessionState.AudioSessionStateActive, volume.Volume, volume.Mute));
             }
+            catch (COMException) { } // A session may close during enumeration.
         }
-
-        var activeProcesses = result.Where(session => session.Active).Select(session => session.ProcessId).ToHashSet();
-        return result.Where(session => session.Active)
-            .Concat(result.Where(session => !session.Active && !activeProcesses.Contains(session.ProcessId))
-                .OrderByDescending(session => session.EndpointId == defaultId)
-                .DistinctBy(session => session.ProcessId != 0 ? (session.ProcessId, "") : (0, session.Name)))
-            .ToArray();
+        return result;
     }
 
     private static string SessionName(AudioSessionControl session, int pid)
@@ -81,14 +58,18 @@ internal sealed class DesktopAudioService : IDisposable
 
     internal (float Volume, bool Muted)? SetApp(AppVolume target, float? volume, bool? mute)
     {
-        using var device = _enumerator.GetDevice(target.EndpointId);
+        using var device = _enumerator.GetDefaultAudioEndpoint(DataFlow.Render, Role.Multimedia);
+        if (!string.Equals(device.ID, target.EndpointId, StringComparison.OrdinalIgnoreCase)) return null;
         var sessions = device.AudioSessionManager.Sessions;
         for (int i = 0; i < sessions.Count; i++)
         {
             using var session = sessions[i];
             if (session.State == AudioSessionState.AudioSessionStateExpired || session.GetSessionInstanceIdentifier != target.Id) continue;
             var level = session.SimpleAudioVolume;
-            if (volume.HasValue) level.Volume = Math.Clamp(volume.Value, 0, 1);
+            if (volume is { } requested && float.IsFinite(requested))
+            {
+                level.Volume = Math.Clamp(requested, 0, 1);
+            }
             if (mute.HasValue) level.Mute = mute.Value;
             return (level.Volume, level.Mute);
         }

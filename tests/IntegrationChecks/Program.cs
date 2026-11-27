@@ -8,7 +8,7 @@ internal static class Program
         if (args.Length == 2 && args[0] == "--activation-roundtrip")
         {
             bool passed = ActivationRoundtrip.Run(args[1]);
-            Console.WriteLine(passed ? "PASS: real cross-process callback receives the exact source/account/chat/message arguments, once, without user input." : "FAIL: cross-process notification activation.");
+            Console.WriteLine(passed ? "PASS: cross-process callback receives exact chat arguments and accepts a default click without arguments." : "FAIL: cross-process notification activation.");
             return passed ? 0 : 1;
         }
         if (args.Contains("--probe-exdesktop"))
@@ -24,9 +24,10 @@ internal static class Program
             if (!passed) throw new InvalidOperationException(message);
             checks++;
         }
-        foreach (string name in new[] { "Telegram Desktop", "Discord", "Viber", "WhatsApp", "Microsoft Teams", "Unigram", "ВКонтакте" })
+        foreach (string name in new[] { "Telegram Desktop", "Telega Desktop", "Discord", "Viber", "WhatsApp", "Microsoft Teams", "Unigram", "ВКонтакте" })
             Check(NotificationPolicy.IsMessenger(name, ""), $"Messenger not recognized: {name}");
         Check(NotificationPolicy.IsMessenger("Unknown", "org.telegram.desktop"), "Use app identity for classification");
+        Check(NotificationPolicy.IsMessenger("Unknown", "PoweredOutside.TelegaDesktop"), "Telega Desktop source identity");
         Check(!NotificationPolicy.IsMessenger("Steam", "Valve.Steam"), "Unrelated app incorrectly classified");
         (bool messenger, bool wantMessenger, bool all, bool dnd, bool expected)[] scenarios =
         [
@@ -75,36 +76,55 @@ internal static class Program
         long arrival = time.ToFileTime();
         string argsToOpen = "action=open&session=123&peer=456&msg=789";
         string encodedArgs = "launch=\"action=open&amp;session=123&amp;peer=456&amp;msg=789\"";
-        Check(NotificationActivationService.ParseArguments(Payload(encodedArgs), arrival, time, hash) == argsToOpen,
+        Check(NotificationActivationService.ParseAction(Payload(encodedArgs), arrival, time, hash)?.Arguments == argsToOpen,
             "Forward exact root arguments including account/chat/message, never action buttons");
-        Check(NotificationActivationService.ParseArguments(Payload(encodedArgs + " activationType=\"foreground\""), arrival, time, hash) == argsToOpen,
+        Check(NotificationActivationService.ParseAction(Payload(encodedArgs + " activationType=\"foreground\""), arrival, time, hash)?.Arguments == argsToOpen,
             "Explicit foreground activation");
-        Check(NotificationActivationService.ParseArguments(Payload(encodedArgs), arrival, time.AddMinutes(1), hash) == null,
+        Check(NotificationActivationService.ParseAction(Payload(encodedArgs), arrival, time.AddMinutes(1), hash) == null,
             "Reject reused notification ID with another creation time");
-        Check(NotificationActivationService.ParseArguments(Payload(encodedArgs), arrival, time, NotificationActivationService.Fingerprint("Bob")) == null,
+        Check(NotificationActivationService.ParseAction(Payload(encodedArgs), arrival, time, NotificationActivationService.Fingerprint("Bob")) == null,
             "Reject updated notification content");
-        foreach (string kind in new[] { "background", "protocol", "system" })
-            Check(NotificationActivationService.ParseArguments(Payload(encodedArgs + " activationType=\"" + kind + "\""), arrival, time, hash) == null,
+        foreach (string kind in new[] { "background", "system" })
+            Check(NotificationActivationService.ParseAction(Payload(encodedArgs + " activationType=\"" + kind + "\""), arrival, time, hash) == null,
                 "Do not reinterpret non-foreground activation");
-        Check(NotificationActivationService.ParseArguments(Payload(""), arrival, time, hash) == null, "No fabricated launch context");
-        Check(NotificationActivationService.ParseArguments(Payload("launch=\"\""), arrival, time, hash) == null, "Empty arguments fallback");
+        Check(NotificationActivationService.ParseAction(Payload(""), arrival, time, hash) is { Arguments: null, Protocol: null },
+            "Default callback receives null without fabricated launch context");
+        Check(NotificationActivationService.ParseAction(Payload("launch=\"\""), arrival, time, hash) is { Arguments: null, Protocol: null },
+            "Empty launch arguments use default callback");
+        const string protocol = "activationType=\"protocol\" ";
+        var link = NotificationActivationService.ParseAction(Payload(protocol +
+            "launch=\"chat-app:open?chat=456&amp;msg=789\" protocolActivationTargetApplicationPfn=\"Chat.App_1234\""), arrival, time, hash);
+        Check(link is { Arguments: null, Protocol.OriginalString: "chat-app:open?chat=456&msg=789", ProtocolPackage: "Chat.App_1234" },
+            "Preserve the original protocol URI and its target package");
+        Check(NotificationActivationService.ParseAction(Payload(protocol +
+            "launch=\"ms-screensketch:open?filePath=%u0123\""), arrival, time, hash)?.Protocol?.OriginalString ==
+            "ms-screensketch:open?filePath=%u0123", "Preserve Windows-specific protocol escaping");
+        foreach (string invalid in new[] { "", "chat/456", "file:///C:/sample.exe", @"C:\sample.exe" })
+            Check(NotificationActivationService.ParseAction(Payload(protocol + $"launch=\"{invalid}\""), arrival, time, hash) == null,
+                "Reject non-protocol launch paths");
+        byte[] multiBinding = System.Text.Encoding.UTF8.GetBytes("<toast " + encodedArgs + "><visual>" +
+            "<binding template='Legacy'><text>Different text</text></binding>" +
+            "<binding template='ToastGeneric'><text>Alice</text><text>Hello &amp; goodbye</text></binding></visual></toast>");
+        Check(NotificationActivationService.ParseAction(multiBinding, arrival, time, hash)?.Arguments == argsToOpen,
+            "Verify the same ToastGeneric binding used in the island");
         string discordTag = "c948cbe2-7422-4538-8ee3-b2969062c701";
-        Check(NotificationActivationService.ParseArguments(Payload(""), arrival, time, hash, "com.squirrel.Discord.Discord", discordTag)
-            == "type=click&tag=" + discordTag, "Discord body click routes to exact native notification object");
-        Check(NotificationActivationService.ParseArguments(Payload(""), arrival, time, hash, "Other.App", discordTag) == null,
+        foreach (string discord in new[] { "Discord", "DiscordPTB", "DiscordCanary" })
+            Check(NotificationActivationService.ParseAction(Payload(""), arrival, time, hash, $"com.squirrel.{discord}.{discord}", discordTag)?.Arguments
+                == "type=click&tag=" + discordTag, "Discord body click routes to exact native notification object");
+        Check(NotificationActivationService.ParseAction(Payload(""), arrival, time, hash, "Other.App", discordTag) is { Arguments: null },
             "Never synthesize Electron actions for an unrelated source");
-        Check(NotificationActivationService.ParseArguments(Payload(""), arrival, time, hash, "com.squirrel.Discord.Discord", "tag&type=reply") == null,
+        Check(NotificationActivationService.ParseAction(Payload(""), arrival, time, hash, "com.squirrel.Discord.Discord", "tag&type=reply") == null,
             "Reject notification tag argument injection");
-        Check(NotificationActivationService.ParseArguments(Payload(""), arrival, time, hash, "com.squirrel.Discord.Discord", null) == null,
+        Check(NotificationActivationService.ParseAction(Payload(""), arrival, time, hash, "com.squirrel.Discord.Discord", null) == null,
             "Discord context requires a Windows notification tag");
-        Check(NotificationActivationService.ParseArguments(Payload("activationType=\"protocol\""), arrival, time, hash, "com.squirrel.Discord.Discord", discordTag) == null,
+        Check(NotificationActivationService.ParseAction(Payload("activationType=\"protocol\""), arrival, time, hash, "com.squirrel.Discord.Discord", discordTag) == null,
             "Discord routing cannot reinterpret a protocol activation");
-        Check(NotificationActivationService.ParseArguments(Payload(encodedArgs, "Mallory"), arrival, time, hash) == null, "Wrong sender body rejected");
-        Check(NotificationActivationService.ParseArguments(new byte[131073], arrival, time, hash) == null, "Bound payload size");
-        Check(NotificationActivationService.ParseArguments(System.Text.Encoding.UTF8.GetBytes("<!DOCTYPE toast [<!ENTITY x SYSTEM 'file:///C:/secret'>]><toast>&x;</toast>"), arrival, time, hash) == null,
+        Check(NotificationActivationService.ParseAction(Payload(encodedArgs, "Mallory"), arrival, time, hash) == null, "Wrong sender body rejected");
+        Check(NotificationActivationService.ParseAction(new byte[131073], arrival, time, hash) == null, "Bound payload size");
+        Check(NotificationActivationService.ParseAction(System.Text.Encoding.UTF8.GetBytes("<!DOCTYPE toast [<!ENTITY x SYSTEM 'file:///C:/secret'>]><toast>&x;</toast>"), arrival, time, hash) == null,
             "No DTD or external entity resolution");
-        Check(NotificationActivationService.ParseArguments(System.Text.Encoding.UTF8.GetBytes("<toast>"), arrival, time, hash) == null, "Malformed XML fallback");
-        Check(NotificationActivationService.ParseArguments(Payload(encodedArgs), long.MaxValue, time, hash) == null, "Invalid timestamp fallback");
+        Check(NotificationActivationService.ParseAction(System.Text.Encoding.UTF8.GetBytes("<toast>"), arrival, time, hash) == null, "Malformed XML fallback");
+        Check(NotificationActivationService.ParseAction(Payload(encodedArgs), long.MaxValue, time, hash) == null, "Invalid timestamp fallback");
         Check(new NotificationActivationService.Target("App", argsToOpen, Guid.NewGuid()).ToString() == "Target", "Context omitted from diagnostic formatting");
         Check(NotificationActivationService.CaptureAsync(uint.MaxValue, "DynamicIsland.Tests.Missing", time, hash).GetAwaiter().GetResult() == null,
             "Exact ID and source required by real read-only store lookup");

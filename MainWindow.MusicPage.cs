@@ -51,15 +51,6 @@ public partial class MainWindow
         transport.Children.Add(play);
         _musicNext = TransportButton("Следующий трек", "M16,18H18V6H16M6,18L14.5,12L6,6V18Z", NextTrack_Click);
         transport.Children.Add(_musicNext);
-        var output = new Button { Style = (Style)FindResource("GlassPillBtn"), Padding = new Thickness(13, 6, 13, 6),
-            Margin = new Thickness(8, 0, 0, 8) };
-        var headphones = new Path { Data = (Geometry)FindResource("PlayerOutputGlyph"), Width = 15, Height = 15,
-            Stretch = Stretch.Uniform, StrokeThickness = 1.2, StrokeLineJoin = PenLineJoin.Round };
-        headphones.SetResourceReference(Path.StrokeProperty, "ThemeTextBrush");
-        output.Content = headphones;
-        output.Click += PlayerOutput_Click;
-        LocalizePlayerOutputButton(output);
-        transport.Children.Add(output);
         card.Children.Add(transport);
 
         var levels = new UniformGrid { Columns = 2, Margin = new Thickness(0, 8, 0, 0) };
@@ -69,7 +60,6 @@ public partial class MainWindow
         _musicMaster = AddLevel("Громкость Windows", new Thickness(12, 0, 0, 0));
         ConnectWindowsVolumeSlider(_musicMaster);
         card.Children.Add(levels);
-        BuildMusicEqualizer(card);
         UpdatePlayerControlVisibility();
         RefreshPlayerTransportControls();
         UpdateHomePlayerVolume(_playerVolume);

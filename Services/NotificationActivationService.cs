@@ -9,16 +9,31 @@ using Microsoft.Win32;
 namespace DynamicIslandWin.Services;
 
 // UserNotificationListener exposes only the visual. Preserve the original default
-// activation from the local Windows store, then call the sender's registered callback.
+// activation from the local Windows store, then invoke its protocol or callback.
 // This store is undocumented: every lookup is read-only and may safely return null.
 internal static class NotificationActivationService
 {
-    internal sealed class Target(string appId, string arguments, Guid activator)
+    internal sealed class Target(string appId, string? arguments, Guid activator)
     {
+        internal Target(string appId, Uri protocol, string? protocolPackage) : this(appId, null, Guid.Empty)
+        {
+            Protocol = protocol;
+            ProtocolPackage = protocolPackage;
+        }
+
         internal string AppId { get; } = appId;
-        internal string Arguments { get; } = arguments;
+        internal string? Arguments { get; } = arguments;
         internal Guid Activator { get; } = activator;
+        internal Uri? Protocol { get; }
+        internal string? ProtocolPackage { get; }
         public override string ToString() => nameof(Target); // Never expose chat/account arguments in diagnostics.
+    }
+
+    internal sealed class ToastAction(string? arguments, Uri? protocol = null, string? protocolPackage = null)
+    {
+        internal string? Arguments { get; } = arguments;
+        internal Uri? Protocol { get; } = protocol;
+        internal string? ProtocolPackage { get; } = protocolPackage;
     }
 
     private static readonly object CacheLock = new();
@@ -33,23 +48,25 @@ internal static class NotificationActivationService
             try
             {
                 // Capture the payload before shortcut discovery: senders can withdraw a toast quickly.
-                string? arguments = null;
+                ToastAction? action = null;
                 foreach (int delay in new[] { 0, 40, 100 })
                 {
                     if (delay != 0) await Task.Delay(delay).ConfigureAwait(false);
-                    arguments = ReadArguments(id, appId, created, fingerprint);
-                    if (arguments != null) break;
+                    action = ReadAction(id, appId, created, fingerprint);
+                    if (action != null) break;
                 }
-                if (arguments == null) return null;
+                if (action == null) return null;
+                if (action.Protocol != null)
+                    return new Target(appId, action.Protocol, action.ProtocolPackage);
                 Guid activator = ResolveActivator(appId, packageManifestPath);
-                return activator == Guid.Empty ? null : new Target(appId, arguments, activator);
+                return activator == Guid.Empty ? null : new Target(appId, action.Arguments, activator);
             }
             catch (Exception ex) { AppLog.Error("Capture notification activation", ex); return null; }
         });
 
     internal static string Fingerprint(string text) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(text)));
 
-    internal static string? ParseArguments(byte[] payload, long arrival, DateTimeOffset created, string fingerprint,
+    internal static ToastAction? ParseAction(byte[] payload, long arrival, DateTimeOffset created, string fingerprint,
         string? appId = null, string? notificationTag = null)
     {
         if (payload.Length is 0 or > 131072) return null;
@@ -65,26 +82,39 @@ internal static class NotificationActivationService
             var root = XDocument.Load(reader).Root;
             if (root?.Name != "toast") return null;
             string kind = (string?)root.Attribute("activationType") ?? "foreground";
-            if (kind != "foreground") return null;
-            var binding = root.Element("visual")?.Elements("binding").FirstOrDefault();
+            if (kind is not ("foreground" or "protocol")) return null;
+            var bindings = root.Element("visual")?.Elements("binding");
+            var binding = bindings?.FirstOrDefault(e => (string?)e.Attribute("template") == "ToastGeneric")
+                ?? bindings?.FirstOrDefault(e => e.Elements("text").Any());
             if (binding == null) return null;
             string text = string.Join(" · ", binding.Elements("text").Select(e => e.Value)
                 .Where(t => !string.IsNullOrWhiteSpace(t)));
             if (!string.Equals(Fingerprint(text), fingerprint, StringComparison.Ordinal)) return null;
             string? launch = (string?)root.Attribute("launch");
-            if (launch is { Length: > 0 and <= 16384 } && !launch.Contains('\0')) return launch;
+            if (launch is { Length: > 16384 } || launch?.Contains('\0') == true) return null;
+            if (kind == "protocol")
+            {
+                // Windows handlers may use their own escaping in the protocol payload.
+                if (launch == null || launch.Any(char.IsControl) ||
+                    !Uri.TryCreate(launch, UriKind.Absolute, out var uri) || uri.IsFile) return null;
+                string? package = (string?)root.Attribute("protocolActivationTargetApplicationPfn");
+                if (package != null && !System.Text.RegularExpressions.Regex.IsMatch(package, @"\A[A-Za-z0-9._-]{1,255}\z"))
+                    return null;
+                return new ToastAction(null, uri, package);
+            }
+            if (!string.IsNullOrEmpty(launch)) return new ToastAction(launch);
             // Electron's default toast body has no launch attribute. Its registered
             // activator routes clicks by the original Windows tag to the live
             // Notification object, which owns Discord's chat-opening callback.
-            if (string.IsNullOrEmpty(launch) && appId == "com.squirrel.Discord.Discord" && notificationTag != null &&
-                System.Text.RegularExpressions.Regex.IsMatch(notificationTag, @"\A[A-Za-z0-9._:-]{1,128}\z"))
-                return "type=click&tag=" + notificationTag;
-            return null;
+            if (appId is "com.squirrel.Discord.Discord" or "com.squirrel.DiscordPTB.DiscordPTB" or "com.squirrel.DiscordCanary.DiscordCanary")
+                return notificationTag != null && System.Text.RegularExpressions.Regex.IsMatch(notificationTag, @"\A[A-Za-z0-9._:-]{1,128}\z")
+                    ? new ToastAction("type=click&tag=" + notificationTag) : null;
+            return new ToastAction(null);
         }
         catch (Exception ex) when (ex is XmlException or ArgumentException or InvalidOperationException) { return null; }
     }
 
-    private static string? ReadArguments(uint id, string appId, DateTimeOffset created, string fingerprint)
+    private static ToastAction? ReadAction(uint id, string appId, DateTimeOffset created, string fingerprint)
     {
         string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             @"Microsoft\Windows\Notifications\wpndatabase.db");
@@ -112,7 +142,7 @@ internal static class NotificationActivationService
                 ? Marshal.PtrToStringUTF8(tagPointer, tagLength) : null;
             // Ambiguous identity must never activate a different message.
             if (sqlite3_step(statement) != 101) return null;
-            return ParseArguments(payload, arrival, created, fingerprint, appId, tag);
+            return ParseAction(payload, arrival, created, fingerprint, appId, tag);
         }
         finally
         {
@@ -246,7 +276,10 @@ internal static class NotificationActivationService
                 return false;
             }
             // Only the body's default action. No reply/mark-read button or user input is fabricated.
-            return !invoke || ((INotificationActivationCallback)callback).Activate(target.AppId, target.Arguments, IntPtr.Zero, 0) >= 0;
+            if (!invoke) return true;
+            hr = ((INotificationActivationCallback)callback).Activate(target.AppId, target.Arguments, IntPtr.Zero, 0);
+            if (hr != 0) AppLog.Notification($"activation callback unhandled hresult=0x{hr:X8}");
+            return hr == 0;
         }
         catch (Exception ex) { AppLog.Error("Activate original notification", ex); return false; }
         finally
@@ -257,6 +290,37 @@ internal static class NotificationActivationService
     }
 
     internal static void AllowForegroundActivation() => AllowSetForegroundWindow(uint.MaxValue);
+
+    internal static bool OpenSourceApp(string appId)
+    {
+        // Execute the exact registered shell item, including Win32 Start menu entries.
+        var launch = new ShellExecuteInfo
+        {
+            Size = Marshal.SizeOf<ShellExecuteInfo>(),
+            Mask = 0x0000000C | 0x00000400, // SEE_MASK_INVOKEIDLIST | SEE_MASK_FLAG_NO_UI
+            File = @"shell:AppsFolder\" + appId,
+            Show = 1
+        };
+        return ShellExecuteEx(ref launch);
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct ShellExecuteInfo
+    {
+        internal int Size;
+        internal uint Mask;
+        internal IntPtr Window;
+        internal string? Verb, File, Parameters, Directory;
+        internal int Show;
+        internal IntPtr Instance, IdList;
+        internal string? Class;
+        internal IntPtr ClassKey;
+        internal uint HotKey;
+        internal IntPtr IconOrMonitor, Process;
+    }
+
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShellExecuteEx(ref ShellExecuteInfo info);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct PropertyKey(uint id)
@@ -289,7 +353,7 @@ internal static class NotificationActivationService
     private interface INotificationActivationCallback
     {
         [PreserveSig] int Activate([MarshalAs(UnmanagedType.LPWStr)] string appId,
-            [MarshalAs(UnmanagedType.LPWStr)] string arguments, IntPtr data, uint count);
+            [MarshalAs(UnmanagedType.LPWStr)] string? arguments, IntPtr data, uint count);
     }
     [DllImport("ole32.dll")] private static extern int CoInitializeEx(IntPtr reserved, uint concurrency);
     [DllImport("ole32.dll")] private static extern void CoUninitialize();

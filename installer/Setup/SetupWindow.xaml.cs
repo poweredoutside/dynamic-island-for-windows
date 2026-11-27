@@ -5,7 +5,6 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
-using DynamicIslandWin.Services;
 
 namespace DynamicIslandSetup;
 
@@ -19,7 +18,6 @@ internal sealed partial class SetupWindow : Window
     private readonly bool _updateMode;
     private SetupPage _page;
     private bool _busy;
-    private bool _installingAudio;
     private string? _errorLog;
     private string? _appId;
 
@@ -29,6 +27,7 @@ internal sealed partial class SetupWindow : Window
         InitializeComponent();
         Client.Width = ClientWidth;
         Client.Height = ClientHeight;
+        if (InstallerPayload.Version == "1.1.30") RequiredUpdateNote.Visibility = Visibility.Visible;
         if (updateMode) Title = "Обновление — OC - Dynamic Island";
         ShowPage(updateMode ? SetupPage.Installing : SetupPage.Welcome);
         Closing += (_, e) => e.Cancel = _busy;
@@ -163,24 +162,19 @@ internal sealed partial class SetupWindow : Window
     {
         if (_busy) return;
         _busy = true;
-        _installingAudio = false;
         _errorLog = null;
         ShowPage(SetupPage.Installing);
         try
         {
             bool installDriver = TemperatureDriver.IsChecked == true;
-            bool installEqualizer = EqualizerApo.IsChecked == true;
             var result = await Task.Run(async () =>
             {
-                using var payload = new InstallerPayload();
+                var payload = new InstallerPayload();
                 try
                 {
-                    await payload.ExtractAsync(installDriver);
-                    return await InstallerPayload.RunPowerShellAsync(Path.Combine(payload.DirectoryPath, "Install.ps1"),
-                        installDriver ? ["-NoLaunch", "-CloseRunningApp", "-Gui", "-InstallCpuTemperatureDriver"] : ["-NoLaunch", "-CloseRunningApp", "-Gui"],
-                        HandleInstallStatus);
+                    return await PackageInstallation.InstallAsync(payload, installDriver, HandleInstallStatus);
                 }
-                finally { HandleInstallStatus("DI_STATUS:Cleaning"); }
+                finally { payload.CleanInBackground(); }
             });
             if (result.ExitCode != 0) throw new InvalidOperationException(result.Output);
             _appId = result.Output.Split('\n').Select(line => line.TrimEnd('\r'))
@@ -192,8 +186,6 @@ internal sealed partial class SetupWindow : Window
                 : "Приложение установлено и доступно в меню «Пуск».";
             if (result.Output.Contains("DI_WARNING:TemperatureDriver", StringComparison.Ordinal))
                 detail += " Драйвер температуры процессора не установлен. Его можно повторно установить в игровом центре.";
-            if (installEqualizer && !await InstallEqualizerAsync())
-                detail += " Установка Equalizer APO не завершилась. Повторить её можно в разделе «Музыка».";
             ShowPage(SetupPage.Complete, detail);
         }
         catch (Exception ex)
@@ -215,46 +207,35 @@ internal sealed partial class SetupWindow : Window
 
     private void HandleInstallStatus(string line)
     {
+        if (line.StartsWith("DI_PROGRESS:", StringComparison.Ordinal) && int.TryParse(line.AsSpan(12), out int progress))
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_page != SetupPage.Installing || progress <= 0) return;
+                InstallProgress.IsIndeterminate = false;
+                InstallProgress.Value = Math.Clamp(progress, 0, 100);
+            }));
+            return;
+        }
         if (!line.StartsWith("DI_STATUS:", StringComparison.Ordinal)) return;
         string phase = line[10..];
         Dispatcher.BeginInvoke(new Action(() =>
         {
-            if (_page != SetupPage.Installing || _installingAudio) return;
+            if (_page != SetupPage.Installing) return;
             PageIntro.Text = phase switch
             {
                 "Checking" => "Проверка установленной версии…",
+                "Preparing" => "Подготовка файлов…",
                 "Closing" => "Закрытие приложения перед обновлением…",
                 "Trust" => "Подтвердите запрос Windows…",
                 "Installing" => "Установка приложения…",
                 "TemperatureDriver" => "Установка драйвера датчиков температуры…",
-                "Cleaning" => "Удаление временных файлов…",
                 _ => PageIntro.Text
             };
             PageNote.Text = phase == "Trust"
                 ? "Windows запрашивает разрешение добавить сертификат сборки. Подтвердите запрос, чтобы продолжить."
                 : "Дождитесь завершения установки.";
         }));
-    }
-
-    private async Task<bool> InstallEqualizerAsync()
-    {
-        if (EqualizerApoInstaller.FindInstallation() != null) return true;
-        _installingAudio = true;
-        PageIntro.Text = "Скачивание Equalizer APO…";
-        PageNote.Text = "Установщик проверит контрольную сумму файла перед запуском.";
-        try
-        {
-            using var setup = await EqualizerApoInstaller.DownloadAsync();
-            PageIntro.Text = "Установка Equalizer APO…";
-            PageNote.Text = "Подтвердите запрос Windows и выберите устройство воспроизведения в окне Equalizer APO.";
-            await setup.RunAsync();
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException or InvalidDataException or System.Net.Http.HttpRequestException or OperationCanceledException
-            or System.ComponentModel.Win32Exception or UnauthorizedAccessException or InvalidOperationException)
-        {
-            return false;
-        }
     }
 
     [DllImport("dwmapi.dll")]

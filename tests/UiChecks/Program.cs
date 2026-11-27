@@ -141,19 +141,6 @@ internal static class Program
         Check(outputMenu.Items[1] is MenuItem { Header: "Test headphones", IsChecked: true }
             && outputMenu.Items[2] is MenuItem { Header: "Test speakers", IsChecked: false, InputGestureText: "In use" },
             "Discord audio menu distinguishes the selected output from the output in use");
-        var playerAudioType = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.PlayerAudioService")!;
-        var playerDeviceType = playerAudioType.GetNestedType("Output", BindingFlags.NonPublic)!;
-        var playerDevices = Array.CreateInstance(playerDeviceType, 2);
-        playerDevices.SetValue(Activator.CreateInstance(playerDeviceType, "headset", "Test headphones", false), 0);
-        playerDevices.SetValue(Activator.CreateInstance(playerDeviceType, "speakers", "Test speakers", true), 1);
-        var playerOutputs = Activator.CreateInstance(playerAudioType.GetNestedType("Outputs", BindingFlags.NonPublic)!, playerDevices, "headset", true);
-        Call("FillPlayerOutputMenu", outputMenu, "player", playerOutputs);
-        Check(outputMenu.Items[0] is MenuItem { IsEnabled: true, IsChecked: false } defaultOutput
-            && Equals(defaultOutput.Header, Translate("Выход Windows по умолчанию"))
-            && outputMenu.Items[1] is MenuItem { Header: "Test headphones", IsChecked: true }
-            && outputMenu.Items[2] is MenuItem { Header: "Test speakers", IsChecked: false } inUseOutput
-            && inUseOutput.InputGestureText == Translate("Сейчас используется"),
-            "The player menu offers default routing and distinguishes the selected output from the output in use");
         Element<Border>("IslandBorder").Visibility = Visibility.Collapsed;
         Call("UpdateDiscordCallState");
         Check(discordCapsule.Visibility == Visibility.Collapsed, "Hiding the island also hides the Discord capsule");
@@ -523,7 +510,7 @@ internal static class Program
         var versionNotes = ((StackPanel)updateCards[1].Child).Children.OfType<TextBlock>()
             .Where(label => label.FontWeight == FontWeights.SemiBold && label.FontSize == 13)
             .Select(label => label.Text).ToArray();
-        Check(versionNotes.SequenceEqual(new[] { "1.1.29", "1.1.28", "1.1.27", "1.1.26", "1.1.25" }.Select(version => Translate("В версии " + version))),
+        Check(versionNotes.SequenceEqual(new[] { "1.1.30", "1.1.29", "1.1.28", "1.1.27", "1.1.26", "1.1.25" }.Select(version => Translate("В версии " + version))),
             "What's new lists the current and previous releases in order");
         Element<Button>("NavAppearanceBtn").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Call("RefreshUpdatesPage");
@@ -677,11 +664,9 @@ internal static class Program
             Call("UpdateHomePlayerVolume", Activator.CreateInstance(playerVolumeSnapshot, .58f, false));
             Snapshot(key + "-home-player", "ExpandedView", height: 278, width: 720);
             var volume = Element<Slider>("HomePlayerVolume");
-            var outputButton = Element<Button>("HomePlayerOutputButton");
             var seekTrack = (System.Windows.Controls.Primitives.Track)seek.Template.FindName("PART_Track", seek);
             Check(seekTrack.ActualWidth > 100 && seekTrack.Thumb.ActualWidth > 0 && volume.ActualWidth > 70
-                && volume.IsEnabled && volume.Value == 58 && seek.Value == 65 && ((string)volume.ToolTip).StartsWith("Player volume")
-                && outputButton.ActualWidth > 20 && Equals(outputButton.ToolTip, Translate("Выход звука плеера")),
+                && volume.IsEnabled && volume.Value == 58 && seek.Value == 65 && ((string)volume.ToolTip).StartsWith("Player volume"),
                 key + ": home player controls fit and reflect player audio state");
             Call("UpdateHomePlayerVolume", new object?[] { null });
             Check(!volume.IsEnabled && volume.Value == 0, "Missing player audio session disables the volume control");
@@ -1006,24 +991,8 @@ internal static class Program
         settings.Karaoke = false; settings.LyricsLineCount = 1;
         Call("ApplyMediaState", false, "Next track", "Artist", "player");
         var musicTransport = Field<Panel>("_musicTransportRow");
-        Check(musicTransport.Visibility == Visibility.Visible && musicTransport.Children.OfType<Button>()
-            .Any(button => Equals(button.ToolTip, Translate("Выход звука плеера"))),
-            "Paused media keeps transport and output controls available in Music");
-        var musicPanel = Field<Panel>("_musicPlayerCard");
-        var equalizer = musicPanel.Children.OfType<Expander>().Single();
-        Check(Equals(equalizer.Header, Translate("Эквалайзер"))
-            && musicPanel.Children.IndexOf(equalizer) == musicPanel.Children.IndexOf(Field<Panel>("_musicVolumeRow")) + 1,
-            "The equalizer sits directly below the two volume controls");
-        equalizer.IsExpanded = true;
-        var equalizerPanel = (StackPanel)equalizer.Content;
-        var eqPreset = equalizerPanel.Children.OfType<ComboBox>().Single();
-        var eqSliders = equalizerPanel.Children.OfType<System.Windows.Controls.Primitives.UniformGrid>().Single().Children.OfType<StackPanel>()
-            .Select(column => column.Children.OfType<Slider>().Single()).ToArray();
-        eqPreset.SelectedIndex = 2;
-        Check(eqSliders.Select(slider => slider.Value).SequenceEqual(new double[] { 6, 3, 0, 0, 0 }), "The bass preset fills the five equalizer bands");
-        eqSliders[1].Value = -2;
-        Check(eqPreset.SelectedIndex == 0, "Adjusting an equalizer band selects the custom curve");
-        Snapshot("music-equalizer", "DashboardSectionView", height: 525, width: 720);
+        Check(musicTransport.Visibility == Visibility.Visible && musicTransport.Children.OfType<Button>().Count() == 3,
+            "Paused media keeps the three playback controls available in Music.");
         Call("ApplyMediaState", false, "", "", "");
         Check(Field<Panel>("_musicTimelineRow").Visibility == Visibility.Collapsed
             && Field<Panel>("_musicVolumeRow").Visibility == Visibility.Collapsed

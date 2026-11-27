@@ -91,18 +91,15 @@
             <StackPanel Grid.Column="1" Margin="14,18,24,18">
                 <TextBlock x:Name="PageHeading" FontWeight="Bold" FontSize="19" LineHeight="24" LineStackingStrategy="BlockLineHeight"
                            AutomationProperties.HeadingLevel="Level1"/>
-                <TextBlock x:Name="PageIntro" Margin="0,26,0,0" LineHeight="18" LineStackingStrategy="BlockLineHeight"/>
+                <TextBlock x:Name="RequiredUpdateNote" Margin="0,9,0,0" FontWeight="SemiBold" Foreground="#8AD8F1"
+                           Text="Обязательное обновление (Фикс звука)" Visibility="Collapsed"/>
+                <TextBlock x:Name="PageIntro" Margin="0,16,0,0" LineHeight="18" LineStackingStrategy="BlockLineHeight"/>
                 <StackPanel x:Name="Options" Margin="0,20,0,0">
                     <CheckBox x:Name="TemperatureDriver" Foreground="#FAFAFA" VerticalContentAlignment="Center">
                         <TextBlock Text="Установить PawnIO для датчиков температуры процессора"/>
                     </CheckBox>
                     <TextBlock Foreground="{StaticResource MutedText}" Margin="21,5,0,0"
                                Text="Дополнительный драйвер. Windows запросит права администратора."/>
-                    <CheckBox x:Name="EqualizerApo" Foreground="#FAFAFA" VerticalContentAlignment="Center" Margin="0,14,0,0">
-                        <TextBlock Text="Установить Equalizer APO для эквалайзера"/>
-                    </CheckBox>
-                    <TextBlock Foreground="{StaticResource MutedText}" Margin="21,5,0,0"
-                               Text="Скачивание с SourceForge, 12 МБ. Устройство вывода выбирается в установщике Equalizer APO."/>
                 </StackPanel>
                 <ProgressBar x:Name="InstallProgress" Height="13" Margin="0,14,0,0" Foreground="#3DA9D3" Background="#3B3B3B"
                              AutomationProperties.Name="Ход установки"/>

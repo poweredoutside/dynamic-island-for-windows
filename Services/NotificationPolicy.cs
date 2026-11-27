@@ -5,12 +5,13 @@ internal sealed class NotificationPolicy
     private readonly Dictionary<uint, (DateTimeOffset Created, string Text)> _seen = new();
     private static readonly string[] MessengerNames =
     [
-        "telegram", "exdesktop", "ayugram", "64gram", "kotatogram", "unigram", "discord", "vesktop",
+        "telegram", "telegadesktop", "exdesktop", "ayugram", "64gram", "kotatogram", "unigram", "discord", "vesktop",
         "vencord", "viber", "whatsapp", "skype", "signal", "slack", "teams", "icq", "vk", "вконтакте"
     ];
 
     public static bool IsMessenger(string name, string appId)
     {
+        if (name.Equals("Telega Desktop", StringComparison.OrdinalIgnoreCase)) return true;
         // Match tokens/prefixes, not arbitrary substrings (e.g. 'Teams' vs 'Steam').
         string[] tokens = System.Text.RegularExpressions.Regex.Split($"{name} {appId}".ToLowerInvariant(), @"[^\p{L}\p{N}]+");
         return tokens.Any(token => MessengerNames.Any(m => token.StartsWith(m, StringComparison.Ordinal)));
@@ -29,6 +30,8 @@ internal sealed class NotificationPolicy
         _seen[id] = current;
         return true;
     }
+
+    public Dictionary<uint, (DateTimeOffset Created, string Text)> Snapshot() => new(_seen);
 
     public void Retain(IEnumerable<uint> currentIds)
     {

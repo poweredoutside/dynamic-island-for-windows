@@ -18,9 +18,15 @@ try {
 } finally { $archive.Dispose() }
 $version = [version]$manifest.Package.Identity.Version
 $publishDirectory = Join-Path $projectRoot ('artifacts\setup-build-' + [guid]::NewGuid().ToString('N'))
+$manifestPath = $publishDirectory + '.manifest.xml'
+$manifest.Save($manifestPath)
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install.ps1'), (Join-Path $PSScriptRoot 'INSTALL.txt') -Destination $release -Force
-& dotnet publish (Join-Path $PSScriptRoot 'Setup\Setup.csproj') -c Release -r win-x64 --self-contained true ('-p:InstallerPayloadDirectory=' + $release) ('-p:Version=' + $version.ToString(3)) -o $publishDirectory
-if ($LASTEXITCODE -ne 0) { throw 'GUI setup build failed' }
+try {
+    & dotnet publish (Join-Path $PSScriptRoot 'Setup\Setup.csproj') -c Release -r win-x64 --self-contained true ('-p:InstallerPayloadDirectory=' + $release) ('-p:InstallerIdentityManifest=' + $manifestPath) ('-p:Version=' + $version.ToString(3)) -o $publishDirectory
+    if ($LASTEXITCODE -ne 0) { throw 'GUI setup build failed' }
+} finally {
+    Remove-Item -LiteralPath $manifestPath -ErrorAction SilentlyContinue
+}
 $setup = Join-Path $publishDirectory 'ocdynamicisland.exe'
 if (!$PfxPath) { $PfxPath = Join-Path $projectRoot '.tools\signing\development.pfx'; $PfxPassword = '' }
 $sdkRoot = Join-Path $projectRoot '.tools\packages\microsoft.windows.sdk.buildtools\10.0.26100.9169'

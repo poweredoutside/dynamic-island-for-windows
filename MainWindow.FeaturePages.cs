@@ -303,7 +303,8 @@ public partial class MainWindow
         var behavior = FeatureCard("Поведение", parent: SettingsFeatureContent);
         FeatureToggle(behavior, "Показ громкости в динамическом острове", _settings.VolumeIslandHud ?? _settings.LevelHud, SetVolumeIslandHud);
         behavior.Children.Add(FeatureText("Заменяет индикатор Windows при нажатии клавиш громкости. Выключите, чтобы вернуть системный показ.", 11));
-        FeatureToggle(behavior, "Показывать уровень яркости", _settings.LevelHud, v => _settings.LevelHud = v);
+        FeatureToggle(behavior, "Показ яркости в динамическом острове", _settings.BrightnessIslandHud ?? _settings.LevelHud, SetBrightnessIslandHud);
+        behavior.Children.Add(FeatureText("Заменяет индикатор яркости Windows на поддерживаемых экранах.", 11));
         FeatureToggle(behavior, "Следовать за курсором на другой монитор", _settings.FollowCursorMonitor, v => _settings.FollowCursorMonitor = v);
         FeatureToggle(behavior, "Счётчик непрочитанных без доступа к уведомлениям", _settings.TitleUnreadFallback, v => _settings.TitleUnreadFallback = v);
         FeatureToggle(behavior, "Прогресс других программ", _settings.ExternalProgress, SetExternalProgress);
@@ -477,28 +478,77 @@ public partial class MainWindow
         _systemMaster = FeatureSlider(card, "Общая громкость, %", 0, 100, 0, null, integer: true, setting: false);
         System.Windows.Automation.AutomationProperties.SetName(_systemMaster, L("Громкость Windows"));
         ConnectWindowsVolumeSlider(_systemMaster);
-        var placeholder = FeatureText("Читаю аудиоустройства…", 12, "ThemeMutedBrush"); card.Children.Add(placeholder);
-        try
-        {
-            var result = await Task.Run(() => { using var audio = new DesktopAudioService(); return (Apps: audio.Apps(), Brightness: DesktopAudioService.Brightness()); });
-            if (_currentState != IslandState.Section || _featurePage != "system" || !DashboardSectionContent.Children.Contains(card.Parent as UIElement)) return;
-            card.Children.Remove(placeholder);
-            if (result.Brightness is { } brightness) FeatureSlider(card, "Яркость, %", 0, 100, brightness, v => _ = Task.Run(() => { try { DesktopAudioService.SetBrightness((int)v); } catch (Exception ex) { AppLog.Error("Set brightness", ex); } }), integer: true, setting: false);
-            foreach (var session in result.Apps) AddAppMixerRow(card, session);
-            if (result.Apps.Count == 0) card.Children.Add(FeatureText("Запустите воспроизведение в приложении, затем обновите список.", 11, "ThemeMutedBrush"));
-            card.Children.Add(FeatureButton("Обновить список", () => OpenFeaturePage("system")));
-        }
-        catch (Exception ex) { AppLog.Error("Read audio mixer", ex); placeholder.Text = L("Не удалось получить список приложений."); card.Children.Add(FeatureButton("Обновить список", () => OpenFeaturePage("system"))); }
+        AddLiveAppMixer(card);
+        int? brightness = await Task.Run(DesktopAudioService.Brightness);
+        if (brightness.HasValue && _currentState == IslandState.Section && _featurePage == "system" &&
+            DashboardSectionContent.Children.Contains(card.Parent as UIElement))
+            FeatureSlider(card, "Яркость, %", 0, 100, brightness.Value, v => _ = Task.Run(() => { try { DesktopAudioService.SetBrightness((int)v); } catch (Exception ex) { AppLog.Error("Set brightness", ex); } }), integer: true, setting: false);
     }
 
-    private void AddAppMixerRow(StackPanel card, DesktopAudioService.AppVolume session)
+    private void AddLiveAppMixer(StackPanel card)
+    {
+        var status = FeatureText("Читаю аудиоустройства…", 12, "ThemeMutedBrush");
+        var rowsPanel = new StackPanel();
+        var rows = new Dictionary<(string Endpoint, string Session), (StackPanel Panel, Action<DesktopAudioService.AppVolume, long> Refresh)>();
+        bool busy = false;
+        card.Children.Add(status);
+        card.Children.Add(rowsPanel);
+        card.Children.Add(FeatureButton("Обновить список", () => _ = RefreshAsync()));
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        timer.Tick += async (_, _) => await RefreshAsync();
+        card.IsVisibleChanged += (_, _) =>
+        {
+            if (card.IsVisible) { timer.Start(); _ = RefreshAsync(); }
+            else timer.Stop();
+        };
+        if (card.IsVisible) { timer.Start(); _ = RefreshAsync(); }
+
+        async Task RefreshAsync()
+        {
+            if (busy || !card.IsVisible || _windowClosed) return;
+            busy = true;
+            try
+            {
+                long readStarted = Stopwatch.GetTimestamp();
+                var sessions = await Task.Run(() => { using var audio = new DesktopAudioService(); return audio.Apps(); });
+                if (!card.IsVisible || _windowClosed) return;
+                var keys = new HashSet<(string, string)>();
+                foreach (var session in sessions)
+                {
+                    var key = (session.EndpointId, session.Id);
+                    if (!keys.Add(key)) continue;
+                    if (rows.TryGetValue(key, out var existing)) existing.Refresh(session, readStarted);
+                    else rows.Add(key, AddAppMixerRow(rowsPanel, session));
+                }
+                foreach (var key in rows.Keys.Where(key => !keys.Contains(key)).ToArray())
+                {
+                    rowsPanel.Children.Remove(rows[key].Panel);
+                    rows.Remove(key);
+                }
+                status.Text = L("Запустите воспроизведение в приложении, чтобы оно появилось в микшере.");
+                status.Visibility = rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error("Read audio mixer", ex);
+                status.Text = L("Не удалось получить список приложений.");
+                status.Visibility = Visibility.Visible;
+            }
+            finally { busy = false; }
+        }
+    }
+
+    private (StackPanel Panel, Action<DesktopAudioService.AppVolume, long> Refresh) AddAppMixerRow(StackPanel card, DesktopAudioService.AppVolume session)
     {
         var row = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
         row.Children.Add(FeatureText(session.Name, 13));
-        string output = session.Active ? $"{session.OutputName} · {L("Сейчас используется")}" : session.OutputName;
-        row.Children.Add(FeatureText(output, 11, "ThemeMutedBrush"));
+        string OutputLabel(DesktopAudioService.AppVolume current)
+            => current.Active ? $"{current.OutputName} · {L("Сейчас используется")}" : current.OutputName;
+        var output = FeatureText(OutputLabel(session), 11, "ThemeMutedBrush");
+        row.Children.Add(output);
         float currentVolume = session.Volume;
         bool muted = session.Muted, updatingSlider = false;
+        long lastChange = 0;
         string MuteLabel() => L(muted ? "Включить звук" : "Выключить звук");
         var muteButton = FeatureButton(MuteLabel());
         row.Children.Add(muteButton);
@@ -510,6 +560,20 @@ public partial class MainWindow
         muteButton.Click += (_, e) => { e.Handled = true; Apply(null, !muted); };
         System.Windows.Automation.AutomationProperties.SetName(slider, $"{L("Громкость, %")} · {L(session.Name)} · {session.OutputName}");
         card.Children.Add(row);
+        return (row, (current, readStarted) =>
+        {
+            output.Text = OutputLabel(current);
+            if (slider.IsMouseCaptureWithin || readStarted < lastChange) return;
+            session = current;
+            (currentVolume, muted) = (current.Volume, current.Muted);
+            muteButton.Content = MuteLabel();
+            if (!slider.IsEnabled)
+            {
+                slider.IsEnabled = muteButton.IsEnabled = true;
+                if (row.Children[^1] is TextBlock error) row.Children.Remove(error);
+            }
+            SetSliderVolume();
+        });
 
         void Apply(float? volume, bool? mute)
         {
@@ -518,13 +582,15 @@ public partial class MainWindow
                 using var audio = new DesktopAudioService();
                 if (audio.SetApp(session, volume, mute) is { } actual)
                 {
+                    lastChange = Stopwatch.GetTimestamp();
                     (currentVolume, muted) = actual;
                     muteButton.Content = MuteLabel();
                     SetSliderVolume();
                     return;
                 }
             }
-            catch (System.Runtime.InteropServices.COMException ex) { AppLog.Error("Set app mixer volume", ex); }
+            catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or InvalidOperationException)
+            { AppLog.Error("Set app mixer volume", ex); }
             SetSliderVolume();
             slider.IsEnabled = muteButton.IsEnabled = false;
             row.Children.Add(FeatureText("Сеанс звука недоступен. Обновите список.", 11, "ThemeMutedBrush"));
@@ -665,6 +731,7 @@ public partial class MainWindow
     private CancellationTokenSource? _updateCancellation;
     private DateTime _nextUpdateCheck = DateTime.MaxValue;
     private readonly HashSet<(Uri Installer, Version Version)> _notifiedUpdates = [];
+    private const string RequiredSoundUpdate = "Обязательное обновление (Фикс звука)";
 
     private async Task CheckForUpdatesAsync(bool automatic)
     {
@@ -685,7 +752,9 @@ public partial class MainWindow
             _updateStatus = _downloadedUpdate != null ? "Установщик загружен; SHA-256 и подпись издателя проверены."
                 : available != null ? "Доступна версия " + available.Version : "Установлена актуальная версия.";
             if (available != null && _notifiedUpdates.Add((available.Installer, available.Version)) && automatic)
-                FeatureNotice(_updateStatus, () => OpenSettingsFeaturePage("updates"));
+                FeatureNotice(available.Name.Contains(RequiredSoundUpdate, StringComparison.OrdinalIgnoreCase)
+                    ? $"{L(RequiredSoundUpdate)} · {available.Version}" : _updateStatus,
+                    () => OpenSettingsFeaturePage("updates"));
         }
         catch (FormatException ex) { if (!automatic) _updateStatus = ex.Message; }
         catch (Exception ex)
@@ -755,6 +824,13 @@ public partial class MainWindow
     private void BuildWhatsNewSection()
     {
         var card = FeatureCard("Что нового", parent: SettingsFeatureContent);
+        AddChanges("В версии 1.1.30",
+            RequiredSoundUpdate,
+            "Восстановлено управление всеми аудиосессиями текущего выхода через громкость и отключение звука Windows.",
+            "Убраны Equalizer APO и перенаправление звука плеером. Восстанавливаются аудиосессии, отключённые предыдущей сборкой.",
+            "Уведомления открывают исходное приложение, а поддерживаемые мессенджеры — нужный чат.",
+            "Добавлен отдельный индикатор яркости, который заменяет плашку Windows на поддерживаемых экранах.",
+            "Ускорена установка, когда сертификат издателя уже доверен.");
         AddChanges("В версии 1.1.29",
             "Исправлено управление встроенной громкостью настольной Яндекс Музыки.",
             "Громкость Windows в «Музыке», «Системе» и боковой капсуле синхронизируется с текущим устройством вывода.",
@@ -782,14 +858,12 @@ public partial class MainWindow
             "Заметки можно редактировать, группировать и фильтровать по тематикам.",
             "Плеер отдаёт приоритет играющему источнику и поддерживает больше браузеров. На главной и в «Музыке» можно выбрать выход звука.",
             "Кнопки управления, громкость и перемотка скрываются без активного медиа. Доступность команд зависит от плеера.",
-            "Под громкостью в «Музыке» появился пятиполосный эквалайзер с пресетами и прямым скачиванием Equalizer APO.",
             "Пункт управления показывает VPN-туннели и системный прокси Windows.",
             "Подключённые устройства обновляются по событиям Windows. Для совместимых устройств есть кнопка «Отключить».",
             "Виджеты обновляют сеть, батарею, музыку, погоду, календарь, буфер обмена и режим «Не беспокоить» при изменении данных.",
             "В чате доступны 30 голосов Gemini Live и свои пресеты с манерой речи.",
             "Уведомления и установщики обновлений берутся из официального репозитория проекта.",
             "Диагностика измеряет задержку интерфейса, загрузку CPU и расход оперативной памяти.",
-            "Установщик получил тёмный мастер и отдельную галочку для Equalizer APO.",
             "История буфера обмена проверяет файлы при открытии и изменении, а в фоне удаляет записи по сроку хранения.",
             "Громкость плеера проверяется реже, а поиск фонового прогресса читает имя процесса один раз за обход.",
             "Настройки ползунков записываются после паузы в изменениях. Виджеты с событиями обновляются отдельно.");

@@ -329,12 +329,14 @@ public partial class MainWindow
                 if (visible) _settings.HiddenTabs.RemoveAll(hidden => hidden == key);
                 else if (!_settings.HiddenTabs.Contains(key)) _settings.HiddenTabs.Add(key);
                 BuildDashboardNavigation();
+                UpdateCompactContent();
             });
         tabs.Children.Add(FeatureButton("Восстановить вкладки", () =>
         {
             _settings.TabOrder.Clear();
             _settings.HiddenTabs.Clear();
             BuildDashboardNavigation();
+            UpdateCompactContent();
             SaveSettings();
             BuildSettingsFeaturePage("tabs");
         }));

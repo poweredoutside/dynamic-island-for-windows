@@ -461,6 +461,70 @@ internal static class Program
         }
         settings.LastDashboardTab = "home";
         rememberTab.IsChecked = false;
+
+        Check(System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>("{}") is { ContextAssistant: false },
+            "Context assistant is opt-in for existing settings");
+        var assistantToggle = Element<CheckBox>("TglContextAssistant");
+        var assistant = Element<Button>("AssistantShortcut");
+        var hoverAssistant = Element<Button>("HoverAssistantShortcut");
+        Check(Element<TextBlock>("LblContextAssistant").Text == Translate("Умный ассистент"),
+            "The context assistant switch is localized");
+        bool wasLoading = Field<bool>("_isLoadingSettings");
+        Set("_isLoadingSettings", true);
+        assistantToggle.IsChecked = true;
+        assistantToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(System.Text.Json.JsonSerializer.Deserialize<MainWindow.AppSettings>(
+                System.Text.Json.JsonSerializer.Serialize(settings)) is { ContextAssistant: true },
+            "Turning on the context assistant changes the persisted setting");
+        var forWindow = typeof(MainWindow).Assembly.GetType("DynamicIslandWin.Services.ForegroundIslandContext")!
+            .GetMethod("ForWindow", BindingFlags.Static | BindingFlags.NonPublic)!;
+        object Context(string process, string windowClass = "") => forWindow.Invoke(null, [process, windowClass])!;
+        Call("CollapseBtn_Click", window, new RoutedEventArgs(Button.ClickEvent));
+        foreach (var (process, windowClass, tab, label) in new (string, string, string?, string?)[]
+        {
+            ("Code", "Chrome_WidgetWin_1", "notes", "Заметки"),
+            ("Spotify", "", "music", "Музыка"),
+            ("Telegram", "", "clipboard", "Буфер обмена"),
+            ("explorer", "CabinetWClass", "clipboard", "Буфер обмена"),
+            ("ms-teams", "", "calendar", "Календарь"),
+            ("javaw", "GLFW30", "system", "Система"),
+            ("javaw", "SunAwtFrame", null, null),
+            ("explorer", "Progman", null, null),
+            ("unknown", "", null, null)
+        })
+        {
+            Set("_assistantContext", Context(process, windowClass));
+            Call("UpdateCompactContent");
+            Check(Equals(assistant.Tag, tab) && assistant.Visibility == (tab != null ? Visibility.Visible : Visibility.Collapsed)
+                && (label == null || Equals(assistant.ToolTip, Translate(label))), $"Context assistant selects the right shortcut for {process}/{windowClass}");
+        }
+        var getTab = forWindow.ReturnType.GetMethod("GetTab", flags)!;
+        var browser = Context("chrome");
+        Check(Equals(getTab.Invoke(browser, ["Chrome.Default"]), "music")
+            && Equals(getTab.Invoke(browser, ["Spotify.exe"]), "clipboard")
+            && Equals(getTab.Invoke(browser, [null]), "clipboard"), "Only media from the active browser changes its shortcut to Music");
+        Set("_assistantContext", Context("code"));
+        Call("UpdateCompactContent");
+        Check(hoverAssistant.Visibility == Visibility.Visible && Equals(hoverAssistant.ToolTip, assistant.ToolTip),
+            "The hover view has the same shortcut as the compact view");
+        Check(Element<StackPanel>("CompactWeatherPanel").Visibility == Visibility.Collapsed,
+            "The suggestion occupies the right slot of the compact island");
+        settings.HiddenTabs.Add("notes");
+        Call("UpdateCompactContent");
+        Check(assistant.Visibility == Visibility.Collapsed && Element<StackPanel>("CompactWeatherPanel").Visibility == Visibility.Visible,
+            "A hidden destination restores the normal right slot");
+        settings.HiddenTabs.Clear();
+        Call("UpdateCompactContent");
+        assistant.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(Field<string>("_featurePage") == "notes" && Element<ScrollViewer>("DashboardSectionView").Visibility == Visibility.Visible,
+            "Clicking the shortcut opens the suggested section");
+        assistantToggle.IsChecked = false;
+        assistantToggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(!settings.ContextAssistant && assistant.Visibility == Visibility.Collapsed && hoverAssistant.Visibility == Visibility.Collapsed,
+            "Turning off the assistant immediately removes both shortcuts");
+        Set("_isLoadingSettings", wasLoading);
+        SelectDashboardTab("home");
+
         var dashboardHeader = Element<Grid>("DashboardHeader");
         var dashboardFps = Element<TextBlock>("DashboardFpsText");
         dashboardFps.Visibility = Visibility.Visible;

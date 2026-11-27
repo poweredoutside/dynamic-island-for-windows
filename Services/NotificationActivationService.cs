@@ -244,7 +244,7 @@ internal static class NotificationActivationService
                         try
                         {
                             if (store.GetValue(ref idKey, out id) < 0 || store.GetValue(ref clsidKey, out activator) < 0) continue;
-                            string? appId = id.Type == 31 ? Marshal.PtrToStringUni(id.Pointer) : null;
+                            string? appId = ReadString(id);
                             if (!string.IsNullOrWhiteSpace(appId) && activator.Type == 72 && activator.Pointer != IntPtr.Zero)
                                 result[appId] = Marshal.PtrToStructure<Guid>(activator.Pointer);
                         }
@@ -277,6 +277,9 @@ internal static class NotificationActivationService
             }
             // Only the body's default action. No reply/mark-read button or user input is fabricated.
             if (!invoke) return true;
+            // COM delivery succeeds even when Windows denies the server's request to raise its window.
+            int foreground = CoAllowSetForegroundWindow(callback, IntPtr.Zero);
+            if (foreground < 0) AppLog.Notification($"activation foreground transfer hresult=0x{foreground:X8}");
             hr = ((INotificationActivationCallback)callback).Activate(target.AppId, target.Arguments, IntPtr.Zero, 0);
             if (hr != 0) AppLog.Notification($"activation callback unhandled hresult=0x{hr:X8}");
             return hr == 0;
@@ -289,10 +292,52 @@ internal static class NotificationActivationService
         }
     }
 
-    internal static void AllowForegroundActivation() => AllowSetForegroundWindow(uint.MaxValue);
+    internal static bool IsTelegramDesktop(string appId)
+        => appId.Equals("Telegram.TelegramDesktop", StringComparison.OrdinalIgnoreCase)
+        || appId.StartsWith("Telegram.TelegramDesktop.", StringComparison.OrdinalIgnoreCase)
+        || appId.StartsWith("TelegramMessengerLLP.TelegramDesktop_", StringComparison.OrdinalIgnoreCase)
+        || appId.Equals("PoweredOutside.TelegaDesktop", StringComparison.OrdinalIgnoreCase)
+        || appId.StartsWith("PoweredOutside.TelegaDesktop.", StringComparison.OrdinalIgnoreCase)
+        || appId.Equals("exDesktop.exDesktop", StringComparison.OrdinalIgnoreCase);
+
+    private static string? ReadString(PropVariant value)
+        => value.Type == 31 ? Marshal.PtrToStringUni(value.Pointer) : null;
+
+    internal static string? ReadWindowAppId(IntPtr window)
+    {
+        if (window == IntPtr.Zero) return null;
+        Guid iid = typeof(IPropertyStore).GUID;
+        if (SHGetPropertyStoreForWindow(window, ref iid, out var store) < 0 || store == null) return null;
+        var key = new PropertyKey(5);
+        PropVariant value = default;
+        try { return store.GetValue(ref key, out value) >= 0 ? ReadString(value) : null; }
+        finally
+        {
+            PropVariantClear(ref value);
+            Marshal.ReleaseComObject(store);
+        }
+    }
+
+    internal static bool FocusSourceWindow(string appId)
+    {
+        if (string.Equals(ReadWindowAppId(GetForegroundWindow()), appId, StringComparison.OrdinalIgnoreCase)) return true;
+
+        IntPtr source = IntPtr.Zero;
+        EnumWindows((window, _) =>
+        {
+            if (!IsWindowVisible(window) ||
+                !string.Equals(ReadWindowAppId(window), appId, StringComparison.OrdinalIgnoreCase)) return true;
+            source = window;
+            return false;
+        }, IntPtr.Zero);
+        if (source == IntPtr.Zero) return false;
+        if (IsIconic(source)) ShowWindowAsync(source, 9); // SW_RESTORE
+        return SetForegroundWindow(source);
+    }
 
     internal static bool OpenSourceApp(string appId)
     {
+        if (FocusSourceWindow(appId)) return true;
         // Execute the exact registered shell item, including Win32 Start menu entries.
         var launch = new ShellExecuteInfo
         {
@@ -346,6 +391,9 @@ internal static class NotificationActivationService
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
     private static extern int SHGetPropertyStoreFromParsingName(string path, IntPtr context, uint flags,
         ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out IPropertyStore? store);
+    [DllImport("shell32.dll")]
+    private static extern int SHGetPropertyStoreForWindow(IntPtr window, ref Guid iid,
+        [MarshalAs(UnmanagedType.Interface)] out IPropertyStore? store);
     [DllImport("ole32.dll")] private static extern int PropVariantClear(ref PropVariant value);
 
     private static byte[] Utf8(string value) => Encoding.UTF8.GetBytes(value + '\0');
@@ -359,8 +407,21 @@ internal static class NotificationActivationService
     [DllImport("ole32.dll")] private static extern void CoUninitialize();
     [DllImport("ole32.dll")] private static extern int CoCreateInstance(ref Guid clsid, IntPtr outer, uint context,
         ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out object? instance);
+    [DllImport("ole32.dll")] private static extern int CoAllowSetForegroundWindow(
+        [MarshalAs(UnmanagedType.IUnknown)] object callback, IntPtr reserved);
+    private delegate bool EnumWindowProc(IntPtr window, IntPtr parameter);
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool AllowSetForegroundWindow(uint processId);
+    private static extern bool EnumWindows(EnumWindowProc callback, IntPtr parameter);
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsIconic(IntPtr window);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ShowWindowAsync(IntPtr window, int command);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr window);
     [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int sqlite3_open_v2(byte[] path, out IntPtr db, int flags, IntPtr vfs);
     [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int sqlite3_close(IntPtr db);
     [DllImport("winsqlite3.dll", CallingConvention = CallingConvention.Cdecl)] private static extern int sqlite3_busy_timeout(IntPtr db, int ms);

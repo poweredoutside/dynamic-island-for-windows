@@ -15,22 +15,38 @@ namespace DynamicIslandWin.Services;
 internal static class NotificationActivationBroker
 {
     private sealed record Request(string AppId, string? Arguments, Guid Activator, bool Probe);
+    private static readonly Lazy<Task<string?>> PreparedHost = new(() => Task.Run(() =>
+    {
+        try { return PrepareHost(); }
+        catch (Exception ex) { AppLog.Error("Prepare notification activation host", ex); return null; }
+    }));
+
+    internal static void PrepareInBackground() => _ = PreparedHost.Value;
 
     internal static async Task<bool> RunAsync(NotificationActivationService.Target target, bool probe = false,
-        string? executable = null)
+        string? executable = null, CancellationToken cancellation = default)
     {
         if (target.Activator == Guid.Empty) return false;
         string nonce = Guid.NewGuid().ToString("N");
         string helper;
-        try { helper = executable ?? await Task.Run(() => PrepareHost()).ConfigureAwait(false); }
+        try
+        {
+            helper = executable ?? await PreparedHost.Value.ConfigureAwait(false)
+                ?? await Task.Run(() => PrepareHost(), cancellation).ConfigureAwait(false);
+            if (executable == null && !File.Exists(helper))
+                helper = await Task.Run(() => PrepareHost(), cancellation).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return false; }
         catch (Exception ex) { AppLog.Error("Prepare notification activation host", ex); return false; }
+        if (cancellation.IsCancellationRequested) return false;
         using var pipe = new NamedPipeServerStream("DynamicIsland.Activation." + nonce, PipeDirection.InOut, 1,
             PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         using var process = target.AppId.Contains('!')
             ? StartInSourcePackage(target.AppId, helper, nonce) : StartOutsidePackage(helper, nonce);
         if (process == null) return false;
         AllowSetForegroundWindow((uint)process.Id);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
+        timeout.CancelAfter(TimeSpan.FromSeconds(8));
         try
         {
             await pipe.WaitForConnectionAsync(timeout.Token).ConfigureAwait(false);
@@ -42,6 +58,7 @@ internal static class NotificationActivationBroker
                 .AsMemory(), timeout.Token).ConfigureAwait(false);
             return await reader.ReadLineAsync(timeout.Token).ConfigureAwait(false) == "ok";
         }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return false; }
         catch (Exception ex) { AppLog.Error("Notification activation broker", ex); return false; }
         finally
         {
@@ -107,7 +124,6 @@ internal static class NotificationActivationBroker
             if (request == null || request.AppId is not { Length: > 0 and <= 512 } || request.Arguments is { Length: > 16384 } ||
                 request.Activator == Guid.Empty || request.Arguments?.Contains('\0') == true) return;
             var target = new NotificationActivationService.Target(request.AppId, request.Arguments, request.Activator);
-            NotificationActivationService.AllowForegroundActivation();
             bool success = request.Probe
                 ? await NotificationActivationService.ProbeCallbackAsync(target).ConfigureAwait(false)
                 : await NotificationActivationService.ActivateAsync(target).ConfigureAwait(false);

@@ -15,7 +15,11 @@ public static class ActivationRoundtrip
         try
         {
             Marshal.ThrowExceptionForHR(CoRegisterClassObject(ref clsid, factory, 4, 1, out registration));
-            return ActivateAndCheck(arguments, 1) && ActivateAndCheck(null, 2);
+            if (!ActivateAndCheck(arguments, 1) || !ActivateAndCheck(null, 2)) return false;
+            var superseded = new NotificationActivationService.Target(appId, arguments, clsid);
+            bool delivered = NotificationActivationBroker.RunAsync(superseded, executable: host,
+                cancellation: new CancellationToken(canceled: true)).GetAwaiter().GetResult();
+            lock (callback) return !delivered && callback.Calls == 2;
         }
         finally
         {

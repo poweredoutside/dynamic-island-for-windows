@@ -50,6 +50,7 @@ public partial class MainWindow
             NotificationActivationService.Fingerprint(observation.Text), GetNotificationPackageManifest(app));
 
     private readonly Dictionary<string, ImageSource> _notificationIcons = new();
+    private CancellationTokenSource? _notificationActivationClick;
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetCurrentPackageFullName(ref uint length, System.Text.StringBuilder? name);
 
@@ -83,6 +84,7 @@ public partial class MainWindow
             AppLog.Notification($"initialize access={status} version={typeof(MainWindow).Assembly.GetName().Version}");
             if (_notifAccessGranted && !_notificationEventSubscribed)
             {
+                NotificationActivationBroker.PrepareInBackground();
                 _notifListener.NotificationChanged += NotificationListener_Changed;
                 _notificationEventSubscribed = true;
             }
@@ -330,25 +332,55 @@ public partial class MainWindow
         e.Handled = true;
         if (_featureNoticeAction is { } featureAction) { HideNotificationBubble(); featureAction(); return; }
         if (_visibleNotification is not { } notification || string.IsNullOrWhiteSpace(notification.AppId)) return;
-        // Capture the clicked item before awaiting: another sender can replace the visible bubble.
         HideNotificationBubble();
-        NotificationActivationService.AllowForegroundActivation();
+        using var click = new CancellationTokenSource();
+        _notificationActivationClick?.Cancel();
+        _notificationActivationClick = click;
         try
         {
-            var target = await notification.Activation;
-            bool activated;
+            await ActivateIslandNotificationAsync(notification, click.Token);
+        }
+        catch (OperationCanceledException) when (click.IsCancellationRequested) { }
+        finally
+        {
+            if (ReferenceEquals(_notificationActivationClick, click)) _notificationActivationClick = null;
+        }
+    }
+
+    private async Task ActivateIslandNotificationAsync(IslandNotification notification, CancellationToken cancellation)
+    {
+        bool telegram = NotificationActivationService.IsTelegramDesktop(notification.AppId);
+        bool focused = false;
+        if (telegram)
+        {
+            // Windows grants foreground permission on the user click. Restoring the
+            // exact sender here avoids losing that permission while COM starts.
+            try { focused = NotificationActivationService.FocusSourceWindow(notification.AppId); }
+            catch (Exception ex) { AppLog.Error("Focus Telegram notification source", ex); }
+        }
+        AppLog.Notification($"click id={notification.Id} sourceFocused={focused}");
+
+        IntPtr foreground = GetForegroundWindow();
+        bool delivered = false;
+        try
+        {
+            var target = await notification.Activation.WaitAsync(cancellation);
             if (target?.Protocol is { } uri)
             {
                 var options = new Windows.System.LauncherOptions();
                 if (target.ProtocolPackage is { } package) options.TargetApplicationPackageFamilyName = package;
-                activated = await Windows.System.Launcher.LaunchUriAsync(uri, options);
+                delivered = await Windows.System.Launcher.LaunchUriAsync(uri, options);
+                if (delivered) return;
             }
-            else activated = target != null && await NotificationActivationBroker.RunAsync(target);
-            AppLog.Notification($"activate id={notification.Id} context={target != null} protocol={target?.Protocol != null} handled={activated}");
-            if (activated) return;
+            else if (target != null)
+                delivered = await NotificationActivationBroker.RunAsync(target, cancellation: cancellation);
+            AppLog.Notification($"activate id={notification.Id} context={target != null} protocol={target?.Protocol != null} delivered={delivered}");
         }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { return; }
         catch (Exception ex) { AppLog.Error("Invoke notification default action", ex); }
 
+        if (_windowClosed || cancellation.IsCancellationRequested || focused || (delivered && !telegram)) return;
+        if (delivered && GetForegroundWindow() != foreground) return;
         try
         {
             bool launched = NotificationActivationService.OpenSourceApp(notification.AppId);

@@ -68,6 +68,13 @@ internal static class Program
         Console.WriteLine($"PASS: {checks} notification policy checks.");
 
         int beforeActivationChecks = checks;
+        foreach (string sender in new[] { "Telegram.TelegramDesktop", "Telegram.TelegramDesktop.SomeId",
+            "TelegramMessengerLLP.TelegramDesktop_t4vj0pshhgkwm!Telegram.TelegramDesktop.Store",
+            "PoweredOutside.TelegaDesktop", "poweredoutside.telegadesktop.portable", "exDesktop.exDesktop" })
+            Check(NotificationActivationService.IsTelegramDesktop(sender), $"Telegram foreground recovery applies to {sender}");
+        foreach (string sender in new[] { "com.squirrel.Discord.Discord", "Telegram.TelegramDesktopLike", "Other.TelegaDesktop", "" })
+            Check(!NotificationActivationService.IsTelegramDesktop(sender), $"Unrelated identity {sender} uses normal activation");
+        Check(NotificationActivationService.ReadWindowAppId(IntPtr.Zero) == null, "No foreground window has no source identity");
         string body = "Alice · Hello & goodbye";
         string hash = NotificationActivationService.Fingerprint(body);
         byte[] Payload(string attributes, string content = "Alice</text><text>Hello &amp; goodbye") =>

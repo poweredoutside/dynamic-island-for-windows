@@ -66,6 +66,7 @@ public partial class MainWindow
         public string LastSeenVersion { get; set; } = "";
         public bool OnboardingComplete { get; set; }
         public bool AutoGameHud { get; set; }
+        public bool ContextAssistant { get; set; }
     }
 
     private readonly DispatcherTimer _featureTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
@@ -121,7 +122,13 @@ public partial class MainWindow
         _volumeIsland.Changed += VolumeChanged;
         VolumeHudSlider.AddHandler(Thumb.DragCompletedEvent, new DragCompletedEventHandler((_, _) => _volumeIsland?.RequestSnapshot()));
         UpdateVolumeObservation();
-        _hoverDelay.Tick += (_, _) => { _hoverDelay.Stop(); if (IslandBorder.IsMouseOver && !_isClickCandidate && !_bodyDragging && _currentState == IslandState.Compact && !_manualResize && !_isGameModeActive) MorphToState(IslandState.Hover); };
+        _hoverDelay.Tick += (_, _) =>
+        {
+            _hoverDelay.Stop();
+            if (IslandBorder.IsMouseOver && !_isClickCandidate && !_bodyDragging && _currentState == IslandState.Compact
+                && !_manualResize && !_isGameModeActive && !AssistantShortcut.IsMouseOver && !AssistantShortcut.IsKeyboardFocusWithin)
+                MorphToState(IslandState.Hover);
+        };
         _featureTimer.Tick += (_, _) => FeatureTick(); _featureTimer.Start();
         _nextUpdateCheck = DateTime.UtcNow.AddSeconds(5);
         if (_settings.GameModeHud) StartGameMetrics();
@@ -201,6 +208,7 @@ public partial class MainWindow
         _uiHeartbeat = DateTime.UtcNow;
         if (_windowClosed) return;
         var now = DateTimeOffset.Now;
+        RefreshAssistantContext();
         _brightnessIsland?.RefreshShellHook();
         if (LevelHudBorder.IsMouseOver || VolumeHudSlider.IsKeyboardFocusWithin || VolumeHudSlider.IsMouseCaptureWithin)
             _featureNoticeUntil = DateTime.UtcNow.AddSeconds(3);
@@ -286,8 +294,9 @@ public partial class MainWindow
         ShowLyricLine(CompactNextLyric, lyric.Item2, animate: false);
         ShowLyricLine(CompactLastLyric, lyric.Item3, animate: false);
         CompactClockText.Visibility = showTrack ? Visibility.Collapsed : Visibility.Visible;
-        CompactWeatherPanel.Visibility = !showTrack && _settings.IdleRight == "weather" ? Visibility.Visible : Visibility.Collapsed;
-        CompactBatteryText.Visibility = !showTrack && _settings.IdleRight == "battery" ? Visibility.Visible : Visibility.Collapsed;
+        bool showIdleRight = !UpdateAssistantShortcut() && !showTrack;
+        CompactWeatherPanel.Visibility = showIdleRight && _settings.IdleRight == "weather" ? Visibility.Visible : Visibility.Collapsed;
+        CompactBatteryText.Visibility = showIdleRight && _settings.IdleRight == "battery" ? Visibility.Visible : Visibility.Collapsed;
         CompactCharacterHost.Visibility = _settings.SelectedCharacter == "None" ? Visibility.Collapsed : Visibility.Visible;
         if (_currentState == IslandState.Compact && !_isGameModeActive)
         {

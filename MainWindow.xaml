@@ -394,6 +394,13 @@
                         </StackPanel>
                         <TextBlock x:Name="CompactBatteryText" Grid.Column="2" Visibility="Collapsed" VerticalAlignment="Center"
                                    Foreground="{DynamicResource ThemeTextBrush}" FontSize="12"/>
+                        <Button x:Name="AssistantShortcut" Grid.Column="2" Visibility="Collapsed"
+                                Style="{StaticResource GlassPillBtn}" Padding="0" Width="28" Height="26"
+                                Margin="5,0,0,0" VerticalAlignment="Center" Click="AssistantShortcut_Click"
+                                AutomationProperties.Name="{Binding ToolTip, RelativeSource={RelativeSource Self}}">
+                            <Path x:Name="AssistantShortcutIcon" Width="15" Height="15" Stretch="Uniform" StrokeThickness="1.4"
+                                  Stroke="{DynamicResource ThemeTextBrush}" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                        </Button>
                     </Grid>
 
                     <!-- Compact game center: stable metric cards, independent of user scale. -->
@@ -441,6 +448,7 @@
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <ContentControl x:Name="HoverCharacterHost" Width="28" Height="28" VerticalAlignment="Center"/>
@@ -452,7 +460,16 @@
 
                     <TextBlock x:Name="HoverSysText" Grid.Column="2" Text="FPS —" TextTrimming="CharacterEllipsis" Foreground="{DynamicResource ThemeSecondaryBrush}" FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,10,0"/>
 
-                    <Button Grid.Column="3" Style="{StaticResource GlassPillBtn}" Padding="10,5" Click="OpenSettingsBtn_Click">
+                    <Button x:Name="HoverAssistantShortcut" Grid.Column="3" Style="{StaticResource GlassPillBtn}" Padding="0" Width="28" Height="26"
+                            Margin="0,0,6,0" VerticalAlignment="Center" Click="AssistantShortcut_Click"
+                            Visibility="{Binding Visibility, ElementName=AssistantShortcut}"
+                            ToolTip="{Binding ToolTip, ElementName=AssistantShortcut}"
+                            AutomationProperties.Name="{Binding ToolTip, RelativeSource={RelativeSource Self}}">
+                        <Path Width="15" Height="15" Stretch="Uniform" StrokeThickness="1.4"
+                              Data="{Binding Data, ElementName=AssistantShortcutIcon}"
+                              Stroke="{DynamicResource ThemeTextBrush}" StrokeLineJoin="Round" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                    </Button>
+                    <Button Grid.Column="4" Style="{StaticResource GlassPillBtn}" Padding="10,5" Click="OpenSettingsBtn_Click">
                         <StackPanel Orientation="Horizontal">
                             <Path Data="M12,8A4,4 0 0,1 16,12A4,4 0 0,1 12,16A4,4 0 0,1 8,12A4,4 0 0,1 12,8M10,22L9.13,18.93L7.44,17.94L4.34,18.73L2.34,15.27L4.57,12.97L4.5,12L4.57,11L2.34,8.73L4.34,5.27L7.44,6.05L9.13,5.07L10,2H14L14.87,5.07L16.56,6.05L19.66,5.27L21.66,8.73L19.43,11L19.5,12L19.43,12.97L21.66,15.27L19.66,18.73L16.56,17.94L14.87,18.93L14,22H10Z"
                                   Fill="{DynamicResource ThemeTextBrush}" Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center"/>
@@ -1115,6 +1132,15 @@
                                             <Grid Margin="0,0,0,12">
                                                 <TextBlock x:Name="LblExpandHover" Text="Раскрывать при наведении" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" VerticalAlignment="Center"/>
                                                 <CheckBox x:Name="TglExpandOnHover" Style="{StaticResource IslandSwitch}" IsChecked="True" HorizontalAlignment="Right" Click="SaveSettings_Click"/>
+                                            </Grid>
+
+                                            <Grid Margin="0,0,0,12">
+                                                <StackPanel Margin="0,0,60,0">
+                                                    <TextBlock x:Name="LblContextAssistant" Text="Умный ассистент" Foreground="{DynamicResource ThemeTextBrush}" FontSize="13" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="Показывает справа кнопку нужного раздела для активного приложения." Foreground="{DynamicResource ThemeMutedBrush}" FontSize="11" TextWrapping="Wrap"/>
+                                                </StackPanel>
+                                                <CheckBox x:Name="TglContextAssistant" Style="{StaticResource IslandSwitch}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                          AutomationProperties.LabeledBy="{Binding ElementName=LblContextAssistant}" Click="TglContextAssistant_Click"/>
                                             </Grid>
 
                                             <Grid Margin="0,0,0,12">

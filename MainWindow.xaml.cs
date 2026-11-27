@@ -425,6 +425,7 @@ public partial class MainWindow : Window
     private void Window_Closed(object? sender, EventArgs e)
     {
         _windowClosed = true;
+        _notificationActivationClick?.Cancel();
         DetachMediaManager();
         DisposeFeatures();
         _screenRecording?.Dispose();
@@ -1775,6 +1776,7 @@ public partial class MainWindow : Window
         RefreshAiAgentsPage();
 
         ApplyAdditionalLocalization();
+        UpdateAssistantShortcut();
         UpdateDndVisuals();
         RenderWeatherUi();
     }
@@ -2849,6 +2851,7 @@ public partial class MainWindow : Window
         LoadFeatureThemes();
         TglVolumeIsland.IsChecked = _settings.VolumeIslandHud ?? _settings.LevelHud;
         TglBrightnessIsland.IsChecked = _settings.BrightnessIslandHud ?? _settings.LevelHud;
+        TglContextAssistant.IsChecked = _settings.ContextAssistant;
 
         WeatherCityInput.Text         = _settings.WeatherCity;
         DashCityTextBox.Text          = _settings.WeatherCity;
